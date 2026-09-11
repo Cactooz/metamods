@@ -126,9 +126,15 @@ public final class OvvarClientTests implements FabricClientGameTest {
 
 	/** A box around the screen's centre where the third-person-front camera puts the player. */
 	record Region(int x0, int y0, int x1, int y1) {
+		/**
+		 * The whole mannequin, arm sides included: at 1920×1080 the ovve spans about x centre ±150.
+		 * The arm sides are where the strip wraps round the limb and the mapping is most fragile —
+		 * the prototype's per-frame tag crawl showed there, not on the flat front — so the box must
+		 * reach them, not stop at the torso.
+		 */
 		static Region subjectBox(BufferedImage img) {
 			int w = img.getWidth(), h = img.getHeight();
-			return new Region(w / 2 - 110, h / 2 - 30, w / 2 + 110, h / 2 + 170);
+			return new Region(w / 2 - 150, h / 2 - 40, w / 2 + 150, h / 2 + 185);
 		}
 	}
 
