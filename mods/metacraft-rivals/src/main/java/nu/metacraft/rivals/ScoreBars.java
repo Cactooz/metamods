@@ -10,14 +10,18 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.BossEvent;
 import nu.metacraft.rivals.paint.PaintTally;
 
+import java.util.Collection;
 import java.util.EnumMap;
+import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
  * One bossbar per colour that has been painted this session, showing that colour's share of all
- * paint in the overworld, refreshed once a second for every online player. Cleared on server stop,
- * together with the tallies.
+ * paint in the overworld, following the online player list (players who leave are dropped on the
+ * next refresh), refreshed once a second. Cleared on server stop, together with the tallies.
  */
 public final class ScoreBars {
 	private static final int REFRESH_TICKS = 20;
@@ -36,9 +40,10 @@ public final class ScoreBars {
 		});
 	}
 
-	static void refresh(MinecraftServer server) {
+	public static void refresh(MinecraftServer server) {
 		ServerLevel level = server.overworld();
 		Map<PaintColor, Integer> counts = PaintTally.of(level).count(level);
+		Set<ServerPlayer> online = new HashSet<>(server.getPlayerList().getPlayers());
 		for (PaintColor color : PaintColor.values()) {
 			int faces = counts.get(color);
 			if (faces == 0 && !BARS.containsKey(color)) continue;
@@ -47,9 +52,18 @@ public final class ScoreBars {
 			float share = PaintTally.share(counts, color);
 			bar.setName(Component.literal(color.displayName + " " + Math.round(share * 100) + " %"));
 			bar.setProgress(share);
-			for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+			for (ServerPlayer stale : List.copyOf(bar.getPlayers())) {
+				if (!online.contains(stale)) bar.removePlayer(stale);
+			}
+			for (ServerPlayer player : online) {
 				bar.addPlayer(player);
 			}
 		}
+	}
+
+	/** The players currently shown this colour's bar; empty if the colour has no bar yet. */
+	public static Collection<ServerPlayer> players(PaintColor color) {
+		ServerBossEvent bar = BARS.get(color);
+		return bar == null ? List.of() : List.copyOf(bar.getPlayers());
 	}
 }
