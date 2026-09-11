@@ -235,7 +235,7 @@ the procedural art later is dropping a file at the same path into
 ## Testing
 
 Fabric server game tests in `nu.metacraft.rivals.gametest.RivalsGameTests`, run with
-`./gradlew mods:metacraft-rivals:runGametest` (Fabric API's game test runner on a throwaway
+`./gradlew mods:metacraft-rivals:runGameTest` (Fabric API's game test runner on a throwaway
 server, as moredyes does on its branch):
 
 1. **Donor mapping:** for every colour and a handful of face combinations, the client state is the

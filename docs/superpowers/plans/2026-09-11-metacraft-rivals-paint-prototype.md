@@ -19,7 +19,7 @@
 - Indentation is tabs (checkstyle fails the build on a line starting with tab-then-spaces). No mixins, no access widener, no datagen.
 - Commits go on branch `worktree-rivals` (off `dev`) in this worktree. Commit messages: `rivals: <what>`. No `Co-Authored-By` trailer.
 - Git commands must be plain (no `&&`, pipes or variables in the same shell line as `git`); the worktree guard rejects compound git commands.
-- Game tests: `./gradlew mods:metacraft-rivals:runGametest` (the task name is confirmed in Task 1). A full check is `./gradlew mods:metacraft-rivals:build mods:metacraft-rivals:runGametest`.
+- Game tests: `./gradlew mods:metacraft-rivals:runGameTest` (the task name is confirmed in Task 1). A full check is `./gradlew mods:metacraft-rivals:build mods:metacraft-rivals:runGameTest`.
 - Every file below is created under `mods/metacraft-rivals/` unless the path starts elsewhere.
 
 ---
@@ -138,7 +138,7 @@ with
 version = project.rivals_version
 
 // Server-side game tests (Fabric GameTest API) live in the main source set:
-// ./gradlew mods:metacraft-rivals:runGametest
+// ./gradlew mods:metacraft-rivals:runGameTest
 fabricApi {
 	configureTests {
 		enableGameTests = true
@@ -236,7 +236,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 
 /**
  * Server-side game tests (Fabric GameTest API). Run headless with
- * {@code ./gradlew mods:metacraft-rivals:runGametest}; each test gets an empty 8×8×8 structure and
+ * {@code ./gradlew mods:metacraft-rivals:runGameTest}; each test gets an empty 8×8×8 structure and
  * positions passed to the helper are relative to it.
  */
 public final class RivalsGameTests {
@@ -264,9 +264,9 @@ Run: `./gradlew --offline mods:metacraft-rivals:build`
 Expected: BUILD SUCCESSFUL, jar at `mods/metacraft-rivals/build/libs/metacraft-rivals-0.1.0.jar`.
 
 Run: `./gradlew --offline mods:metacraft-rivals:tasks --all | grep -i gametest`
-Expected: a line starting with `runGametest`. If Loom named it differently (e.g. `runGameTest`), use that name everywhere below and note it in the README of Task 7.
+Expected: a line starting with `runGameTest`. If Loom named it differently (e.g. `runGameTest`), use that name everywhere below and note it in the README of Task 7.
 
-Run: `./gradlew --offline mods:metacraft-rivals:runGametest`
+Run: `./gradlew --offline mods:metacraft-rivals:runGameTest`
 Expected: BUILD SUCCESSFUL and a log line reporting 1 test passed (`modLoads`).
 
 - [ ] **Step 8: Confirm dist still compiles and excludes the module**
@@ -274,7 +274,7 @@ Expected: BUILD SUCCESSFUL and a log line reporting 1 test passed (`modLoads`).
 Run: `./gradlew --offline dist:compileJava`
 Expected: BUILD SUCCESSFUL.
 
-Run: `./gradlew --offline dist:dependencies --configuration runtimeClasspath | grep -c rivals`
+Run: `./gradlew --offline dist:dependencies --configuration runtimeClasspath | grep -c metacraft-rivals`
 Expected: `0`.
 
 - [ ] **Step 9: Commit**
@@ -499,7 +499,7 @@ In `Rivals.onInitialize()`, before the log line, add `PaintBlocks.register();` (
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `./gradlew --offline mods:metacraft-rivals:runGametest`
+Run: `./gradlew --offline mods:metacraft-rivals:runGameTest`
 Expected: BUILD SUCCESSFUL, 2 tests passed (`modLoads`, `donorMappingKeepsFaces`).
 
 - [ ] **Step 6: Commit**
@@ -677,7 +677,7 @@ In `Rivals.onInitialize()`, after `PaintBlocks.register();` add `RivalsPack.init
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `./gradlew --offline mods:metacraft-rivals:runGametest`
+Run: `./gradlew --offline mods:metacraft-rivals:runGameTest`
 Expected: BUILD SUCCESSFUL, 3 tests passed.
 
 - [ ] **Step 6: Commit**
@@ -996,7 +996,7 @@ public final class Painter {
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `./gradlew --offline mods:metacraft-rivals:runGametest`
+Run: `./gradlew --offline mods:metacraft-rivals:runGameTest`
 Expected: BUILD SUCCESSFUL, 7 tests passed.
 
 - [ ] **Step 6: Commit**
@@ -1409,7 +1409,7 @@ In `Rivals.onInitialize()` the order becomes:
 
 - [ ] **Step 6: Run the tests to verify they pass**
 
-Run: `./gradlew --offline mods:metacraft-rivals:runGametest`
+Run: `./gradlew --offline mods:metacraft-rivals:runGameTest`
 Expected: BUILD SUCCESSFUL, 11 tests passed.
 
 If `gunOnTeamThrowsColouredBall` fails on `result == InteractionResult.SUCCESS`, print the actual result in the message and check whether the mock player's `getTeam()` sees the team (it reads `level().getScoreboard().getPlayersTeam(getScoreboardName())`); the fix belongs in the test's team setup, not in the gun.
@@ -1635,7 +1635,7 @@ In `Rivals.onInitialize()`, after `RivalsPack.init();` add:
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
-Run: `./gradlew --offline mods:metacraft-rivals:runGametest`
+Run: `./gradlew --offline mods:metacraft-rivals:runGameTest`
 Expected: BUILD SUCCESSFUL, 12 tests passed.
 
 - [ ] **Step 6: Commit**
@@ -1698,7 +1698,7 @@ Rivals server wants.
 ```
 ./gradlew mods:metacraft-rivals:build
 ./gradlew mods:metacraft-rivals:runServer      # run/ has eula, offline mode and the pack autohost enabled
-./gradlew mods:metacraft-rivals:runGametest    # server-side game tests
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests
 ```
 
 Join the dev server with a vanilla 26.2 client (offline mode) and accept the pack.
@@ -1711,7 +1711,7 @@ paint; a persistent tally; real splat art.
 
 - [ ] **Step 2: Full build and tests**
 
-Run: `./gradlew --offline mods:metacraft-rivals:build mods:metacraft-rivals:runGametest dist:compileJava`
+Run: `./gradlew --offline mods:metacraft-rivals:build mods:metacraft-rivals:runGameTest dist:compileJava`
 Expected: BUILD SUCCESSFUL, 12 game tests passed.
 
 - [ ] **Step 3: Start the dev server and check the pack builds**
