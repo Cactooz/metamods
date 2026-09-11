@@ -135,7 +135,8 @@ public final class OvveTop {
 	/** The client's chestplate re-pointed at the composite asset (ovve top under the chestplate) with the top's dye. */
 	private static void dressChest(ItemStack client, ItemStack ovve, Chapter chapter, String material, PacketContext context) {
 		GameProfile profile = context == null ? null : context.get(PacketContext.GAME_PROFILE);
-		Looks.Look look = Looks.look(ovve, Piece.TOP, profile == null ? null : profile.id());
+		// dye only: the wrap draws the instant patches, never the pack combo, so don't queue a build for it.
+		Looks.Look look = Looks.look(ovve, Piece.TOP, profile == null ? null : profile.id(), false);
 		Equippable base = client.get(DataComponents.EQUIPPABLE);
 		if (base == null) return;
 		client.set(DataComponents.EQUIPPABLE, Equippable.builder(EquipmentSlot.CHEST)

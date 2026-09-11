@@ -101,7 +101,10 @@ public final class GeneratedAssets implements DataProvider {
 		// equipment asset (which the inventory model does not touch).
 		json(assets.resolve("items/blank.json"), obj("model", obj("type", "minecraft:model", "model", MOD + ":item/empty_chest")));
 		json(assets.resolve("models/item/empty_chest.json"),
-				obj("parent", "minecraft:item/generated", "textures", obj("layer0", "minecraft:gui/sprites/container/slot/chestplate")));
+				obj("parent", "minecraft:item/generated", "textures", obj("layer0", MOD + ":item/empty_chest")));
+		// The empty-slot silhouette is a GUI sprite, a different atlas than item textures, so copy it
+		// into one of ours for the icon to resolve.
+		png(assets.resolve("textures/item/empty_chest.png"), Vanilla.texture("gui/sprites/container/slot/chestplate"));
 		Tex icon = art("icon");
 		require(icon.width == 16 && icon.height == 16, "icon.png is not 16×16");
 
