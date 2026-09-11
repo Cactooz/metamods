@@ -35,10 +35,13 @@ The survey of no-collision, multi-face client blocks in 26.2:
 | Tripwire | floor only | 128 | already Polymer's flat pool |
 
 Decision: give the three multiface blocks up wholesale, one colour each. Sculk vein and resin
-clump carry the two team colours (neither emits light); glow lichen is the spare third colour
-and glows on the client (light 7, the client lights it locally), which is acceptable for a
-third, "special" paint. Real sculk veins, resin clumps and glow lichen look like paint on a
-Rivals server; that server has no use for them.
+clump carry the two team colours (neither emits light); glow lichen is the spare third colour,
+vanilla's lit one (light 7), which is acceptable for a third, "special" paint. Its light
+behaviour with our block is **unverified**: the server-side paint block emits no light, so the
+server's light data says dark, and Polymer re-syncs light after block changes; whether the client
+shows a steady glow, a brief flash, or nothing at all has to be checked with a real client.
+Real sculk veins, resin clumps and glow lichen look like paint on a Rivals server; that server
+has no use for them.
 
 Consequences that follow and are accepted for the prototype:
 
@@ -219,7 +222,7 @@ the procedural art later is dropping a file at the same path into
 1. Player right-clicks with the gun → `PaintGun.use` → team → colour → `PaintBall` spawned.
 2. `PaintBall` flies (vanilla projectile physics) → `onHitBlock` → `Painter.splat`.
 3. `Painter` computes the blob → `level.setBlock` per cell.
-4. `PaintBlock.onPlace`/`onRemove` → `PaintTally` deltas.
+4. `Painter` tracks every cell it writes in `PaintTally`; counts are read live once a second.
 5. Every 20 ticks → bossbars refreshed from the tally.
 6. Polymer sends each `PaintBlock` state as the donor state to clients; the required pack has the
    donor's texture replaced by the splat.
