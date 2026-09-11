@@ -1,0 +1,18 @@
+// Metacraft Rivals — Splatoon-style paint prototype for vanilla clients (Polymer). See README.md.
+// Standalone: not bundled into dist (root build.gradle standaloneMods); run with mods:metacraft-rivals:runServer.
+version = project.rivals_version
+
+// Server-side game tests (Fabric GameTest API) live in the main source set:
+// ./gradlew mods:metacraft-rivals:runGameTest
+fabricApi {
+	configureTests {
+		enableGameTests = true
+		eula = true
+	}
+}
+
+addPolymerDependency()
+dependencies {
+	implementation("eu.pb4:polymer-resource-pack:${project.polymer_version}")
+	implementation("eu.pb4:polymer-autohost:${project.polymer_version}")
+}

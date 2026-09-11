@@ -10,6 +10,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 
 public class CheckMods implements ModInitializer {
 
@@ -19,6 +20,12 @@ public class CheckMods implements ModInitializer {
 	private static final Map<String, String> PROJECT_TO_MOD_ID = Map.of(
 			"dist", "metacraft"
 	);
+
+	/**
+	 * Modules that build in this repository but are not part of the dist jar (see standaloneMods in the
+	 * root build.gradle). They are included in settings.gradle, so the include scan must skip them.
+	 */
+	private static final Set<String> STANDALONE = Set.of("metacraft-rivals");
 
 	@Override
 	public void onInitialize() {
@@ -46,6 +53,9 @@ public class CheckMods implements ModInitializer {
 						}
 						var path = line.substring(start+1, end);
 						var name = path.substring(path.lastIndexOf(":")+1);
+						if (STANDALONE.contains(name)) {
+							return;
+						}
 						modsThatMustBePresent.add(PROJECT_TO_MOD_ID.getOrDefault(name, name));
 					}
 					if (line.contains("*/")) {
