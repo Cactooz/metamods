@@ -15,6 +15,7 @@ import net.minecraft.server.ServerScoreboard;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -261,11 +262,15 @@ public final class RivalsGameTests {
 		FireworkExplosion explosion = shown.get(DataComponents.FIREWORK_EXPLOSION);
 		helper.assertTrue(explosion != null && explosion.colors().contains(PaintColor.MAGENTA.rgb), "star is tinted magenta");
 		helper.assertTrue(player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)), "cooldown started");
+		ItemStack held = player.getItemInHand(InteractionHand.MAIN_HAND);
+		PaintGun.ITEM.inventoryTick(held, helper.getLevel(), player, EquipmentSlot.MAINHAND);
+		DyedItemColor dye = held.get(DataComponents.DYED_COLOR);
+		helper.assertTrue(dye != null && dye.rgb() == PaintColor.MAGENTA.rgb, "the held gun's tank is dyed magenta");
 		balls.forEach(Entity::discard);
 		helper.succeed();
 	}
 
-	/** The client-side gun stack carries the team colour as a dye, and nothing without a team. */
+	/** The gun stack carries the team colour as a dye, nothing without a team, and loses a stale dye. */
 	@GameTest
 	public void gunTankTakesTeamColour(GameTestHelper helper) {
 		ItemStack onTeam = PaintGun.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), team(helper, PaintColor.LIME));
@@ -273,6 +278,8 @@ public final class RivalsGameTests {
 		helper.assertTrue(dye != null && dye.rgb() == PaintColor.LIME.rgb, "tank dyed lime");
 		ItemStack noTeam = PaintGun.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), null);
 		helper.assertTrue(noTeam.get(DataComponents.DYED_COLOR) == null, "no dye without a team");
+		ItemStack left = PaintGun.withTankColor(onTeam, null);
+		helper.assertTrue(left.get(DataComponents.DYED_COLOR) == null, "leaving a team strips the dye");
 		helper.succeed();
 	}
 
