@@ -158,10 +158,13 @@ alongside) and shipped as `assets/metacraft-rivals/models/item/paint_gun.json` w
 palette texture `textures/item/paint_gun_palette.png`. The item definition
 `assets/metacraft-rivals/items/paint_gun.json` is a `minecraft:model` with one
 `minecraft:dye` tint (default white). The tank's faces carry `tintindex 0`, so the tank takes
-the colour of the stack's `minecraft:dyed_color` component. `getPolymerItemStack` sets that
-component to the shooter's team colour (exact paint RGB) when the holder is on a team, and
-leaves it absent otherwise, which shows a white tank. One model therefore serves every colour;
-there are no per-colour model files.
+the colour of the stack's `minecraft:dyed_color` component. That component lives on the
+server-side stack: every inventory tick the gun compares its holder's team colour with the
+stack's dye and rewrites it only when it differs (removing it for a holder without a team,
+which shows a white tank). Polymer copies the component to every viewer, so the holder's
+colour is what opponents see too; resolving it per packet recipient instead would tint each
+gun in the viewer's own colour. One model therefore serves every colour; there are no
+per-colour model files.
 
 `use(level, player, hand)` on the server:
 
