@@ -11,6 +11,7 @@ import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.sewing.SewingGame;
 import metacraft.ovvar.sewing.StandSewing;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.util.Prediction;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -162,7 +163,7 @@ public final class ModCommands {
 		List<Placement> patches = patches(spec.replaceAll("\\bdown\\b", " "));
 		ItemStack stack = ovve(chapter, !down, patches);
 		Looks.claimIfNeeded(player, stack);   // before the inventory takes it (an emptied stack reads as bare)
-		if (!player.getInventory().add(stack)) player.drop(stack, false);
+		if (!player.getInventory().add(stack)) player.drop(stack, false, Prediction.SERVER_ONLY);
 		ctx.getSource().sendSuccess(() -> Component.literal("Gave " + player.getName().getString() + " a " + chapter.name
 				+ " " + chapter.garmentWord() + " with " + patches.size() + " patch(es)"), true);
 		return 1;

@@ -21,11 +21,12 @@ public record RefContext(Optional<Entity> entity, ServerLevel world, RandomSourc
 
 
 	public CommandSourceStack getCommandSource() {
-		return new CommandSourceStack(
-				CommandSource.NULL, Vec3.ZERO, Vec2.ZERO,
-				world, LevelBasedPermissionSet.GAMEMASTER, "RefContext", Component.literal("RefContext"),
-				world.getServer(), entity.orElse(null)
-		).withSuppressedOutput();
+		// 26.3: names come from the entity when there is one, else a fixed display name.
+		return entity.map(e -> new CommandSourceStack(
+				CommandSource.NULL, Vec3.ZERO, Vec2.ZERO, world, LevelBasedPermissionSet.GAMEMASTER, world.getServer(), e
+		)).orElseGet(() -> new CommandSourceStack(
+				CommandSource.NULL, Vec3.ZERO, Vec2.ZERO, world, LevelBasedPermissionSet.GAMEMASTER, Component.literal("RefContext"), world.getServer()
+		)).withSuppressedOutput();
 	}
 
 }

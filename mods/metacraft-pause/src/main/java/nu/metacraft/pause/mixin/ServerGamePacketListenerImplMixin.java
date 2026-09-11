@@ -211,11 +211,11 @@ public abstract class ServerGamePacketListenerImplMixin extends ServerCommonPack
 	public void onVehicleMove(ServerboundMoveVehiclePacket packet, CallbackInfo ci) {
 		if (isFrozen()) {
 			clientVehicleIsFloating = false; // Prevent kicked for flying.
-			var yRot = packet.yRot();
-			var xRot = packet.xRot();
-			var x = packet.position().x;
-			var y = packet.position().y;
-			var z = packet.position().z;
+			var yRot = packet.movingTo().yRot();
+			var xRot = packet.movingTo().xRot();
+			var x = packet.movingTo().position().x;
+			var y = packet.movingTo().position().y;
+			var z = packet.movingTo().position().z;
 			if (x != player.getX() || y != player.getY() || z != player.getZ() || xRot != player.getXRot() || yRot != player.getYRot()) {
 				var vehicle = player.getRootVehicle();
 				send(new ClientboundBundlePacket(List.of(

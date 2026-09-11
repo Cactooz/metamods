@@ -3,6 +3,7 @@ package nu.metacraft.core;
 import com.google.common.collect.Sets;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.*;
+import net.minecraft.world.item.component.SwingAnimation;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -36,7 +37,7 @@ public class Events {
 					var offhand = player.getOffhandItem();
 					if (offhand.getItem() == METAcraftItems.WRENCH && Wrench.canUse(world, hitResult.getBlockPos())) {
 						if (offhand.useOn(new UseOnContext(world, player, hand, offhand, hitResult)).consumesAction()) {
-							player.swing(InteractionHand.OFF_HAND, true);
+							player.swing(InteractionHand.OFF_HAND, SwingAnimation.DEFAULT, true);
 						}
 						return InteractionResult.FAIL;
 					}

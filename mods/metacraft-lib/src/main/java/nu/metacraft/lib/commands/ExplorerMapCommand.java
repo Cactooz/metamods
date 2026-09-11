@@ -10,6 +10,7 @@ import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.exceptions.DynamicCommandExceptionType;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
 import me.lucko.fabric.api.permissions.v0.Permissions;
+import net.minecraft.util.Prediction;
 import net.minecraft.commands.CommandBuildContext;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -180,7 +181,7 @@ public class ExplorerMapCommand {
 			}
 			MapItemSavedData.addTargetDecoration(map, new BlockPos(pos.x(), 0, pos.z()), id, symbol);
 			if (!player.getInventory().add(map) && !map.isEmpty()) {
-				var item = player.drop(map, false, false);
+				var item = player.drop(map, false, Prediction.SERVER_ONLY);
 				if (item != null) {
 					item.setNoPickUpDelay();
 					item.setTarget(player.getUUID());

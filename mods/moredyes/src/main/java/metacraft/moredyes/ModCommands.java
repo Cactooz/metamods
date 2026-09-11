@@ -10,6 +10,7 @@ import metacraft.moredyes.content.Family;
 import metacraft.moredyes.content.ModContent;
 import metacraft.moredyes.sheep.SheepColors;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
+import net.minecraft.util.Prediction;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
@@ -119,7 +120,7 @@ public final class ModCommands {
 	}
 
 	private static int giveStack(ServerPlayer player, ItemStack stack) {
-		if (!player.getInventory().add(stack)) player.drop(stack, false);
+		if (!player.getInventory().add(stack)) player.drop(stack, false, Prediction.SERVER_ONLY);
 		return 1;
 	}
 

@@ -335,7 +335,7 @@ public final class MoreDyesGameTests {
 	@GameTest
 	public void bundleDye(GameTestHelper helper) {
 		ItemStack bundle = new ItemStack(Items.BUNDLE);
-		BundleContents.Mutable contents = new BundleContents.Mutable(BundleContents.EMPTY);
+		BundleContents.Mutable contents = BundleContents.EMPTY.asMutable();
 		contents.tryInsert(new ItemStack(Items.DIAMOND, 4));
 		bundle.set(DataComponents.BUNDLE_CONTENTS, contents.toImmutable());
 		ItemStack ours = craft(helper, grid(bundle, new ItemStack(ModContent.dye(first()))));

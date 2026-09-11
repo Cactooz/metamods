@@ -171,7 +171,7 @@ public final class GeneratedAssets implements DataProvider {
 		String palettes = "textures/trims/color_palettes/";
 		png(assets.resolve(palettes + "key.png"), key);
 		png(assets.resolve(palettes + Trims.MATERIAL + ".png"), key);
-		json(data.resolve("trim_material/" + Trims.MATERIAL + ".json"), obj("asset_name", Trims.MATERIAL, "description", obj("text", "Patch")));
+		json(data.resolve("trim_material/" + Trims.MATERIAL + ".json"), obj("palette_id", MOD + ":" + Trims.MATERIAL, "description", obj("text", "Patch")));   // 26.3: an id, the permutation key
 		json(assets.getParent().resolve("minecraft/atlases/armor_trims.json"), obj("sources", arr(obj(
 				"type", "minecraft:paletted_permutations",
 				"textures", arr(trimTextures.toArray()),

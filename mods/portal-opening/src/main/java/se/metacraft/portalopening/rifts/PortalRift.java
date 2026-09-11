@@ -6,6 +6,7 @@ import se.metacraft.portalopening.EntityData;
 import se.metacraft.portalopening.WorldData;
 import se.metacraft.portalopening.raid.Wave;
 
+import java.util.stream.StreamSupport;
 import java.util.*;
 import java.util.function.Predicate;
 import net.minecraft.core.BlockPos;
@@ -105,10 +106,10 @@ public class PortalRift {
 		this.shouldSave = shouldSave;
 		assert axis != Direction.Axis.Y;
 		this.axis = axis;
-		var positions = BlockPos.withinManhattan(
-				pos, axis == Direction.Axis.X ? maxSize : 0,
-				maxSize, axis == Direction.Axis.Z ? maxSize : 0
-		);
+		// 26.3 dropped the per-axis form: the box on the rift's plane, kept to Manhattan distance.
+		int rx = axis == Direction.Axis.X ? maxSize : 0, rz = axis == Direction.Axis.Z ? maxSize : 0;
+		var positions = StreamSupport.stream(BlockPos.betweenClosed(pos.offset(-rx, -maxSize, -rz), pos.offset(rx, maxSize, rz)).spliterator(), false)
+				.filter(p -> p.distManhattan(pos) <= maxSize).map(BlockPos::immutable).toList();
 		for (BlockPos target : positions) {
 			if (blockChecker.test(world.getBlockState(target))) {
 				var foundPos = target.immutable();

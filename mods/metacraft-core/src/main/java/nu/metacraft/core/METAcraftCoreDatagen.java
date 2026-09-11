@@ -4,6 +4,8 @@ import net.fabricmc.fabric.api.datagen.v1.DataGeneratorEntrypoint;
 import net.fabricmc.fabric.api.datagen.v1.FabricDataGenerator;
 import net.fabricmc.fabric.api.datagen.v1.FabricPackOutput;
 import net.fabricmc.fabric.api.datagen.v1.provider.FabricRecipeProvider;
+import net.minecraft.data.recipes.RecipeUnlockAdvancementBuilder;
+import net.minecraft.data.worldgen.BootstrapContext;
 import net.minecraft.advancements.Advancement;
 import net.minecraft.advancements.AdvancementRequirements;
 import net.minecraft.advancements.AdvancementRewards;
@@ -40,26 +42,23 @@ public class METAcraftCoreDatagen implements DataGeneratorEntrypoint {
 		}
 
 		@Override
-		protected RecipeProvider createRecipeProvider(HolderLookup.Provider wrapperLookup, RecipeOutput recipeExporter) {
-			return new RecipeProvider(wrapperLookup, recipeExporter) {
+		protected RecipeProvider createRecipeProvider(HolderLookup.Provider lookup, BootstrapContext<Recipe<?>> recipes, BootstrapContext<Advancement> advancements) {
+			return new RecipeProvider(recipes, advancements) {
 				@Override
 				public void buildRecipes() {
 					var wrench = ResourceKey.create(
 							Registries.RECIPE,
 							Identifier.fromNamespaceAndPath(METAcraftCore.MODID, "wrench")
 					);
-					Advancement.Builder builder = recipeExporter.advancement().addCriterion(
-							"has_the_recipe", RecipeUnlockedTrigger.unlocked(wrench)
-					).rewards(AdvancementRewards.Builder.recipe(wrench)).requirements(
-							AdvancementRequirements.Strategy.OR
-					);
-					builder.addCriterion(
+					// Unlocked by having the recipe (the builder adds that criterion and the reward) or always.
+					var unlock = new RecipeUnlockAdvancementBuilder();
+					unlock.unlockedBy(
 							"trigger_always",
 							CriteriaTriggers.TICK.createCriterion(new PlayerTrigger.TriggerInstance(
 									Optional.empty()
 							))
 					);
-					recipeExporter.accept(
+					output.accept(
 							wrench,
 							new ShapedRecipe(
 									new Recipe.CommonInfo(true),
@@ -76,7 +75,7 @@ public class METAcraftCoreDatagen implements DataGeneratorEntrypoint {
 									),
 									new ItemStackTemplate(METAcraftItems.WRENCH)
 							),
-							builder.build(wrench.identifier().withPrefix("recipes/" + RecipeCategory.TOOLS.getFolderName() + "/"))
+							unlock.build(output, wrench, RecipeCategory.TOOLS)
 					);
 				}
 			};

@@ -16,16 +16,11 @@ import nu.metacraft.core.block.entities.BlackHolePortalEntity;
 
 public class BlackHolePortalCore extends PortalCore {
 
-	public static final MapCodec<BlackHolePortalCore> CODEC = simpleCodec(BlackHolePortalCore::new);
 
 	public BlackHolePortalCore(Properties settings) {
 		super(settings);
 	}
 
-	@Override
-	protected MapCodec<? extends BaseEntityBlock> codec() {
-		return CODEC;
-	}
 
 	@Nullable
 	@Override

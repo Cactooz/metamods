@@ -85,9 +85,7 @@ public class PortalOpeningDimensionData extends SavedData {
 					public boolean shouldInformAdmins() {
 						return false;
 					}
-				}, Vec3.ZERO, Vec2.ZERO, world, LevelBasedPermissionSet.GAMEMASTER, "PortalOpening",
-				Component.literal("PortalOpening"), world.getServer(), null
-		);
+				}, Vec3.ZERO, Vec2.ZERO, world, LevelBasedPermissionSet.GAMEMASTER, Component.literal("PortalOpening"), world.getServer());
 	}
 
 	private static PortalOpeningDimensionData createNew(ServerLevel world) {

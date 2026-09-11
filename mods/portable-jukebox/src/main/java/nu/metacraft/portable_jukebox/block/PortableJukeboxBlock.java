@@ -36,16 +36,11 @@ import java.util.List;
 
 public class PortableJukeboxBlock extends BaseEntityBlock implements PolymerHeadBlock {
 
-	public static final MapCodec<PortableJukeboxBlock> CODEC = EnderChestBlock.simpleCodec(PortableJukeboxBlock::new);
 
 	public PortableJukeboxBlock(Properties settings) {
 		super(settings);
 	}
 
-	@Override
-	protected MapCodec<? extends BaseEntityBlock> codec() {
-		return CODEC;
-	}
 
 	@Override
 	public String getPolymerSkinValue(BlockState state, BlockPos pos, PacketContext ctx) {

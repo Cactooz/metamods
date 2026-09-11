@@ -14,6 +14,8 @@ import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
 import net.fabricmc.fabric.api.event.player.UseItemCallback;
 import net.fabricmc.fabric.api.tag.convention.v2.ConventionalItemTags;
+import net.minecraft.world.item.component.SwingAnimation;
+import net.minecraft.util.Prediction;
 import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.network.chat.Component;
@@ -139,7 +141,7 @@ public final class StandSewing {
 			} else {
 				finish(player, stand, placement, patchItem, aimed.where());
 			}
-			player.swing(InteractionHand.MAIN_HAND, true);
+			player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, true);
 			return InteractionResult.SUCCESS;
 		}
 		if (held.is(ConventionalItemTags.SHEAR_TOOLS) && aimed != null && aimed.spot() != null) {
@@ -149,10 +151,10 @@ public final class StandSewing {
 			if (there == null) return InteractionResult.PASS;
 			Looks.unpick(ovve, spot);
 			ItemStack back = new ItemStack(ModContent.patchItem(there.patch()));
-			if (!player.getInventory().add(back)) player.drop(back, false);
+			if (!player.getInventory().add(back)) player.drop(back, false, Prediction.SERVER_ONLY);
 			celebrate(level, aimed.where(), false);
 			player.sendOverlayMessage(Component.literal(there.patch().name() + " unpicked"));
-			player.swing(InteractionHand.MAIN_HAND, true);
+			player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, true);
 			return InteractionResult.SUCCESS;
 		}
 		return InteractionResult.PASS;

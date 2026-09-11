@@ -27,7 +27,6 @@ public class MusicBlock extends BaseEntityBlock implements PolymerBlock {
 	public static final EnumProperty<Mirror> MIRROR = EnumProperty.create("mirror", Mirror.class);
 
 
-	public static final MapCodec<MusicBlock> CODEC = simpleCodec(MusicBlock::new);
 	public MusicBlock(Properties settings) {
 		super(settings);
 		this.registerDefaultState(
@@ -92,10 +91,6 @@ public class MusicBlock extends BaseEntityBlock implements PolymerBlock {
 		return state;
 	}
 
-	@Override
-	protected MapCodec<? extends BaseEntityBlock> codec() {
-		return CODEC;
-	}
 
 	@Nullable
 	@Override

@@ -1,5 +1,6 @@
 package nu.metacraft.core.mixin;
 
+import net.minecraft.util.Prediction;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.damagesource.DamageSource;
@@ -42,7 +43,7 @@ public abstract class PlayerMixin extends LivingEntity {
 				ItemStack stack = getInventory().getItem(i);
 				if (stack.has(METAcraftComponents.ANTI_KEEP_INVENTORY)) {
 					if (!EnchantmentHelper.has(stack, EnchantmentEffectComponents.PREVENT_EQUIPMENT_DROP)) {
-						this.drop(stack, true, false);
+						this.drop(stack, true, Prediction.SERVER_ONLY);
 					}
 					getInventory().setItem(i, ItemStack.EMPTY);
 				}

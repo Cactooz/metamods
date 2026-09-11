@@ -21,16 +21,11 @@ import net.minecraft.world.phys.HitResult;
 
 public class TrapSpawner extends DisguisedBlock {
 
-	public static final MapCodec<TrapSpawner> CODEC = TrapSpawner.simpleCodec(TrapSpawner::new);
 
 	public TrapSpawner(Properties settings) {
 		super(settings);
 	}
 
-	@Override
-	protected MapCodec<? extends BaseEntityBlock> codec() {
-		return CODEC;
-	}
 
 	@Override
 	protected InteractionResult useWithoutItem(BlockState state, Level world, BlockPos pos, Player player, BlockHitResult hit) {

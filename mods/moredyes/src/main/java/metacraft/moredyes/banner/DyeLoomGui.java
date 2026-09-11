@@ -4,6 +4,7 @@ import eu.pb4.sgui.api.elements.GuiElementBuilder;
 import eu.pb4.sgui.api.gui.SimpleGui;
 import metacraft.moredyes.MoreDyes;
 import metacraft.moredyes.color.ModColor;
+import net.minecraft.util.Prediction;
 import net.minecraft.core.Holder;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
@@ -121,7 +122,7 @@ public final class DyeLoomGui extends SimpleGui {
 		result.setCount(1);
 		if (target.getCount() > 1) {
 			target.shrink(1);
-			if (!player.getInventory().add(result)) player.drop(result, false);
+			if (!player.getInventory().add(result)) player.drop(result, false, Prediction.SERVER_ONLY);
 		} else {
 			player.setItemInHand(dyeHand == InteractionHand.MAIN_HAND ? InteractionHand.OFF_HAND : InteractionHand.MAIN_HAND, result);
 		}

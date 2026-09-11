@@ -3,6 +3,8 @@ package nu.metacraft.lib.util.helper;
 import com.mojang.serialization.Codec;
 import com.mojang.serialization.JavaOps;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
+import net.minecraft.core.HolderSet;
+import net.minecraft.core.Holder;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.nbt.CompoundTag;
 import net.minecraft.resources.Identifier;
@@ -314,10 +316,10 @@ public class EntityHelper {
 		) {
 			return createEntry(
 					entity, initialize, preventDespawn, Optional.of(AllOfCondition.allOf(
-							List.of(
+							HolderSet.direct(List.<LootItemCondition>of(
 									NotInWall.getInstance(), ValidateSpawnRestriction.getInstance(),
 									new ValidateSpawnPredicate(Optional.empty())
-							)
+							).stream().map(Holder::direct).toList())
 					)), EntitySpawnReason.TRIAL_SPAWNER, horizontalRange, verticalRange
 			);
 		}

@@ -22,16 +22,11 @@ import nu.metacraft.core.block.entities.PortalEntity;
 
 public class PortalCore extends BaseEntityBlock implements PolymerBlock {
 
-	public static final MapCodec<PortalCore> CODEC = simpleCodec(PortalCore::new);
 
 	public PortalCore(Properties settings) {
 		super(settings);
 	}
 
-	@Override
-	protected MapCodec<? extends BaseEntityBlock> codec() {
-		return CODEC;
-	}
 
 	@Nullable
 	@Override
