@@ -96,6 +96,9 @@ public final class GeneratedAssets implements DataProvider {
 		writes.clear();
 		Map<String, String> lang = new LinkedHashMap<>();
 		lang.put("itemGroup." + MOD, "Ovvar");
+		// A model that draws nothing: the companion top's inventory icon, so the chest slot shows no
+		// phantom chestplate while the ovve's sleeves still render from its equipment asset.
+		json(assets.resolve("items/blank.json"), obj("model", obj("type", "minecraft:empty")));
 		Tex icon = art("icon");
 		require(icon.width == 16 && icon.height == 16, "icon.png is not 16×16");
 

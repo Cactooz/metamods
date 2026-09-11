@@ -1,6 +1,7 @@
 package metacraft.ovvar.content;
 
 import eu.pb4.polymer.core.api.item.PolymerItem;
+import metacraft.ovvar.Ovvar;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.HolderLookup;
@@ -52,9 +53,14 @@ public final class OvveTopItem extends Item implements PolymerItem {
 		return Items.LEATHER_CHESTPLATE;
 	}
 
+	/** A model that draws nothing: the companion sits in the chest slot to render the sleeves, but must
+	 *  not show as a phantom chestplate in the wearer's own inventory. The body still renders from the
+	 *  equipment asset (set in {@link OvveTop#dress}), which the inventory model does not touch. */
+	private static final Identifier BLANK_MODEL = Identifier.fromNamespaceAndPath(Ovvar.MOD_ID, "blank");
+
 	@Override
 	public Identifier getPolymerItemModel(ItemStack stack, PacketContext context, HolderLookup.Provider lookup) {
-		return id;
+		return BLANK_MODEL;
 	}
 
 	@Override
