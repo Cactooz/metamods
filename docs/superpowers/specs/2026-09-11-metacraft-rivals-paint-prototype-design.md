@@ -148,8 +148,20 @@ from `ServerTickEvents.END_SERVER_TICK`, shown to every online player.
 ### PaintGun
 
 `PaintGun extends Item implements PolymerItem`, `metacraft-rivals:paint_gun`, stack size 1.
-Client item: `minecraft:warped_fungus_on_a_stick` (no client-side use behaviour), named "Paint
-Gun". Tooltip line: "Shoots paint in your team's colour".
+Client item: `minecraft:warped_fungus_on_a_stick` (no client-side use behaviour) with the item
+model swapped to our own 3D model, named "Paint Gun". Tooltip line: "Shoots paint in your team's
+colour".
+
+**Model.** A custom Blockbench-style element model, designed in
+`2026-09-11-paint-gun-design-sheet.md` (parts, palette, frame, display transforms; SVG views
+alongside) and shipped as `assets/metacraft-rivals/models/item/paint_gun.json` with the 8×8
+palette texture `textures/item/paint_gun_palette.png`. The item definition
+`assets/metacraft-rivals/items/paint_gun.json` is a `minecraft:model` with one
+`minecraft:dye` tint (default white). The tank's faces carry `tintindex 0`, so the tank takes
+the colour of the stack's `minecraft:dyed_color` component. `getPolymerItemStack` sets that
+component to the shooter's team colour (exact paint RGB) when the holder is on a team, and
+leaves it absent otherwise, which shows a white tank. One model therefore serves every colour;
+there are no per-colour model files.
 
 `use(level, player, hand)` on the server:
 
