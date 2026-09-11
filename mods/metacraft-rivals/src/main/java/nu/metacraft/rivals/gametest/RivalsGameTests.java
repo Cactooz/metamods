@@ -1,15 +1,35 @@
 package nu.metacraft.rivals.gametest;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
+import com.google.gson.JsonParser;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
+import net.minecraft.server.ServerScoreboard;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.item.component.FireworkExplosion;
+import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.scores.PlayerTeam;
 import nu.metacraft.rivals.PaintColor;
+import nu.metacraft.rivals.Rivals;
+import nu.metacraft.rivals.gun.PaintBall;
+import nu.metacraft.rivals.gun.PaintGun;
 import nu.metacraft.rivals.paint.PaintBlock;
 import nu.metacraft.rivals.paint.PaintBlocks;
 import nu.metacraft.rivals.paint.Painter;
@@ -20,6 +40,10 @@ import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -184,6 +208,108 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(removed, 2, "reset removed both cells");
 		helper.assertTrue(helper.getBlockState(magentaCell).isAir() && helper.getBlockState(limeCell).isAir(), "cells are air after reset");
 		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.MAGENTA), 0, "nothing left to count");
+		helper.succeed();
+	}
+
+	private static PlayerTeam team(GameTestHelper helper, PaintColor color) {
+		ServerScoreboard board = helper.getLevel().getScoreboard();
+		PlayerTeam team = board.getPlayerTeam(color.id);
+		return team != null ? team : board.addPlayerTeam(color.id);
+	}
+
+	/** A mock survival player holding a gun, standing at relative (4, 3, 4), on no team. */
+	private static Player gunner(GameTestHelper helper) {
+		// A plain mock player, not makeMockServerPlayer: that one is a ServerPlayer with no connection,
+		// so vanilla's ServerItemCooldowns throws when the gun starts its cooldown.
+		Player player = helper.makeMockPlayer(GameType.SURVIVAL);
+		// Every mock player is called "test-mock-player" and the game test world (and its scoreboard) is
+		// reused between runs, so clear any membership another test or an earlier run left behind.
+		ServerScoreboard board = helper.getLevel().getScoreboard();
+		if (board.getPlayersTeam(player.getScoreboardName()) != null) {
+			board.removePlayerFromTeam(player.getScoreboardName());
+		}
+		Vec3 at = helper.absoluteVec(new Vec3(4, 3, 4));
+		player.setPos(at.x, at.y, at.z);
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintGun.ITEM));
+		return player;
+	}
+
+	/** Without a team the gun refuses: no projectile, no cooldown. */
+	@GameTest
+	public void gunWithoutTeamDoesNotShoot(GameTestHelper helper) {
+		Player player = gunner(helper);
+		InteractionResult result = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(result == InteractionResult.FAIL, "use fails without a team");
+		helper.assertTrue(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).isEmpty(), "no paint ball spawned");
+		helper.assertTrue(!player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)), "no cooldown");
+		helper.succeed();
+	}
+
+	/** On a team the gun throws one paint ball carrying a firework star in the team colour, and starts the cooldown. */
+	@GameTest
+	public void gunOnTeamThrowsColouredBall(GameTestHelper helper) {
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		InteractionResult result = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(result == InteractionResult.SUCCESS, "use succeeds on a team");
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
+		helper.assertValueEqual(balls.size(), 1, "one paint ball");
+		PaintBall ball = balls.getFirst();
+		helper.assertTrue(ball.color() == PaintColor.MAGENTA, "ball is magenta");
+		ItemStack shown = ball.getItem();
+		helper.assertTrue(shown.is(Items.FIREWORK_STAR), Component.literal("ball shows a firework star, got " + shown));
+		FireworkExplosion explosion = shown.get(DataComponents.FIREWORK_EXPLOSION);
+		helper.assertTrue(explosion != null && explosion.colors().contains(PaintColor.MAGENTA.rgb), "star is tinted magenta");
+		helper.assertTrue(player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)), "cooldown started");
+		balls.forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/** The client-side gun stack carries the team colour as a dye, and nothing without a team. */
+	@GameTest
+	public void gunTankTakesTeamColour(GameTestHelper helper) {
+		ItemStack onTeam = PaintGun.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), team(helper, PaintColor.LIME));
+		DyedItemColor dye = onTeam.get(DataComponents.DYED_COLOR);
+		helper.assertTrue(dye != null && dye.rgb() == PaintColor.LIME.rgb, "tank dyed lime");
+		ItemStack noTeam = PaintGun.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), null);
+		helper.assertTrue(noTeam.get(DataComponents.DYED_COLOR) == null, "no dye without a team");
+		helper.succeed();
+	}
+
+	/** The gun's item definition, model and palette ship in the jar, and the model stays inside the item bounds. */
+	@GameTest
+	public void gunModelAssetsArePresent(GameTestHelper helper) throws IOException {
+		String base = "/assets/" + Rivals.MOD_ID + "/";
+		for (String path : new String[] {"items/paint_gun.json", "models/item/paint_gun.json", "textures/item/paint_gun_palette.png"}) {
+			try (InputStream in = Rivals.class.getResourceAsStream(base + path)) {
+				helper.assertTrue(in != null, "asset present: " + path);
+			}
+		}
+		try (InputStream in = Rivals.class.getResourceAsStream(base + "models/item/paint_gun.json")) {
+			JsonObject model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+			JsonArray elements = model.getAsJsonArray("elements");
+			helper.assertTrue(elements.size() >= 5, "model has elements");
+			boolean tinted = false;
+			for (JsonElement e : elements) {
+				JsonObject box = e.getAsJsonObject();
+				for (String key : new String[] {"from", "to"}) {
+					for (JsonElement v : box.getAsJsonArray(key)) {
+						double d = v.getAsDouble();
+						helper.assertTrue(d >= -16 && d <= 32, "element coordinate in range: " + d);
+					}
+				}
+				for (var face : box.getAsJsonObject("faces").entrySet()) {
+					if (face.getValue().getAsJsonObject().has("tintindex")) tinted = true;
+				}
+			}
+			helper.assertTrue(tinted, "some faces are tinted (the tank)");
+		}
+		try (InputStream in = Rivals.class.getResourceAsStream(base + "items/paint_gun.json")) {
+			JsonObject definition = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+			JsonObject modelDef = definition.getAsJsonObject("model");
+			helper.assertValueEqual(modelDef.get("model").getAsString(), Rivals.MOD_ID + ":item/paint_gun", "definition points at the model");
+			helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(), "minecraft:dye", "dye tint");
+		}
 		helper.succeed();
 	}
 }

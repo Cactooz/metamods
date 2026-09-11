@@ -1,0 +1,12 @@
+{
+	"model": {
+		"type": "minecraft:model",
+		"model": "metacraft-rivals:item/paint_gun",
+		"tints": [
+			{
+				"type": "minecraft:dye",
+				"default": 16777215
+			}
+		]
+	}
+}
