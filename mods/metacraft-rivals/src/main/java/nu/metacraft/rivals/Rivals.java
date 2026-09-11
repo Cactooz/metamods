@@ -2,6 +2,7 @@ package nu.metacraft.rivals;
 
 import net.fabricmc.api.ModInitializer;
 import net.minecraft.resources.Identifier;
+import nu.metacraft.rivals.paint.PaintBlocks;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -21,6 +22,7 @@ public class Rivals implements ModInitializer {
 
 	@Override
 	public void onInitialize() {
+		PaintBlocks.register();
 		LOGGER.info("[{}] ready", MOD_ID);
 	}
 }
