@@ -27,8 +27,10 @@ import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
+import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.Rivals;
+import nu.metacraft.rivals.RivalsCommands;
 import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintGun;
 import nu.metacraft.rivals.paint.PaintBlock;
@@ -46,6 +48,7 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 /**
  * Server-side game tests (Fabric GameTest API). Run headless with
@@ -316,6 +319,22 @@ public final class RivalsGameTests {
 			JsonObject modelDef = definition.getAsJsonObject("model");
 			helper.assertValueEqual(modelDef.get("model").getAsString(), Rivals.MOD_ID + ":item/paint_gun", "definition points at the model");
 			helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(), "minecraft:dye", "dye tint");
+		}
+		helper.succeed();
+	}
+
+	/** Setup creates one vanilla team per colour with the matching colour, no friendly fire, no collisions. */
+	@GameTest
+	public void setupCreatesTeams(GameTestHelper helper) {
+		int touched = RivalsCommands.setupTeams(helper.getLevel().getServer());
+		helper.assertValueEqual(touched, PaintColor.values().length, "teams touched");
+		ServerScoreboard board = helper.getLevel().getScoreboard();
+		for (PaintColor color : PaintColor.values()) {
+			PlayerTeam team = board.getPlayerTeam(color.id);
+			helper.assertTrue(team != null, "team exists: " + color.id);
+			helper.assertTrue(team.getColor().equals(Optional.of(color.teamColor)), "team colour: " + color.id);
+			helper.assertTrue(!team.isAllowFriendlyFire(), "friendly fire off: " + color.id);
+			helper.assertTrue(team.getCollisionRule() == Team.CollisionRule.NEVER, "no collisions: " + color.id);
 		}
 		helper.succeed();
 	}

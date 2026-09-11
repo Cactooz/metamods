@@ -29,6 +29,8 @@ public class Rivals implements ModInitializer {
 		PaintBall.register();
 		PaintGun.register();
 		RivalsPack.init();
+		RivalsCommands.register();
+		ScoreBars.init();
 		LOGGER.info("[{}] ready", MOD_ID);
 	}
 }
