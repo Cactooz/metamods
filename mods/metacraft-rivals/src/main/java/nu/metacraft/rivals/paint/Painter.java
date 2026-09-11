@@ -17,10 +17,14 @@ import nu.metacraft.rivals.PaintColor;
  */
 public final class Painter {
 	public static final int RADIUS = 1;
+	private static final Direction[] DIRECTIONS = Direction.values();
 
 	private Painter() {}
 
-	/** Paint a blob around {@code struck}'s {@code face}. Returns how many faces are newly this colour. */
+	/**
+	 * Paint a blob around {@code struck}'s {@code face}. Returns how many cells changed; a recolour counts
+	 * once however many faces it flips.
+	 */
 	public static int splat(ServerLevel level, BlockPos struck, Direction face, PaintColor color, RandomSource random) {
 		int painted = 0;
 		for (int a = -RADIUS; a <= RADIUS; a++) {
@@ -59,7 +63,7 @@ public final class Painter {
 		} else if (existing.getBlock() instanceof PaintBlock paint) {
 			if (paint.color == color && existing.getValue(attachFace)) return false;
 			next = PaintBlocks.of(color).defaultBlockState();
-			for (Direction d : Direction.values()) {
+			for (Direction d : DIRECTIONS) {
 				BooleanProperty property = MultifaceBlock.getFaceProperty(d);
 				next = next.setValue(property, existing.getValue(property));
 			}

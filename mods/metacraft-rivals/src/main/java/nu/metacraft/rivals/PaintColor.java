@@ -8,13 +8,16 @@ import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.TeamColor;
 import org.jspecify.annotations.Nullable;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Optional;
 
 /**
  * The paint colours. Each one owns a vanilla multiface block that clients are shown instead of the
  * paint block and whose texture the resource pack replaces with a splat. Sculk vein and resin clump
- * emit no light; glow lichen glows (light 7, lit by the client itself), which is why it is the third,
- * "special" colour. The id doubles as the vanilla team name.
+ * emit no light; glow lichen is vanilla's lit one (light 7), which is why it is the third, "special"
+ * colour — what a client actually shows for our unlit paint block is unverified. The id doubles as the
+ * vanilla team name.
  */
 public enum PaintColor {
 	MAGENTA("magenta", "Magenta", 0xEA2C8E, Blocks.SCULK_VEIN, TeamColor.LIGHT_PURPLE, BossEvent.BossBarColor.PINK),
@@ -40,6 +43,13 @@ public enum PaintColor {
 	/** Pack path of the donor's block texture, the file the splat replaces. */
 	public String donorTexturePath() {
 		return "assets/minecraft/textures/block/" + BuiltInRegistries.BLOCK.getKey(donor).getPath() + ".png";
+	}
+
+	/** Every colour's id, comma-separated, for messages that list the teams. */
+	public static String idList() {
+		List<String> ids = new ArrayList<>();
+		for (PaintColor color : values()) ids.add(color.id);
+		return String.join(", ", ids);
 	}
 
 	public static Optional<PaintColor> byId(String id) {

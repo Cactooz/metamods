@@ -29,6 +29,7 @@ import java.util.Set;
  */
 public final class PaintTally {
 	private static final Map<ResourceKey<Level>, PaintTally> TALLIES = new HashMap<>();
+	private static final Direction[] DIRECTIONS = Direction.values();
 
 	private final Set<BlockPos> cells = new HashSet<>();
 
@@ -62,7 +63,7 @@ public final class PaintTally {
 				continue;
 			}
 			int faces = 0;
-			for (Direction d : Direction.values()) {
+			for (Direction d : DIRECTIONS) {
 				if (state.getValue(MultifaceBlock.getFaceProperty(d))) faces++;
 			}
 			counts.merge(paint.color, faces, Integer::sum);

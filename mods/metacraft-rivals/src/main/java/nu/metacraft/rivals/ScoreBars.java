@@ -19,7 +19,7 @@ import java.util.UUID;
 
 /**
  * One bossbar per colour that has been painted this session, showing that colour's share of all
- * paint in the overworld, following the online player list (players who leave are dropped on the
+ * paint across every level, following the online player list (players who leave are dropped on the
  * next refresh), refreshed once a second. Cleared on server stop, together with the tallies.
  */
 public final class ScoreBars {
@@ -40,12 +40,18 @@ public final class ScoreBars {
 	}
 
 	/**
-	 * Not covered by a game test: the test server has no connected players, so the prune cannot be
-	 * observed there.
+	 * Every level is counted, both so the bars match the whole game and because {@code count()} is the
+	 * only thing that prunes cells whose paint is gone: one count per level per refresh prunes them all.
+	 *
+	 * <p>Not covered by a game test: the test server has no connected players, so the prune of players
+	 * who left cannot be observed there.
 	 */
 	static void refresh(MinecraftServer server) {
-		ServerLevel level = server.overworld();
-		Map<PaintColor, Integer> counts = PaintTally.of(level).count(level);
+		Map<PaintColor, Integer> counts = new EnumMap<>(PaintColor.class);
+		for (PaintColor color : PaintColor.values()) counts.put(color, 0);
+		for (ServerLevel level : server.getAllLevels()) {
+			PaintTally.of(level).count(level).forEach((color, faces) -> counts.merge(color, faces, Integer::sum));
+		}
 		Set<ServerPlayer> online = new HashSet<>(server.getPlayerList().getPlayers());
 		for (PaintColor color : PaintColor.values()) {
 			int faces = counts.get(color);

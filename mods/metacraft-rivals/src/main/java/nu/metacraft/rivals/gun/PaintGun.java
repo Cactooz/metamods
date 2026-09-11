@@ -65,7 +65,8 @@ public final class PaintGun extends Item implements PolymerItem {
 		if (color.isEmpty()) {
 			// Server players without a live connection (fake or offline players) cannot be sent to.
 			if (player instanceof ServerPlayer serverPlayer && serverPlayer.connection != null) {
-				serverPlayer.sendSystemMessage(Component.literal("Join a team first: /team join magenta").withStyle(ChatFormatting.RED), true);
+				serverPlayer.sendSystemMessage(Component.literal("Join a team first: /team join " + PaintColor.values()[0].id)
+						.withStyle(ChatFormatting.RED), true);
 			}
 			return InteractionResult.FAIL;
 		}

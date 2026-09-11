@@ -32,7 +32,8 @@ public final class RivalsCommands {
 						.requires(source -> Permissions.check(source, "metacraft.rivals", PermissionLevel.GAMEMASTERS))
 						.then(literal("setup").executes(ctx -> {
 							int touched = setupTeams(ctx.getSource().getServer());
-							ctx.getSource().sendSuccess(() -> Component.literal("Teams ready: magenta, lime, cyan. Join with /team join <colour> @s"), true);
+							ctx.getSource().sendSuccess(() -> Component.literal("Teams ready: " + PaintColor.idList()
+									+ ". Join with /team join <colour> @s"), true);
 							return touched;
 						}))
 						.then(literal("gun").executes(ctx -> gun(ctx.getSource())))
@@ -69,6 +70,8 @@ public final class RivalsCommands {
 		Map<PaintColor, Integer> counts = PaintTally.of(level).count(level);
 		int total = 0;
 		for (int n : counts.values()) total += n;
+		// Per level, unlike the bossbars, which sum every level; name it so the two cannot be confused.
+		source.sendSuccess(() -> Component.literal("Paint in " + level.dimension().identifier() + ":"), false);
 		if (total == 0) {
 			source.sendSuccess(() -> Component.literal("Nothing painted"), false);
 			return 0;

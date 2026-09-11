@@ -26,7 +26,7 @@ public final class PaintBlock extends MultifaceBlock implements PolymerBlock {
 	/** Fail startup, not gameplay, if a donor ever stops being a multiface block. */
 	private void verifyDonor() {
 		BlockState donor = color.donor.defaultBlockState();
-		for (Direction d : Direction.values()) {
+		for (Direction d : DIRECTIONS) {
 			if (!donor.hasProperty(getFaceProperty(d))) {
 				throw new IllegalStateException("[" + Rivals.MOD_ID + "] donor " + color.donor + " for paint colour "
 						+ color.id + " has no " + d + " face property; it cannot show paint");
@@ -41,7 +41,7 @@ public final class PaintBlock extends MultifaceBlock implements PolymerBlock {
 	@Override
 	public BlockState getPolymerBlockState(BlockState state, PacketContext context) {
 		BlockState out = color.donor.defaultBlockState().setValue(WATERLOGGED, false);
-		for (Direction d : Direction.values()) {
+		for (Direction d : DIRECTIONS) {
 			BooleanProperty face = getFaceProperty(d);
 			out = out.setValue(face, state.getValue(face));
 		}

@@ -81,30 +81,33 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** The generated splat is a 16×16 PNG: transparent outside the blob, the colour inside. */
+	/** Every colour's splat is a 16×16 PNG: transparent outside the blob, that colour inside. */
 	@GameTest
 	public void splatTextureIsColouredBlob(GameTestHelper helper) throws IOException {
-		int rgb = 0xEA2C8E;
-		BufferedImage image = ImageIO.read(new ByteArrayInputStream(SplatTexture.png(rgb, 0)));
-		helper.assertTrue(image != null, "PNG decodes");
-		helper.assertValueEqual(image.getWidth(), SplatTexture.SIZE, "width");
-		helper.assertValueEqual(image.getHeight(), SplatTexture.SIZE, "height");
-		int opaque = 0;
-		int transparent = 0;
-		int exactColour = 0;
-		for (int y = 0; y < image.getHeight(); y++) {
-			for (int x = 0; x < image.getWidth(); x++) {
-				int argb = image.getRGB(x, y);
-				int alpha = (argb >>> 24) & 0xFF;
-				if (alpha == 0) transparent++;
-				else if (alpha == 0xFF) opaque++;
-				if (argb == (0xFF000000 | rgb)) exactColour++;
+		for (PaintColor color : PaintColor.values()) {
+			int rgb = color.rgb;
+			BufferedImage image = ImageIO.read(new ByteArrayInputStream(SplatTexture.png(rgb, color.ordinal())));
+			helper.assertTrue(image != null, "PNG decodes: " + color.id);
+			helper.assertValueEqual(image.getWidth(), SplatTexture.SIZE, "width: " + color.id);
+			helper.assertValueEqual(image.getHeight(), SplatTexture.SIZE, "height: " + color.id);
+			int opaque = 0;
+			int transparent = 0;
+			int exactColour = 0;
+			for (int y = 0; y < image.getHeight(); y++) {
+				for (int x = 0; x < image.getWidth(); x++) {
+					int argb = image.getRGB(x, y);
+					int alpha = (argb >>> 24) & 0xFF;
+					if (alpha == 0) transparent++;
+					else if (alpha == 0xFF) opaque++;
+					if (argb == (0xFF000000 | rgb)) exactColour++;
+				}
 			}
+			helper.assertTrue(opaque > 0, "has opaque pixels: " + color.id);
+			helper.assertTrue(transparent > 0, "has transparent pixels: " + color.id);
+			helper.assertTrue(opaque + transparent == SplatTexture.SIZE * SplatTexture.SIZE,
+					"no half-transparent pixels: " + color.id);
+			helper.assertTrue(exactColour > 0, "fill pixels are the exact colour: " + color.id);
 		}
-		helper.assertTrue(opaque > 0, "has opaque pixels");
-		helper.assertTrue(transparent > 0, "has transparent pixels");
-		helper.assertTrue(opaque + transparent == SplatTexture.SIZE * SplatTexture.SIZE, "no half-transparent pixels");
-		helper.assertTrue(exactColour > 0, "fill pixels are the exact colour");
 		helper.succeed();
 	}
 
@@ -321,6 +324,58 @@ public final class RivalsGameTests {
 			helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(), "minecraft:dye", "dye tint");
 		}
 		helper.succeed();
+	}
+
+	/** A thrown ball paints the cell it lands in, on the struck face, and is gone afterwards. */
+	@GameTest
+	public void paintBallPaintsWhereItLands(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.CYAN);
+		Vec3 from = helper.absoluteVec(new Vec3(2.5, 4, 2.5));
+		ball.setPos(from.x, from.y, from.z);
+		ball.setDeltaMovement(0, -0.6, 0); // straight down onto the floor block at relative (2, 1, 2)
+		helper.getLevel().addFreshEntity(ball);
+		helper.runAfterDelay(10, () -> {
+			BlockPos cell = new BlockPos(2, 2, 2);
+			BlockState state = helper.getBlockState(cell);
+			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.CYAN)),
+					Component.literal("the cell where the ball landed should be cyan paint, got " + state));
+			helper.assertTrue(state.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
+			helper.assertTrue(helper.getEntities(PaintBall.TYPE, cell, 4.0).isEmpty(), "the ball is gone after the hit");
+			helper.succeed();
+		});
+	}
+
+	/** A ball that hits a player paints the floor under them and leaves their health alone. */
+	@GameTest
+	public void paintBallOnEntityPaintsUnderneathWithoutDamage(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		Player target = helper.makeMockPlayer(GameType.SURVIVAL);
+		Vec3 stand = helper.absoluteVec(new Vec3(2.5, 2, 2.5));
+		target.setPos(stand.x, stand.y, stand.z);
+		// The projectile's entity sweep only sees entities the level knows about.
+		helper.assertTrue(helper.getLevel().addFreshEntity(target), "the target player joined the level");
+		float health = target.getHealth();
+		// gunner() is a different mock player: a projectile never hits its own owner.
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.MAGENTA);
+		Vec3 from = helper.absoluteVec(new Vec3(2.5, 2.6, 0.5));
+		ball.setPos(from.x, from.y, from.z);
+		// Flat and fast at the player's chest, not dropped on their head: a ball that missed would
+		// sail off the far edge of the floor instead of splatting on the cell asserted below, so this
+		// can only pass through onHitEntity.
+		Direction along = helper.getAbsoluteDirection(Direction.SOUTH);
+		ball.setDeltaMovement(along.getStepX() * 1.2, 0, along.getStepZ() * 1.2);
+		helper.getLevel().addFreshEntity(ball);
+		helper.runAfterDelay(10, () -> {
+			BlockState state = helper.getBlockState(new BlockPos(2, 2, 2));
+			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.MAGENTA)),
+					Component.literal("the floor under the player should be magenta paint, got " + state));
+			helper.assertTrue(state.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
+			helper.assertTrue(target.getHealth() == health,
+					"the player took no damage, health " + target.getHealth() + " was " + health);
+			target.discard();
+			helper.succeed();
+		});
 	}
 
 	/** Setup creates one vanilla team per colour with the matching colour, no friendly fire, no collisions. */
