@@ -10,6 +10,12 @@ import net.minecraft.world.level.block.state.BlockState;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.paint.PaintBlock;
 import nu.metacraft.rivals.paint.PaintBlocks;
+import nu.metacraft.rivals.pack.SplatTexture;
+
+import javax.imageio.ImageIO;
+import java.awt.image.BufferedImage;
+import java.io.ByteArrayInputStream;
+import java.io.IOException;
 
 /**
  * Server-side game tests (Fabric GameTest API). Run headless with
@@ -39,6 +45,33 @@ public final class RivalsGameTests {
 			}
 			helper.assertTrue(!client.getValue(MultifaceBlock.WATERLOGGED), Component.literal(color.id + " sent waterlogged"));
 		}
+		helper.succeed();
+	}
+
+	/** The generated splat is a 16×16 PNG: transparent outside the blob, the colour inside. */
+	@GameTest
+	public void splatTextureIsColouredBlob(GameTestHelper helper) throws IOException {
+		int rgb = 0xEA2C8E;
+		BufferedImage image = ImageIO.read(new ByteArrayInputStream(SplatTexture.png(rgb, 0)));
+		helper.assertTrue(image != null, "PNG decodes");
+		helper.assertValueEqual(image.getWidth(), SplatTexture.SIZE, "width");
+		helper.assertValueEqual(image.getHeight(), SplatTexture.SIZE, "height");
+		int opaque = 0;
+		int transparent = 0;
+		int exactColour = 0;
+		for (int y = 0; y < image.getHeight(); y++) {
+			for (int x = 0; x < image.getWidth(); x++) {
+				int argb = image.getRGB(x, y);
+				int alpha = (argb >>> 24) & 0xFF;
+				if (alpha == 0) transparent++;
+				else if (alpha == 0xFF) opaque++;
+				if (argb == (0xFF000000 | rgb)) exactColour++;
+			}
+		}
+		helper.assertTrue(opaque > 0, "has opaque pixels");
+		helper.assertTrue(transparent > 0, "has transparent pixels");
+		helper.assertTrue(opaque + transparent == SplatTexture.SIZE * SplatTexture.SIZE, "no half-transparent pixels");
+		helper.assertTrue(exactColour > 0, "fill pixels are the exact colour");
 		helper.succeed();
 	}
 }
