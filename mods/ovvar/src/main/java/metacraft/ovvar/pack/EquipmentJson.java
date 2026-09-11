@@ -51,6 +51,25 @@ public final class EquipmentJson {
 		return ResourceKey.create(EquipmentAssets.ROOT_ID, Identifier.fromNamespaceAndPath(Ovvar.MOD_ID, "feet/" + material));
 	}
 
+	/** The chest slot's asset over an ovve worn under a real chestplate: the ovve top and its dyeable
+	 *  preview, then the chestplate's own humanoid layer on top. A vanilla chestplate's arms and neck
+	 *  are largely transparent, so the sleeves and collar of the ovve show through underneath. */
+	public static ResourceKey<EquipmentAsset> chestAsset(Chapter chapter, String material) {
+		return ResourceKey.create(EquipmentAssets.ROOT_ID, Identifier.fromNamespaceAndPath(Ovvar.MOD_ID, "chest/" + chapter.id + "/" + material));
+	}
+
+	public static String chestJson(Chapter chapter, String material) {
+		JsonArray layers = new JsonArray();
+		layers.add(layer(baseTexture(chapter, Piece.TOP, false), false));       // the ovve top fabric, underneath
+		layers.add(layer(Ovvar.MOD_ID + ":" + previewTexture(Piece.TOP), true)); // its instant patches, in the dye colour
+		layers.add(layer("minecraft:" + material, false));                       // the chestplate on top
+		JsonObject byType = new JsonObject();
+		byType.add(Piece.TOP.layer, layers);
+		JsonObject root = new JsonObject();
+		root.add("layers", byType);
+		return new GsonBuilder().setPrettyPrinting().create().toJson(root);
+	}
+
 	public static String feetJson(String material) {
 		JsonArray layers = new JsonArray();
 		if (!material.equals(metacraft.ovvar.content.OvveFeet.NONE)) layers.add(layer("minecraft:" + material, false));

@@ -1,10 +1,14 @@
 package metacraft.ovvar.content;
 
 import com.mojang.authlib.GameProfile;
+import eu.pb4.polymer.core.api.item.PolymerItemUtils;
+import metacraft.ovvar.pack.EquipmentJson;
 import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.server.level.ServerPlayer;
@@ -23,6 +27,8 @@ import net.minecraft.world.item.equipment.Equippable;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
+import java.util.UUID;
 
 /**
  * Keeps the chest slot in step with the ovve in the legs slot: a companion top while the ovve's
@@ -32,13 +38,24 @@ import java.util.Map;
 public final class OvveTop {
 	private OvveTop() {}
 
+	/** Vanilla chestplate materials we composite the ovve top under; metals only, as leather's dye is its own colour. */
+	public static final List<String> MATERIALS = OvveFeet.MATERIALS;
+	private static final Set<String> MATERIAL_SET = Set.copyOf(MATERIALS);
+
 	public static void init() {
+		// Chestplates marked as worn over an ovve, on their way to a client: shown carrying the top underneath.
+		PolymerItemUtils.ITEM_MODIFICATION_EVENT.register(OvveTop::wrap);
 		// A player who swaps a chestplate into the slot is holding the top on the cursor, where nothing ticks.
 		ServerTickEvents.END_SERVER_TICK.register(server -> {
 			for (ServerPlayer player : server.getPlayerList().getPlayers()) {
 				if (player.containerMenu.getCarried().getItem() instanceof OvveTopItem) {
 					player.containerMenu.setCarried(ItemStack.EMPTY);
 					player.containerMenu.broadcastChanges();
+				}
+				// A chestplate left wrapped after the ovve or its top went away is unwrapped.
+				ItemStack chest = player.getItemBySlot(EquipmentSlot.CHEST);
+				if (chest.has(ModComponents.WRAPPED_TOP) && !wantsTop(player.getItemBySlot(EquipmentSlot.LEGS))) {
+					chest.remove(ModComponents.WRAPPED_TOP);
 				}
 			}
 		});
@@ -58,22 +75,84 @@ public final class OvveTop {
 		return legs.getItem() instanceof OvveItem && OvveItem.topUp(legs);
 	}
 
+	/** The material of a chestplate we can composite the top under, or null. */
+	public static String material(ItemStack chest) {
+		Equippable equippable = chest.get(DataComponents.EQUIPPABLE);
+		if (equippable == null || equippable.slot() != EquipmentSlot.CHEST || equippable.assetId().isEmpty()) return null;
+		var asset = equippable.assetId().get().identifier();
+		return asset.getNamespace().equals("minecraft") && MATERIAL_SET.contains(asset.getPath()) ? asset.getPath() : null;
+	}
+
 	/** Called every tick for an ovve worn in the legs slot. */
 	static void sync(LivingEntity wearer, ItemStack ovve) {
 		ItemStack chest = wearer.getItemBySlot(EquipmentSlot.CHEST);
 		if (!OvveItem.topUp(ovve)) {
 			if (chest.getItem() instanceof OvveTopItem) wearer.setItemSlot(EquipmentSlot.CHEST, ItemStack.EMPTY);
+			if (chest.has(ModComponents.WRAPPED_TOP)) chest.remove(ModComponents.WRAPPED_TOP);
 			return;
 		}
-		ItemStack want = topFor(ovve);
 		if (chest.isEmpty()) {
-			wearer.setItemSlot(EquipmentSlot.CHEST, want);
+			wearer.setItemSlot(EquipmentSlot.CHEST, topFor(ovve));
 		} else if (chest.getItem() instanceof OvveTopItem) {
+			ItemStack want = topFor(ovve);
 			if (!ItemStack.matches(chest, want)) wearer.setItemSlot(EquipmentSlot.CHEST, want);
+		} else if (material(chest) != null) {
+			// A real chestplate of a known material: shown to clients carrying the top underneath, whose
+			// sleeves and collar show through the armour's open arms and neck (see OvveTop::wrap).
+			if (!wearer.getUUID().equals(chest.get(ModComponents.WRAPPED_TOP))) chest.set(ModComponents.WRAPPED_TOP, wearer.getUUID());
+		} else {
+			// Unknown or modded armour whose layers we don't have: leave it be, the top hides under it.
+			if (chest.has(ModComponents.WRAPPED_TOP)) chest.remove(ModComponents.WRAPPED_TOP);
 		}
-		// Anything else worn there is real armour over the ovve: the top stays up underneath, hidden the
-		// way a chestplate hides it (the armour model covers the same body and arms), and comes back
-		// when the armour comes off.
+	}
+
+	/** A chestplate marked wrapped, on its way to a client: our composite asset and the top's dye colour, its own kept. */
+	private static ItemStack wrap(ItemStack original, ItemStack client, PacketContext context) {
+		UUID wearerId = original.get(ModComponents.WRAPPED_TOP);
+		if (wearerId == null) return client;
+		MinecraftServer server = context == null ? null : context.get(PacketContext.SERVER_INSTANCE);
+		LivingEntity wearer = findWearer(server, wearerId);
+		if (wearer == null) return client;
+		ItemStack legs = wearer.getItemBySlot(EquipmentSlot.LEGS);
+		if (!(legs.getItem() instanceof OvveItem ovve) || !OvveItem.topUp(legs)
+				|| !ItemStack.isSameItemSameComponents(wearer.getItemBySlot(EquipmentSlot.CHEST), original)) return client;
+		String material = material(original);
+		if (material == null) return client;
+		dressChest(client, legs, ovve.chapter, material, context);
+		return client;
+	}
+
+	private static LivingEntity findWearer(MinecraftServer server, UUID id) {
+		if (server == null) return null;
+		ServerPlayer player = server.getPlayerList().getPlayer(id);
+		if (player != null) return player;
+		for (ServerLevel level : server.getAllLevels()) {
+			if (level.getEntity(id) instanceof LivingEntity living) return living;
+		}
+		return null;
+	}
+
+	/** The client's chestplate re-pointed at the composite asset (ovve top under the chestplate) with the top's dye. */
+	private static void dressChest(ItemStack client, ItemStack ovve, Chapter chapter, String material, PacketContext context) {
+		GameProfile profile = context == null ? null : context.get(PacketContext.GAME_PROFILE);
+		Looks.Look look = Looks.look(ovve, Piece.TOP, profile == null ? null : profile.id());
+		Equippable base = client.get(DataComponents.EQUIPPABLE);
+		if (base == null) return;
+		client.set(DataComponents.EQUIPPABLE, Equippable.builder(EquipmentSlot.CHEST)
+				.setEquipSound(base.equipSound())
+				.setAsset(EquipmentJson.chestAsset(chapter, material))
+				.setDamageOnHurt(base.damageOnHurt())
+				.setSwappable(base.swappable())
+				.setDispensable(base.dispensable())
+				.build());
+		TooltipDisplay display = client.getOrDefault(DataComponents.TOOLTIP_DISPLAY, TooltipDisplay.DEFAULT);
+		if (look.dye() != 0) {
+			client.set(DataComponents.DYED_COLOR, new DyedItemColor(look.dye()));
+			display = display.withHidden(DataComponents.DYED_COLOR, true);
+		} else {
+			client.remove(DataComponents.DYED_COLOR);
+		}
+		client.set(DataComponents.TOOLTIP_DISPLAY, display);
 	}
 
 	private static ItemStack topFor(ItemStack ovve) {

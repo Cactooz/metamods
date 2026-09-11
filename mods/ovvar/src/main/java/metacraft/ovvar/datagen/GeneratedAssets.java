@@ -239,6 +239,13 @@ public final class GeneratedAssets implements DataProvider {
 			layer(chapter, Piece.TOP, "top", withLeft(top, RIGHT_ARM, overlay, LEFT_ARM).scale(D));
 			equipment(chapter, Piece.TOP, false);
 
+			// The chest wrap: the top under a real chestplate of each metal material. The chestplate's
+			// arms and neck are largely transparent, so the ovve's sleeves show through underneath.
+			for (String material : OvveFeet.MATERIALS) {
+				json(assets.resolve("equipment/chest/" + chapter.id + "/" + material + ".json"),
+						JsonParser.parseString(EquipmentJson.chestJson(chapter, material)));
+			}
+
 			// The bottom: legs and waistband, on the legs slot's layer; under the top when it's up.
 			Tex bottom = Tex.blank(64, 32).blit(overlay, RIGHT_LEG[0], RIGHT_LEG[1], RIGHT_LEG[2], RIGHT_LEG[3], RIGHT_LEG[0], RIGHT_LEG[1])
 					.blit(overlay, WAIST[0], WAIST[1], WAIST[2], WAIST[3], WAIST[0], WAIST[1]);

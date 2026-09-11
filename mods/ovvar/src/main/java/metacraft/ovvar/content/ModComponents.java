@@ -42,6 +42,10 @@ public final class ModComponents {
 	public static final DataComponentType<UUID> WRAPPED = register("wrapped",
 			DataComponentType.<UUID>builder().networkSynchronized(UUIDUtil.STREAM_CODEC));
 
+	/** On a real chestplate worn over an ovve with the top up: the wearer, whose top the chestplate is shown carrying underneath. Never saved. */
+	public static final DataComponentType<UUID> WRAPPED_TOP = register("wrapped_top",
+			DataComponentType.<UUID>builder().networkSynchronized(UUIDUtil.STREAM_CODEC));
+
 	/**
 	 * On an ovve worn by an armour stand: its patches are shown as display entities on the stand
 	 * ({@link metacraft.ovvar.sewing.StandDisplays}) and not drawn by the armour at all, so a
@@ -61,6 +65,6 @@ public final class ModComponents {
 	public static void init() {
 		// Registered types land in a synced registry; without this Fabric's registry sync kicks
 		// vanilla clients ("requires Fabric Loader"). Polymer hides them and never sends them.
-		PolymerComponent.registerDataComponent(PATCHES, PREVIEW, TOP_UP, FEET_CHANNEL, WRAPPED, ON_STAND, FLAT);
+		PolymerComponent.registerDataComponent(PATCHES, PREVIEW, TOP_UP, FEET_CHANNEL, WRAPPED, WRAPPED_TOP, ON_STAND, FLAT);
 	}
 }
