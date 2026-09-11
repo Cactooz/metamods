@@ -94,4 +94,19 @@ public final class BundlesGameTests {
 		if (!a.equals(mutable(bundle(1)).toImmutable())) helper.fail("two empty ×1 bundles compare unequal");
 		helper.succeed();
 	}
+
+	/** Dyeing a bundle is a vanilla transmute: the result carries the input's components, contents included. */
+	@GameTest
+	public void transmuteKeepsContents(GameTestHelper helper) {
+		ItemStack bundle = new ItemStack(Items.BUNDLE);
+		BundleContents.Mutable m = BundleContents.EMPTY.asMutable();
+		m.tryInsert(new ItemStack(Items.DIAMOND, 4));
+		bundle.set(DataComponents.BUNDLE_CONTENTS, m.toImmutable());
+		ItemStack out = net.minecraft.world.item.crafting.TransmuteRecipe.createWithOriginalComponents(
+				ItemStackTemplate.fromNonEmptyStack(new ItemStack(Items.DYED_BUNDLE.white())), bundle);
+		BundleContents kept = out.get(DataComponents.BUNDLE_CONTENTS);
+		if (kept == null || kept.isEmpty()) helper.fail("contents lost through a vanilla transmute: " + out + " " + kept);
+		if (count(kept) != 4) helper.fail("kept " + count(kept) + " diamonds, not 4");
+		helper.succeed();
+	}
 }
