@@ -3,9 +3,7 @@ package metacraft.ovvar.content;
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import metacraft.ovvar.Ovvar;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
-import net.minecraft.ChatFormatting;
 import net.minecraft.core.HolderLookup;
-import net.minecraft.network.chat.Component;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
@@ -16,8 +14,8 @@ import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.TooltipDisplay;
 
-import java.util.List;
 
 /**
  * The rolled-up top of an ovve: a companion stack the mod places in the chest slot while the
@@ -43,12 +41,6 @@ public final class OvveTopItem extends Item implements PolymerItem {
 	}
 
 	@Override
-	public void modifyClientTooltip(List<Component> tooltip, ItemStack stack, PacketContext context) {
-		tooltip.add(Component.literal("The zipped-up top of your " + chapter.garmentWord()).withStyle(ChatFormatting.GRAY));
-		tooltip.add(Component.literal("Sneak + right-click the " + chapter.garmentWord() + " to zip it down").withStyle(ChatFormatting.DARK_GRAY));
-	}
-
-	@Override
 	public Item getPolymerItem(ItemStack stack, PacketContext context) {
 		return Items.LEATHER_CHESTPLATE;
 	}
@@ -67,6 +59,7 @@ public final class OvveTopItem extends Item implements PolymerItem {
 	public ItemStack getPolymerItemStack(ItemStack stack, TooltipFlag flag, PacketContext context, HolderLookup.Provider lookup) {
 		ItemStack out = PolymerItem.super.getPolymerItemStack(stack, flag, context, lookup);
 		OvveTop.dress(out, stack.get(DataComponents.EQUIPPABLE), stack, chapter, Piece.TOP, false, context, lookup);
+		out.set(DataComponents.TOOLTIP_DISPLAY, new TooltipDisplay(true, TooltipDisplay.DEFAULT.hiddenComponents()));   // no hover tooltip: the slot reads as empty
 		return out;
 	}
 }
