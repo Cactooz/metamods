@@ -14,7 +14,8 @@ import java.util.function.UnaryOperator;
  *
  * @param sewingMinigame sew on a stand through the stitching dialog ({@link metacraft.ovvar.sewing.SewingGame})
  *					   instead of in one click
- * @param stitches	   how many stitches a patch takes in the minigame
+ * @param stitches	   how many stitches a cell-sized patch takes in the minigame; a longer outline
+ *					   takes proportionally more ({@link metacraft.ovvar.sewing.Seam#stitchesFor})
  */
 public record OvvarConfig(boolean sewingMinigame, int stitches) {
 	public static final int MIN_STITCHES = 1, MAX_STITCHES = 16;

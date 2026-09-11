@@ -1,6 +1,8 @@
 package metacraft.ovvar.sewing;
 
+import metacraft.ovvar.OvvarConfig;
 import metacraft.ovvar.content.Patches;
+import metacraft.ovvar.content.Spot;
 import net.minecraft.util.Mth;
 
 import java.util.ArrayList;
@@ -38,6 +40,16 @@ public record Seam(Patches.Patch patch, int stitches) {
 	private static final int OUT = 4, IN = 4;
 	/** A whip stitch's two holes are this far, along the edge, from the stitch's centre. */
 	private static final int WHIP_HALF = 2;
+
+	/**
+	 * How many holes a patch's seam gets: {@code base} (the config's count) is for a cell-sized
+	 * patch, whose outline is {@code 4 × PX} texels; a longer outline — a bigger patch, or an
+	 * intricate edge — gets proportionally more, rounded, within the dialog's range.
+	 */
+	public static int stitchesFor(Patches.Patch patch, int base) {
+		double cell = 4.0 * Spot.PX;
+		return Mth.clamp((int) Math.round(base * Outline.of(patch.id()).length() / cell), OvvarConfig.MIN_STITCHES, OvvarConfig.MAX_STITCHES);
+	}
 
 	/** Picture px per art px: whole, the largest that fits {@link #PATCH_FIT}. */
 	public static int scale(Patches.Patch patch) {

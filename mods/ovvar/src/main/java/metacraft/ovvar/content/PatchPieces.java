@@ -59,11 +59,12 @@ public final class PatchPieces {
 
 	public static List<Piece> of(Spot spot, Patches.Patch patch) {
 		int w = patch.width(), h = patch.height();
+		// Flat: the whole art as one sprite on the cell's face (the seat's across both legs, on the seam).
+		if (!BEND_ROUND_CORNERS) return List.of(new Piece(Where.FACE, 0, w, 0, h, 0));
 		if (spot == Spot.SEAT) {
 			// Half on each leg's back face; the halves are cut at the legs' inner corner, which the art never crosses.
 			return List.of(new Piece(Where.FACE, 0, w / 2, 0, h, 0), new Piece(Where.FACE, w / 2, w, 0, h, 0));
 		}
-		if (!BEND_ROUND_CORNERS) return List.of(new Piece(Where.FACE, 0, w, 0, h, 0));
 		double inflate = Spot.inflate(spot.piece), a = Spot.pixel(spot.u, inflate) / 2;   // sixteenths per art pixel
 		int n = faceTexels(spot);
 		double halfFace = (n + 2 * inflate) / 2, halfTop = (12 + 2 * inflate) / 2;

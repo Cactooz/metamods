@@ -7,9 +7,12 @@ import metacraft.ovvar.content.ModContent;
 import metacraft.ovvar.content.Patches;
 import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
+import metacraft.ovvar.content.SpotPlacements;
+import metacraft.ovvar.sewing.Seam;
 import metacraft.ovvar.sewing.SewingFont;
 import metacraft.ovvar.sewing.SewingGame;
 import metacraft.ovvar.sewing.StandAim;
+import metacraft.ovvar.sewing.StandDisplays;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Rotations;
@@ -200,6 +203,64 @@ public final class OvvarGameTests {
 		}
 		if (!wrong.isEmpty()) helper.fail("aim off for " + wrong.size() + " cell(s): " + wrong);
 		helper.succeed();
+	}
+
+	/**
+	 * The config's stitch count is for a cell-sized patch (a 32-texel outline); a longer outline
+	 * gets proportionally more holes, within the dialog's range.
+	 */
+	@GameTest
+	public void stitchesScaleWithTheOutline(GameTestHelper helper) {
+		record Case(String patch, int base, int expected) {}
+		List<Case> cases = List.of(
+				new Case("beer", 6, 6),       // 8×8 square, 32 texels: the baseline
+				new Case("kth", 6, 9),        // 12×12, 48 texels
+				new Case("chapter", 6, 9),    // the 16×8 seat, 48 texels
+				new Case("star", 6, 7),       // 36 texels: 6.75 rounds up
+				new Case("kth", 12, 16),      // 18 capped at the dialog's most
+				new Case("beer", 1, 1));      // never below one
+		List<String> wrong = new ArrayList<>();
+		for (Case c : cases) {
+			int got = Seam.stitchesFor(Patches.get(c.patch), c.base);
+			if (got != c.expected) wrong.add(c.patch + " at base " + c.base + ": expected " + c.expected + ", got " + got);
+		}
+		if (!wrong.isEmpty()) helper.fail("stitch counts off: " + wrong);
+		// A game started on KTH sews with the scaled count, and its dialog says so.
+		ArmorStand stand = stand(helper, 0, REST, REST, REST, REST);
+		stand.setItemSlot(EquipmentSlot.LEGS, new ItemStack(ModContent.ovve(Chapter.values()[0])));
+		ServerPlayer player = sewer(helper, stand);
+		Patches.Patch kth = Patches.get("kth");
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModContent.patchItem(kth)));
+		SewingGame.start(player, stand, new Placement(Spot.FRONT_TOP_LEFT, kth), kth);
+		String json = Dialog.DIRECT_CODEC.encodeStart(JsonOps.INSTANCE, SewingGame.dialog(player))
+				.getOrThrow(message -> new IllegalStateException("dialog does not encode: " + message)).toString();
+		if (!json.contains("Stitch 1 of " + Seam.stitchesFor(kth, OvvarConfig.get().stitches()))) helper.fail("KTH dialog does not offer the scaled count: " + json);
+		helper.succeed();
+	}
+
+	/**
+	 * A stand spawned in the air (as {@code /ovvar showcase} does when flying) falls and lands;
+	 * once it rests, every patch sprite must lie on its cell — not where the cell was a tick
+	 * before the stand stopped.
+	 */
+	@GameTest(maxTicks = 120)
+	public void spritesFollowAStandThatFalls(GameTestHelper helper) {
+		ArmorStand stand = helper.spawn(EntityTypes.ARMOR_STAND, new BlockPos(2, 6, 2));
+		ItemStack ovve = new ItemStack(ModContent.ovve(Chapter.values()[0]));
+		Placement placement = new Placement(Spot.LEG_FRONT_TOP_R, Patches.get("beer"));
+		Looks.setSewn(ovve, SpotPlacements.fromList(List.of(placement)).getOrThrow());
+		stand.setItemSlot(EquipmentSlot.LEGS, ovve);
+		helper.runAfterDelay(60, () -> {
+			if (!stand.onGround()) helper.fail("stand still falling after 60 ticks, at y " + stand.getY());
+			List<StandDisplays.Sprite> sprites = StandDisplays.sprites(stand);
+			if (sprites.isEmpty()) helper.fail("no sprites on the stand");
+			for (StandDisplays.Sprite sprite : sprites) {
+				Vec3 cell = StandAim.cell(stand, sprite.placement().spot()).centre();
+				double off = sprite.pos().distanceTo(cell);
+				if (off > 0.03) helper.fail(sprite.placement().key() + " sprite is " + String.format("%.3f", off) + " blocks off its cell after landing");
+			}
+			helper.succeed();
+		});
 	}
 
 	private static ArmorStand stand(GameTestHelper helper, float yaw, Rotations rightArm, Rotations leftArm, Rotations rightLeg, Rotations leftLeg) {

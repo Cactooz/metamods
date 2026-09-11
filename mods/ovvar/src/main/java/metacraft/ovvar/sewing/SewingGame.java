@@ -89,7 +89,7 @@ public final class SewingGame {
 	/** Opens the seam for a placement the player just aimed at. Replaces any game they had going. */
 	public static void start(ServerPlayer player, ArmorStand stand, Placement placement, Patches.Patch patch) {
 		Chapter chapter = stand.getItemBySlot(EquipmentSlot.LEGS).getItem() instanceof OvveItem ovve ? ovve.chapter : Chapter.values()[0];
-		Game game = new Game(stand.getUUID(), chapter, placement, patch, ThreadLocalRandom.current().nextInt(), OvvarConfig.get().stitches(), 0);
+		Game game = new Game(stand.getUUID(), chapter, placement, patch, ThreadLocalRandom.current().nextInt(), Seam.stitchesFor(patch, OvvarConfig.get().stitches()), 0);
 		GAMES.put(player.getUUID(), game);
 		show(player, game);
 	}

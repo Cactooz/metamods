@@ -107,6 +107,17 @@ public final class StandDisplays {
 		}
 	}
 
+	/** Where a stand's sprites are right now, as the client is told (for the game tests). */
+	public record Sprite(Placement placement, Vec3 pos) {}
+
+	public static List<Sprite> sprites(ArmorStand stand) {
+		Shown shown = SHOWN.get(stand.getUUID());
+		if (shown == null) return List.of();
+		List<Sprite> out = new ArrayList<>();
+		for (Element element : shown.elements) out.add(new Sprite(element.placement, element.display.getCurrentPos()));
+		return out;
+	}
+
 	private static ArmorStand findStand(MinecraftServer server, UUID id) {
 		for (ServerLevel level : server.getAllLevels()) {
 			if (level.getEntity(id) instanceof ArmorStand stand) return stand;
@@ -137,6 +148,11 @@ public final class StandDisplays {
 		boolean topShown = topShown(shown.stand, ovve);
 		List<Placement> placements = shown(shown.stand, ovve, topShown);
 		Placement preview = Looks.preview(ovve);
+		// Offsets are from the stand's own position, not the holder's: the holder copies it only
+		// on its next tick (the entity tracker's, before entities move), so while the stand moves
+		// the holder is a tick behind — offsets taken from it would leave every sprite displaced
+		// by the last step once the stand comes to rest.
+		Vec3 origin = shown.stand.position();
 		boolean rebuilt = false;
 		if (!placements.equals(shown.placements) || topShown != shown.topShown || !Objects.equals(preview, shown.preview)) {
 			for (Element element : shown.elements) shown.holder.removeElement(element.display);
@@ -157,7 +173,12 @@ public final class StandDisplays {
 					display.setInterpolationDuration(0);
 					display.setTeleportDuration(1);
 					display.setViewRange(0.6f);
-					shown.elements.add(new Element(display, p, patch, piece, i));
+					Element element = new Element(display, p, patch, piece, i);
+					// Laid on its cell before it joins the holder: the spawn packet then carries the
+					// right place. Added first, it would spawn at the stand's feet and glide to the
+					// cell over the teleport duration — every sprite, every time the aim moves.
+					place(element, shown.stand, origin);
+					shown.elements.add(element);
 					shown.holder.addElement(display);
 				}
 			}
@@ -165,9 +186,12 @@ public final class StandDisplays {
 		}
 		int poseHash = Objects.hash(shown.stand.position(), shown.stand.yBodyRot, shown.stand.getBodyPose(), shown.stand.getRightArmPose(),
 				shown.stand.getLeftArmPose(), shown.stand.getRightLegPose(), shown.stand.getLeftLegPose());
-		if (!rebuilt && poseHash == shown.poseHash) return;
+		if (rebuilt) {
+			shown.poseHash = poseHash;
+			return;
+		}
+		if (poseHash == shown.poseHash) return;
 		shown.poseHash = poseHash;
-		Vec3 origin = shown.holder.getPos();
 		for (Element element : shown.elements) place(element, shown.stand, origin);
 	}
 
@@ -184,9 +208,18 @@ public final class StandDisplays {
 	private static void place(Element element, ArmorStand stand, Vec3 origin) {
 		Spot spot = element.placement.spot();
 		PatchPieces.Piece piece = element.piece;
-		// The seat: one half on each leg's back face, centred on that cell like any patch.
-		if (spot == Spot.SEAT) spot = piece.x0() == 0 ? Spot.LEG_BACK_TOP_R : Spot.LEG_BACK_TOP_L;
-		StandAim.CellPoint at = StandAim.cell(stand, spot);
+		StandAim.CellPoint at;
+		if (spot == Spot.SEAT && !PatchPieces.BEND_ROUND_CORNERS) {
+			// The seat flat: the whole art as one sprite, centred on the seam between the legs' back
+			// faces (the midpoint of the two cells), on their mean plane.
+			StandAim.CellPoint r = StandAim.cell(stand, Spot.LEG_BACK_TOP_R), l = StandAim.cell(stand, Spot.LEG_BACK_TOP_L);
+			at = new StandAim.CellPoint(r.centre().add(l.centre()).scale(0.5), r.normal().add(l.normal()).normalize(), r.up().add(l.up()).normalize());
+			spot = Spot.LEG_BACK_TOP_R;
+		} else {
+			// The seat bent: one half on each leg's back face, centred on that cell like any patch.
+			if (spot == Spot.SEAT) spot = piece.x0() == 0 ? Spot.LEG_BACK_TOP_R : Spot.LEG_BACK_TOP_L;
+			at = StandAim.cell(stand, spot);
+		}
 		double inflate = Spot.inflate(spot.piece), a = Spot.pixel(spot.u, inflate) / 2;   // sixteenths per art pixel
 		float scale = (float) a;   // the sprite is 16 pixels to a block: one sprite pixel = a sixteenths at scale a
 		int w = element.patch.width(), h = element.patch.height(), n = PatchPieces.faceTexels(spot);

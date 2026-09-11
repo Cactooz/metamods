@@ -40,7 +40,8 @@ it is sewn. That is the whole preview. The companion top and the virtual cuffs c
 on-stand flag, so nothing draws the patches twice.
 
 With the stitching minigame on (`config/ovvar.json`: `sewing_minigame`, `stitches`; default on,
-6 stitches) the right-click opens a dialog instead: the patch lies on the ovve's cloth and the
+6 stitches for a cell-sized patch — a longer outline, a bigger patch or an intricate edge, takes
+proportionally more, up to 16) the right-click opens a dialog instead: the patch lies on the ovve's cloth and the
 seam goes around its edge, following the shape of the art (a heart is sewn around its lobes). The
 holes come in pairs — one on the cloth just outside the edge where the thread comes out, one on
 the patch just inside where it goes in — so each pair is a stitch over the edge, and the thread
