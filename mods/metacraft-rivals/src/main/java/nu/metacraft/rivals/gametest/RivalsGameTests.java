@@ -104,7 +104,7 @@ public final class RivalsGameTests {
 		BlockPos struck = new BlockPos(2, 1, 2);
 		int painted = Painter.splat(helper.getLevel(), helper.absolutePos(struck), Direction.UP, PaintColor.MAGENTA,
 				helper.getLevel().getRandom());
-		helper.assertTrue(painted >= 1 && painted <= 9, "painted " + painted + " faces, expected 1..9");
+		helper.assertTrue(painted >= 5 && painted <= 9, "painted " + painted + " faces, expected 5..9");
 		BlockState cell = helper.getBlockState(struck.above());
 		helper.assertTrue(cell.is(PaintBlocks.of(PaintColor.MAGENTA)), Component.literal("cell above the hit is magenta paint, got " + cell));
 		helper.assertTrue(cell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
@@ -129,6 +129,12 @@ public final class RivalsGameTests {
 			}
 		}
 		helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.LIME)), "centre is painted");
+		for (BlockPos edge : new BlockPos[] {new BlockPos(3, 2, 2), new BlockPos(2, 2, 1), new BlockPos(2, 2, 3)}) {
+			BlockState cell = helper.getBlockState(edge);
+			helper.assertTrue(cell.is(PaintBlocks.of(PaintColor.LIME)), Component.literal("edge " + edge + " should be lime paint, got " + cell));
+			helper.assertTrue(cell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "edge " + edge + " has its down face set");
+		}
+		helper.assertTrue(helper.getBlockState(new BlockPos(1, 2, 2)).isAir(), "edge over the hole stays air");
 		helper.succeed();
 	}
 

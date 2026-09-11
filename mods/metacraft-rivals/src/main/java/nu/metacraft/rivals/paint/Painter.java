@@ -68,7 +68,7 @@ public final class Painter {
 			return false;
 		}
 		if (!MultifaceBlock.canAttachTo(level, attach, surface, level.getBlockState(surface))) return false;
-		level.setBlock(cell, next, Block.UPDATE_ALL);
+		if (!level.setBlock(cell, next, Block.UPDATE_ALL)) return false;
 		PaintTally.of(level).track(cell);
 		return true;
 	}
