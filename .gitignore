@@ -1,51 +1,36 @@
 # gradle
-
 .gradle/
 build/
 out/
 classes/
 logs/
-
 # eclipse
-
 *.launch
-
 # idea
-
 .idea/
 *.iml
 *.ipr
 *.iws
-
 # vscode
-
 .settings/
 .vscode/
 bin/
 .classpath
 .project
-
 # macos
-
 *.DS_Store
-
 # fabric
-
 run/
 generated/
-
 # fabric j-unit
-
 mods/**/config/
 !**/src/**/config/
 crash-reports/
 .fabric/
-
-
 # java
-
 hs_err_*.log
 replay_*.log
 *.hprof
 *.jfr
 /_to_delete
+run-vanilla/
