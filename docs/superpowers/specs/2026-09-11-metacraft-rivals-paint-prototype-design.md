@@ -91,7 +91,7 @@ block. `donorTexture()` is `assets/minecraft/textures/block/<donor path>.png`. A
 
 `PaintBlock extends MultifaceBlock implements PolymerBlock`, registered once per colour as
 `metacraft-rivals:paint_<id>`. Properties: `noCollision`, `noOcclusion`, `instabreak`,
-`noLootTable`, `pushReaction(DESTROY)`, `replaceable`. Keeps vanilla's six face properties and
+`noLootTable`, `pushReaction(DESTROY)`. Keeps vanilla's six face properties and
 `waterlogged`; the block is never placed waterlogged. No item.
 
 `getPolymerBlockState(state, ctx)` returns the donor's default state with each of the six face
@@ -201,7 +201,8 @@ the procedural art later is dropping a file at the same path into
 
 ### Commands
 
-`/rivals`, permission level 2 (`Commands.hasPermission(2)`):
+`/rivals`, for game masters (fabric-permissions-api node `metacraft.rivals`, default
+`PermissionLevel.GAMEMASTERS`, the same idiom as the other METAmods commands):
 
 - `setup` — for every `PaintColor`, create (or update) the vanilla scoreboard team named after the
   colour id: display name, team colour (the nearest `TeamColor`), friendly fire off, collision
@@ -225,8 +226,8 @@ the procedural art later is dropping a file at the same path into
 - Donor property mismatch at startup → `IllegalStateException` naming the colour; the server
   does not start half-registered.
 - No team on shoot → message, no projectile, no cooldown.
-- A `PaintBlock` state Polymer cannot map (should be impossible) → the block logs an error and
-  returns the donor's default state.
+- Every `PaintBlock` state maps to a donor state by construction (the six face properties are
+  verified at startup), so there is no runtime mapping failure to handle.
 - `/rivals reset` in a level with no tally → "Nothing painted".
 - Pack build failure (ImageIO throws) → propagate; a Rivals server without splat textures is not
   worth starting.
@@ -251,6 +252,10 @@ server, as moredyes does on its branch):
    the team colour.
 8. **SplatTexture:** the PNG decodes to 16×16 with both opaque and transparent pixels, and the
    opaque pixels are the colour.
+9. **Gun tank colour:** the client-side stack for a player on the magenta team carries a
+   `minecraft:dyed_color` of the magenta RGB; for a player without a team it carries none.
+10. **Gun model assets:** the mod jar contains the item definition, the model and the palette
+    texture at their expected paths, and the model's element coordinates stay within -16..32.
 
 Pixels are checked by eye with a vanilla client against the dev server (the
 `tools/vanilla_client.py` harness from the moredyes branch can be copied if wanted).
