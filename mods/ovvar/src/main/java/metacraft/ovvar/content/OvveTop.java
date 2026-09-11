@@ -7,6 +7,7 @@ import net.fabricmc.fabric.api.entity.event.v1.ServerPlayerEvents;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerEntityEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.minecraft.network.protocol.game.ClientboundContainerSetSlotPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.core.HolderLookup;
@@ -51,6 +52,9 @@ public final class OvveTop {
 				if (player.containerMenu.getCarried().getItem() instanceof OvveTopItem) {
 					player.containerMenu.setCarried(ItemStack.EMPTY);
 					player.containerMenu.broadcastChanges();
+					// Force the client's cursor empty too: after a swap it keeps predicting the item back,
+					// and with the icon blanked it reads as an invisible stuck item. Slot -1 is the cursor.
+					player.connection.send(new ClientboundContainerSetSlotPacket(-1, player.containerMenu.incrementStateId(), -1, ItemStack.EMPTY));
 				}
 				// A chestplate left wrapped after the ovve or its top went away is unwrapped.
 				ItemStack chest = player.getItemBySlot(EquipmentSlot.CHEST);

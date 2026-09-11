@@ -1,5 +1,6 @@
 package metacraft.ovvar;
 
+import com.mojang.brigadier.arguments.BoolArgumentType;
 import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.context.CommandContext;
@@ -20,8 +21,11 @@ import net.minecraft.core.Rotations;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.decoration.ArmorStand;
+import net.minecraft.world.entity.decoration.Mannequin;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.phys.Vec3;
 import org.jspecify.annotations.Nullable;
@@ -39,8 +43,8 @@ import java.util.stream.Stream;
  *	   {@code spot.patch} / bare patch ids (first free cell) separated by commas/spaces; the word
  *	   {@code down} anywhere gives it with the top rolled down;</li>
  *   <li>{@code patches <patches>} — re-sew the ovve in your main hand;</li>
- *   <li>{@code showcase <chapter>} — a row of armour stands in front of you: top down, top up, one
- *	   per patch (on the chest), every cell filled;</li>
+ *   <li>{@code showcase <chapter> [mannequin]} — a row of displays in front of you: top down, top up,
+ *	   one per patch (on the chest), every cell filled; mannequins by default, {@code false} for armour stands;</li>
  *   <li>{@code stands <chapter>} — three posed stands wearing a plain ovve, for testing the sewing aim;</li>
  *   <li>{@code minigame [on|off] [stitches]} — the stitching minigame setting, saved to config/ovvar.json;</li>
  *   <li>{@code aimlog on|off} — log every click on a stand and every aim change with the numbers behind it (server log).</li>
@@ -80,7 +84,9 @@ public final class ModCommands {
 						.then(Commands.literal("patches").requires(GAMEMASTER)
 								.then(patchesArg().executes(ModCommands::resew)))
 						.then(Commands.literal("showcase").requires(GAMEMASTER)
-								.then(chapterArg().executes(ModCommands::showcase)))
+								.then(chapterArg().executes(ctx -> showcase(ctx, true))
+										.then(Commands.argument("mannequin", BoolArgumentType.bool())
+												.executes(ctx -> showcase(ctx, BoolArgumentType.getBool(ctx, "mannequin"))))))
 						.then(Commands.literal("stands").requires(GAMEMASTER)
 								.then(chapterArg().executes(ModCommands::stands)))
 						.then(Commands.literal("minigame").requires(GAMEMASTER)
@@ -240,7 +246,7 @@ public final class ModCommands {
 	}
 
 	/** Stands 2 blocks apart to the player's right, facing the player. */
-	private static int showcase(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+	private static int showcase(CommandContext<CommandSourceStack> ctx, boolean mannequin) throws CommandSyntaxException {
 		ServerPlayer player = ctx.getSource().getPlayerOrException();
 		Chapter chapter = chapter(ctx);
 		ServerLevel level = player.level();
@@ -263,27 +269,46 @@ public final class ModCommands {
 		Vec3 origin = player.position().add(forward.scale(3));
 		for (int i = 0; i < looks.size(); i++) {
 			Vec3 pos = origin.add(right.scale(2 * i - (looks.size() - 1)));
-			ArmorStand stand = new ArmorStand(level, pos.x, Math.floor(pos.y), pos.z);
-			stand.setYRot(yaw + 180);
-			stand.setYBodyRot(yaw + 180);
-			stand.setShowArms(true);
-			stand.setLeftArmPose(new Rotations(-10, 0, -10));
-			stand.setRightArmPose(new Rotations(-10, 0, 10));
+			double y = Math.floor(pos.y);
 			ItemStack ovve = looks.get(i);
-			stand.setItemSlot(EquipmentSlot.LEGS, ovve);
+			// The companion top is placed by hand so it shows before the first tick.
+			ItemStack top = null;
 			if (OvveItem.topUp(ovve)) {
-				// The companion top is placed by hand so it shows before the first tick.
-				ItemStack top = new ItemStack(ModContent.top(chapter));
+				top = new ItemStack(ModContent.top(chapter));
 				var patches = ovve.get(ModComponents.PATCHES);
 				if (patches != null) top.set(ModComponents.PATCHES, patches);
-				stand.setItemSlot(EquipmentSlot.CHEST, top);
 			}
-			stand.setCustomName(Component.literal(labels.get(i)));
-			stand.setCustomNameVisible(true);
-			level.addFreshEntity(stand);
+
+			// A mannequin renders like a player, so the ovve and its patches show as worn; an armour
+			// stand uses a different model and misplaces them. Default on; pass false for stands.
+			Entity display;
+			if (mannequin) {
+				Mannequin m = new Mannequin(EntityTypes.MANNEQUIN, level);
+				m.setPos(pos.x, y, pos.z);
+				m.setYRot(yaw + 180);
+				m.setYBodyRot(yaw + 180);
+				m.setYHeadRot(yaw + 180);
+				m.setItemSlot(EquipmentSlot.LEGS, ovve);
+				if (top != null) m.setItemSlot(EquipmentSlot.CHEST, top);
+				display = m;
+			} else {
+				ArmorStand stand = new ArmorStand(level, pos.x, y, pos.z);
+				stand.setYRot(yaw + 180);
+				stand.setYBodyRot(yaw + 180);
+				stand.setShowArms(true);
+				stand.setLeftArmPose(new Rotations(-10, 0, -10));
+				stand.setRightArmPose(new Rotations(-10, 0, 10));
+				stand.setItemSlot(EquipmentSlot.LEGS, ovve);
+				if (top != null) stand.setItemSlot(EquipmentSlot.CHEST, top);
+				display = stand;
+			}
+			display.setCustomName(Component.literal(labels.get(i)));
+			display.setCustomNameVisible(true);
+			level.addFreshEntity(display);
 		}
 		int count = looks.size();
-		ctx.getSource().sendSuccess(() -> Component.literal("Placed " + count + " " + chapter.name + " stands"), false);
+		String kind = mannequin ? "mannequins" : "stands";
+		ctx.getSource().sendSuccess(() -> Component.literal("Placed " + count + " " + chapter.name + " " + kind), false);
 		return count;
 	}
 
