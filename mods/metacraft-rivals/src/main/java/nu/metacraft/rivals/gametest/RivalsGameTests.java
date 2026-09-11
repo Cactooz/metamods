@@ -11,9 +11,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
-import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerScoreboard;
-import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
@@ -33,7 +31,6 @@ import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.Rivals;
 import nu.metacraft.rivals.RivalsCommands;
-import nu.metacraft.rivals.ScoreBars;
 import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintGun;
 import nu.metacraft.rivals.paint.PaintBlock;
@@ -49,7 +46,6 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
-import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -340,18 +336,6 @@ public final class RivalsGameTests {
 			helper.assertTrue(!team.isAllowFriendlyFire(), "friendly fire off: " + color.id);
 			helper.assertTrue(team.getCollisionRule() == Team.CollisionRule.NEVER, "no collisions: " + color.id);
 		}
-		helper.succeed();
-	}
-
-	/** Bars follow the online player list: nobody offline is ever left in a bar's player set. */
-	@GameTest
-	public void scoreBarsDropOfflinePlayers(GameTestHelper helper) {
-		helper.setBlock(new BlockPos(2, 1, 2), Blocks.STONE);
-		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(2, 1, 2)), Direction.UP, PaintColor.MAGENTA);
-		MinecraftServer server = helper.getLevel().getServer();
-		ScoreBars.refresh(server);
-		Collection<ServerPlayer> players = ScoreBars.players(PaintColor.MAGENTA);
-		helper.assertTrue(players.stream().allMatch(server.getPlayerList().getPlayers()::contains), "no bar player is offline");
 		helper.succeed();
 	}
 }

@@ -10,7 +10,6 @@ import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.BossEvent;
 import nu.metacraft.rivals.paint.PaintTally;
 
-import java.util.Collection;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.List;
@@ -40,7 +39,11 @@ public final class ScoreBars {
 		});
 	}
 
-	public static void refresh(MinecraftServer server) {
+	/**
+	 * Not covered by a game test: the test server has no connected players, so the prune cannot be
+	 * observed there.
+	 */
+	static void refresh(MinecraftServer server) {
 		ServerLevel level = server.overworld();
 		Map<PaintColor, Integer> counts = PaintTally.of(level).count(level);
 		Set<ServerPlayer> online = new HashSet<>(server.getPlayerList().getPlayers());
@@ -59,11 +62,5 @@ public final class ScoreBars {
 				bar.addPlayer(player);
 			}
 		}
-	}
-
-	/** The players currently shown this colour's bar; empty if the colour has no bar yet. */
-	public static Collection<ServerPlayer> players(PaintColor color) {
-		ServerBossEvent bar = BARS.get(color);
-		return bar == null ? List.of() : List.copyOf(bar.getPlayers());
 	}
 }
