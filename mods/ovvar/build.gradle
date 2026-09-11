@@ -4,6 +4,18 @@ version = project.ovvar_version
 // Every art-derived file (armour layers cut from the website overlays, one equipment definition per
 // patch combination, icons, lang) comes from src/main/resources/art via data generation: ./gradlew runDatagen.
 setupRunDatagen("ovvar")
+// Client screenshot tests: a real client joins an in-process dedicated server and compares what it
+// sees. Source set src/gametest, task runClientGameTest (needs a display).
+fabricApi {
+	configureTests {
+		createSourceSet = true
+		modId = "ovvar-clienttest"
+		enableGameTests = false
+		enableClientGameTests = true
+		eula = true
+		username = "Tester"
+	}
+}
 
 addPolymerDependency()
 addSGUIDependency()
