@@ -133,6 +133,7 @@ public final class PlayerTick {
 		});
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			SquidState.clearAll();
+			SquidDisplay.clearAll();
 			LAST_DIVE.clear();
 			LAST_POS.clear();
 			LAST_INK.clear();
@@ -142,6 +143,7 @@ public final class PlayerTick {
 		// report a squid whose attributes died with the old entity. Same tidy-up the spectator branch does.
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			SquidState.exit(handler.getPlayer());
+			SquidDisplay.hide(handler.getPlayer());
 			SquidState.clearEnemyInk(handler.getPlayer());
 			LAST_DIVE.remove(handler.getPlayer().getUUID());
 			LAST_POS.remove(handler.getPlayer().getUUID());
@@ -241,6 +243,7 @@ public final class PlayerTick {
 		// slowness or damage for it is noise, and their gun (if any) is not usable anyway.
 		if (player.isSpectator()) {
 			SquidState.exit(player);
+			SquidDisplay.hide(player);
 			SquidState.clearEnemyInk(player);
 			LAST_POS.remove(player.getUUID());
 			LAST_INK.remove(player.getUUID());
@@ -278,6 +281,7 @@ public final class PlayerTick {
 			// both the wake and the climb packet are built from this.
 			Vec3 moved = measure(player);
 			wake(player, own.get(), moved, now);
+			SquidDisplay.show(player, own.get(), moved);
 			if (wallBeside) {
 				Direction climbing = paintedWallToward(player, own.get(), moveIntent(player));
 				if (climbing != null) {
@@ -296,6 +300,7 @@ public final class PlayerTick {
 			}
 		} else {
 			SquidState.exit(player);
+			SquidDisplay.hide(player);
 			LAST_POS.remove(player.getUUID());
 		}
 		if (inEnemy) {

@@ -3,6 +3,7 @@ package nu.metacraft.rivals.gametest;
 import com.mojang.authlib.GameProfile;
 import com.mojang.datafixers.util.Pair;
 import eu.pb4.polymer.core.api.block.PolymerBlock;
+import eu.pb4.polymer.virtualentity.api.ElementHolder;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -59,6 +60,7 @@ import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.OvveTeams;
 import nu.metacraft.rivals.PlayerTick;
 import nu.metacraft.rivals.Rivals;
+import nu.metacraft.rivals.SquidDisplay;
 import nu.metacraft.rivals.SquidState;
 import nu.metacraft.rivals.RivalsCommands;
 import nu.metacraft.rivals.gun.PaintBall;
@@ -1013,6 +1015,39 @@ public final class RivalsGameTests {
 		Vec3 delta = player.getDeltaMovement();
 		helper.assertTrue(delta.horizontalDistance() >= 0.3, "dive surge pushes horizontally, got " + delta);
 		helper.assertTrue(delta.x > 0, "surge follows the look direction (+X), got " + delta);
+		helper.succeed();
+	}
+
+	/**
+	 * Others see a squid, not a floating nothing: a team-coloured blob rides the player's feet while the
+	 * form is on, and goes down with it. The blob's own player is never sent it, which is a per-viewer
+	 * thing a server-side test cannot see; what it can see is that the holder exists, carries one
+	 * element, is attached, and is destroyed on the way out.
+	 */
+	@GameTest
+	public void squidShowsABlobToOthers(GameTestHelper helper) {
+		helper.setBlock(new BlockPos(4, 2, 4), Blocks.STONE);
+		Player player = gunner(helper); // stands at relative (4, 3, 4), the cell above that stone
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.DATA);
+		helper.getLevel().addFreshEntity(player); // a display rides an entity the level knows about
+		player.setShiftKeyDown(true);
+		PlayerTick.tick(player, 0);
+		helper.assertTrue(PlayerTick.isSquid(player), "squid form on");
+		ElementHolder holder = SquidDisplay.holderOf(player);
+		helper.assertTrue(holder != null, "a blob rides the squid");
+		helper.assertValueEqual(holder.getElements().size(), 1, "one blob element");
+		helper.assertTrue(holder.getAttachment() != null, "attached to the player");
+		// A second tick with the squid moved along keeps the one blob rather than making another.
+		Vec3 stepped = player.position().add(0.3, 0, 0);
+		player.setPos(stepped.x, stepped.y, stepped.z);
+		PlayerTick.tick(player, 1);
+		helper.assertTrue(SquidDisplay.holderOf(player) == holder, "the same blob, turned rather than replaced");
+		player.setShiftKeyDown(false);
+		PlayerTick.tick(player, 2);
+		helper.assertTrue(SquidDisplay.holderOf(player) == null, "the blob goes with the form");
+		helper.assertTrue(holder.getAttachment() == null || holder.getAttachment().isRemoved(), "and its attachment with it");
+		player.discard();
 		helper.succeed();
 	}
 
