@@ -2806,6 +2806,55 @@ public final class RivalsGameTests {
 	}
 
 	/**
+	 * The spray where the head meets the ground. A roller is the one weapon whose paint lands under the
+	 * player rather than in front of them, so without this nothing on the screen says the drum is on the
+	 * floor at all — which is what the pose and the particles were both asked for.
+	 *
+	 * <p>The crumbs go through {@link Painter#burst}, which drops any viewer whose own camera the
+	 * particle would spawn on; the head is {@code roll_reach} ahead of the feet, so the roller is not one
+	 * of them and does see its own spray.
+	 */
+	@GameTest
+	public void theRollerSpraysWhereItsHeadTouchesTheGround(GameTestHelper helper) {
+		stoneFloor(helper, 7);
+		Roll.clearAll();
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
+		player.setYRot(0.0f);
+		player.setXRot(0.0f);
+		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		player.setPos(at.x, at.y, at.z);
+		// A viewer two blocks away, connected, so the particle packet has somewhere to go.
+		ServerPlayer viewer = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		Vec3 watching = helper.absoluteVec(new Vec3(5.5, 2.0, 2.5));
+		viewer.setPos(watching.x, watching.y, watching.z);
+		helper.getLevel().addFreshEntity(viewer);
+		helper.assertTrue(Roll.spray(helper.getLevel(), player, PaintColor.DATA, true) > 0,
+				"the head's contact point throws paint at whoever can see it");
+		// The reach is taken along the FLAT look, so looking down the barrel of the roller still puts the
+		// contact point a whole roll_reach ahead of the feet rather than under them.
+		player.setXRot(80.0f);
+		helper.assertTrue(Roll.spray(helper.getLevel(), player, PaintColor.DATA, false) > 0,
+				"a steep look still sprays a reach ahead");
+		// Straight down is the one look with no flat direction at all, and nothing can be a reach ahead
+		// of the feet along it. The run-over box has the same hole, and for the same reason.
+		player.setXRot(90.0f);
+		helper.assertValueEqual(Roll.spray(helper.getLevel(), player, PaintColor.DATA, false), 0,
+				"and straight down has no direction to put the head in");
+		// Over a hole there is no floor under the head, and there is nothing to throw paint off.
+		helper.setBlock(new BlockPos(3, 1, 4), Blocks.AIR);
+		helper.setBlock(new BlockPos(3, 0, 4), Blocks.AIR);
+		player.setXRot(0.0f);
+		Vec3 edge = helper.absoluteVec(new Vec3(3.5, 2.0, 2.6));
+		player.setPos(edge.x, edge.y, edge.z);
+		helper.assertValueEqual(Roll.spray(helper.getLevel(), player, PaintColor.DATA, false), 0,
+				"and a head over a hole sprays nothing");
+		viewer.discard();
+		helper.succeed();
+	}
+
+	/**
 	 * Running someone over. The head sweeps in front of a roller that is <em>moving</em> — a roller held
 	 * down on the spot is not a wall of damage anyone who walks past is splatted by — and it lands once
 	 * per victim per {@code roll_hit_cooldown} ticks, so it is a hit rather than a grinder.

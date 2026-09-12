@@ -54,6 +54,12 @@ dedicated Rivals server wants.
   state that has a face, which would make paint glow. The v1 caveat still applies, now for four
   blocks instead of one: real sculk veins, resin clumps, tripwire and redstone dust a player places
   in an arena render as paint too.
+- The roller sprays where its head touches: three crumbs at the contact point on every tick that paints,
+  with a dust pillar every fourth for the ink pushed ahead of the drum. The point is the head's own — one
+  `roll_reach` ahead of the feet along the flat look, on whatever floor the strip's own downward ray finds
+  under it, so on a stair the spray is where the drum is rather than where the player's feet are. A roller
+  sees its own: the head is a couple of blocks from its eyes, which is outside the radius `Painter.burst`
+  keeps crumbs out of.
 - Every ink burst — muzzle flash, impact splash, the rays off it, the charger's trail, a squid's wake
   — is made of vanilla's block-break crumbs carrying one of the paint client states, not redstone
   dust. Dust reads as a drifting grey-red haze; a crumb is a lump that arcs and falls, which is what
@@ -107,7 +113,7 @@ dedicated Rivals server wants.
   | shooter | 1 | 3 ticks (held) | 8, −0.34/tick from tick 3, floor 4 | one ball at 2.0 straight for 8 blocks, then 0.5 falling at 0.075; one bounce; 3×3 splat; spread 6° on the ground, 12° in the air | `splattershot.json` |
   | charger | 2 → 18 | 20 ticks | 8 → 16 over a partial charge, **32 at a full one** | hold right click to aim (the spyglass scope; a full charge is 20 ticks), left click to fire a hitscan line of 9 → 24 blocks, stopped by the first block or player in it | `splat_charger.json` |
   | slosher | 7 | 12 ticks (click) | 7, flat | 2 pellets 8° apart, lobbed 15° up at 1.1 under gravity 0.06, 5×5 splat, no bounce | `slosher.json` |
-  | roller | 9 a flick, 1 per 16 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed and a head that runs over anyone in front once per 10 ticks — both only while you are actually moving, so a roller parked in a doorway is not a wall of damage; **tap** it to flick 3 drops in a high arc | `splat_roller.json` |
+  | roller | 9 a flick, 1 per 16 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed and a head that runs over anyone in front once per 10 ticks — both only while you are actually moving, so a roller parked in a doorway is not a wall of damage, and paint thrown up where the head touches the ground; **tap** it to flick 3 drops in a high arc | `splat_roller.json` |
   | splat bomb | 70 | 4 s of its own | 36 at the centre → 6 at 3.25 blocks | thrown 30° up at 0.75, bounces where it lands and goes off 20 ticks later | `splat_bomb.json` |
 
   Standing in your own ink refills the tank in ten seconds on your feet and three as a squid, and a

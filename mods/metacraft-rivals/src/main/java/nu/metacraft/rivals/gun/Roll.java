@@ -34,6 +34,10 @@ import java.util.UUID;
  * of paint {@code roll_width} cells wide laid down where the player walks, a trickle of ink, a little
  * more speed, and a very heavy hit on anyone the head reaches.
  *
+ * <p>The head leaves a spray where it touches: crumbs at the contact point on every tick that paints,
+ * with a dust pillar every fourth, which is the only thing on the screen that says the drum is on the
+ * ground rather than held in front of you.
+ *
  * <p>A roll only happens where the player <em>moves</em>: standing still with the button down paints
  * nothing and costs nothing, exactly as it does in Splatoon, so a roller cannot stand in a doorway
  * repainting one cell. The movement is measured from two consecutive positions rather than taken from
@@ -52,6 +56,12 @@ public final class Roll {
 	private static final double HEAD_HEIGHT = 1.6;
 	/** Below this much horizontal movement in a tick the player is standing, not rolling. */
 	private static final double MOVING = 0.02;
+	/** Crumbs thrown up at the head's contact point on a painting tick, and how far they spread and fly. */
+	private static final int CRUMBS = 3;
+	private static final double SPREAD = 0.25;
+	private static final double SPEED = 0.03;
+	/** Every this many ticks the spray gets a dust pillar too: the ink pushed ahead of the drum. */
+	private static final int PILLAR_EVERY = 4;
 
 	/** Where each rolling player was last tick, to measure with. */
 	private static final Map<UUID, Vec3> LAST_POS = new HashMap<>();
@@ -104,6 +114,9 @@ public final class Roll {
 		runOver(level, player, tuning, color);
 		if (Ink.get(stack) <= 0) return false;
 		int painted = strip(level, player, tuning, color);
+		// Where the head is actually touching. Every painting tick, because a roll is continuous and a
+		// spray that came and went would read as the head bouncing.
+		if (painted > 0) spray(level, player, color, level.getServer().getTickCount() % PILLAR_EVERY == 0);
 		// The trickle is per tick of rolling, not per cell: a roller that turns on the spot and one that
 		// runs down a corridor pay the same for the same time with the head down.
 		int rolled = ROLLED.merge(player.getUUID(), 1, Integer::sum);
@@ -113,6 +126,35 @@ public final class Roll {
 			Ink.add(stack, -1);
 		}
 		return painted > 0;
+	}
+
+	/**
+	 * Paint thrown up where the head meets the ground: {@code CRUMBS} crumbs at the contact point, and on
+	 * every {@link #PILLAR_EVERY}th tick a dust pillar with them, which is the ink being pushed ahead of
+	 * the drum rather than merely landing under it.
+	 *
+	 * <p>The contact point is the head's own: one {@code roll_reach} ahead of the feet along the flat
+	 * look, on whatever floor the same downward ray {@link #strip} uses finds under it — so on a stair or
+	 * a slab the spray is where the drum is, not floating at the height the player happens to be.
+	 *
+	 * <p>Sent through {@link Painter#burst}, which keeps crumbs off a viewer's own camera; the roller's
+	 * own eyes are a couple of blocks from its head, so a roller does see its own spray. Returns how many
+	 * viewers were sent it, which is what the test reads.
+	 */
+	public static int spray(ServerLevel level, Player player, PaintColor color, boolean pillar) {
+		Vec3 look = player.getLookAngle();
+		Vec3 flat = new Vec3(look.x, 0, look.z);
+		if (flat.lengthSqr() < 1.0e-6) return 0;
+		Vec3 ahead = player.position().add(flat.normalize().scale(Weapon.ROLL_REACH)).add(0, 0.1, 0);
+		BlockHitResult down = level.clip(new ClipContext(ahead, ahead.subtract(0, FLOOR_REACH, 0),
+				ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
+		// No floor under the head — a ledge, a gap — is nothing to throw paint off.
+		if (down.getType() != HitResult.Type.BLOCK) return 0;
+		// A hair above the surface: crumbs spawned inside the block are swallowed by it.
+		Vec3 at = down.getLocation().add(0, 0.05, 0);
+		int sent = Painter.burst(level, Painter.crumbs(color), at, CRUMBS, SPREAD, SPREAD * 0.4, SPREAD, SPEED);
+		if (pillar) Painter.burst(level, Painter.pillar(color), at, 1, SPREAD * 0.5, 0.0, SPREAD * 0.5, SPEED);
+		return sent;
 	}
 
 	/** Put the roller away: the bonus off, the measurement forgotten. Safe to call when not rolling. */
