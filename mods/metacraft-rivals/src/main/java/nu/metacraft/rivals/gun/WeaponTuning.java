@@ -52,6 +52,16 @@ public final class WeaponTuning {
 		VELOCITY("velocity", 0.0, 10.0),
 		/** Random inaccuracy cone, in degrees-ish; vanilla's {@code inaccuracy}. */
 		SPREAD("spread", 0.0, 90.0),
+		/** The same, for a shot fired with both feet off the ground. Splatoon doubles it. */
+		SPREAD_AIR("spread_air", 0.0, 90.0),
+		/**
+		 * How far a ball flies straight and fast before it decays, in blocks; 0 for a shot that falls from
+		 * the moment it leaves. Splatoon's shots have exactly this shape, and it is what separates an
+		 * accurate weapon from a lobbing one more than any other number here.
+		 */
+		STRAIGHT_BLOCKS("straight_blocks", 0.0, 64.0),
+		/** The speed it keeps once the straight stretch is over, blocks per tick. */
+		DECAYED_SPEED("decayed_speed", 0.0, 10.0),
 		/** Fall rate per tick. A vanilla snowball is 0.03; negative floats. */
 		GRAVITY("gravity", -1.0, 1.0),
 		/** How many block hits reflect the ball instead of ending it. Rounded. */
@@ -68,8 +78,18 @@ public final class WeaponTuning {
 		COOLDOWN("cooldown", 0.0, 200.0),
 		/** Camera kick, in pitch degrees; negative is up. */
 		KICK("kick", -45.0, 45.0),
-		/** Hearts off a direct hit on someone from another team, per projectile. */
+		/** Ticks after a shot before standing in your own ink tops the tank up again. Rounded. */
+		REFILL_DELAY("refill_delay", 0.0, 200.0),
+		/** Hearts off a direct hit on someone from another team, per projectile, before it decays. */
 		DAMAGE("damage", 0.0, 40.0),
+		/**
+		 * The damage falloff: full {@code damage} until {@code decay_start} ticks of flight, then
+		 * {@code decay_per_tick} off every tick until it reaches {@code decayed_damage}. A
+		 * {@code decay_per_tick} of 0 is a weapon that does not care how far it has thrown.
+		 */
+		DECAY_START("decay_start", 0.0, 200.0),
+		DECAY_PER_TICK("decay_per_tick", 0.0, 40.0),
+		DECAYED_DAMAGE("decayed_damage", 0.0, 40.0),
 		/** Balls thrown per shot. Rounded. */
 		COUNT("count", 1.0, 16.0),
 		/** Degrees of yaw between neighbouring balls of a multi-ball shot; the fan is centred on the view. */
@@ -115,8 +135,12 @@ public final class WeaponTuning {
 		SPECIAL_COOLDOWN("special_cooldown", 0.0, 600.0),
 		/** How far the bomb's splash reaches: 3 is 7×7. Rounded. */
 		SPECIAL_RADIUS("special_radius", 0.0, 6.0),
-		/** Hearts off everyone from another team caught in the blast. */
+		/** Hearts at the centre of the blast, at its edge, and how far the edge is. */
 		SPECIAL_DAMAGE("special_damage", 0.0, 40.0),
+		SPECIAL_EDGE_DAMAGE("special_edge_damage", 0.0, 40.0),
+		SPECIAL_BLAST("special_blast", 0.0, 16.0),
+		/** Ticks between the bomb landing and going off. Rounded. */
+		SPECIAL_FUSE("special_fuse", 0.0, 200.0),
 		/** How the bomb is thrown, and how long it lives if it hits nothing. */
 		SPECIAL_VELOCITY("special_velocity", 0.0, 10.0),
 		SPECIAL_GRAVITY("special_gravity", -1.0, 1.0),
@@ -219,11 +243,19 @@ public final class WeaponTuning {
 			// Shared by all four, straight off the enum.
 			values.put(Param.VELOCITY, (double) weapon.velocity);
 			values.put(Param.SPREAD, (double) weapon.inaccuracy);
+			values.put(Param.SPREAD_AIR, (double) weapon.inaccuracy);
 			values.put(Param.INK, (double) weapon.inkPerShot);
 			values.put(Param.COOLDOWN, (double) weapon.cooldownTicks);
+			values.put(Param.REFILL_DELAY, (double) weapon.refillDelay);
 			values.put(Param.KICK, (double) weapon.kickPitch);
 			values.put(Param.DAMAGE, (double) weapon.damage);
+			// No falloff unless the weapon asks for one: a bucketful does not care how far it has flown.
+			values.put(Param.DECAY_START, 0.0);
+			values.put(Param.DECAY_PER_TICK, 0.0);
+			values.put(Param.DECAYED_DAMAGE, (double) weapon.damage);
 			// The ball's own, from PaintBall's flight constants unless the weapon overrode them.
+			values.put(Param.STRAIGHT_BLOCKS, 0.0);
+			values.put(Param.DECAYED_SPEED, (double) weapon.velocity);
 			values.put(Param.GRAVITY, PaintBall.GRAVITY);
 			values.put(Param.BOUNCES, 0.0);
 			values.put(Param.RESTITUTION, PaintBall.BOUNCE_RESTITUTION);
@@ -255,17 +287,32 @@ public final class WeaponTuning {
 			values.put(Param.SPECIAL_COOLDOWN, (double) Weapon.SPECIAL_COOLDOWN);
 			values.put(Param.SPECIAL_RADIUS, (double) Weapon.SPECIAL_RADIUS);
 			values.put(Param.SPECIAL_DAMAGE, (double) Weapon.SPECIAL_DAMAGE);
+			values.put(Param.SPECIAL_EDGE_DAMAGE, (double) Weapon.SPECIAL_EDGE_DAMAGE);
+			values.put(Param.SPECIAL_BLAST, Weapon.SPECIAL_BLAST);
+			values.put(Param.SPECIAL_FUSE, (double) Weapon.SPECIAL_FUSE);
 			values.put(Param.SPECIAL_VELOCITY, (double) Weapon.SPECIAL_VELOCITY);
 			values.put(Param.SPECIAL_GRAVITY, Weapon.SPECIAL_GRAVITY);
 			values.put(Param.SPECIAL_LIFETIME, (double) Weapon.SPECIAL_LIFETIME);
 			switch (weapon) {
-				case SHOOTER -> values.put(Param.BOUNCES, (double) Weapon.SHOOTER_BOUNCES);
+				case SHOOTER -> {
+					values.put(Param.BOUNCES, (double) Weapon.SHOOTER_BOUNCES);
+					values.put(Param.SPREAD_AIR, (double) Weapon.SHOOTER_SPREAD_AIR);
+					values.put(Param.STRAIGHT_BLOCKS, Weapon.SHOOTER_STRAIGHT_BLOCKS);
+					values.put(Param.DECAYED_SPEED, Weapon.SHOOTER_DECAYED_SPEED);
+					values.put(Param.GRAVITY, Weapon.SHOOTER_GRAVITY);
+					values.put(Param.DECAY_START, (double) Weapon.SHOOTER_DECAY_START);
+					values.put(Param.DECAY_PER_TICK, (double) Weapon.SHOOTER_DECAY_PER_TICK);
+					values.put(Param.DECAYED_DAMAGE, (double) Weapon.SHOOTER_DECAYED_DAMAGE);
+				}
 				case ROLLER -> {
 					values.put(Param.COUNT, (double) Weapon.ROLLER_FLICK_BALLS);
 					values.put(Param.FAN_YAW, (double) Weapon.ROLLER_FAN_YAW);
 					values.put(Param.FAN_PITCH, (double) Weapon.ROLLER_PITCH);
 					values.put(Param.GRAVITY, Weapon.ROLLER_GRAVITY);
 					values.put(Param.SPLAT_RADIUS, (double) Weapon.ROLLER_SPLAT_RADIUS);
+					values.put(Param.DECAY_START, (double) Weapon.ROLLER_DECAY_START);
+					values.put(Param.DECAY_PER_TICK, (double) Weapon.ROLLER_DECAY_PER_TICK);
+					values.put(Param.DECAYED_DAMAGE, (double) Weapon.ROLLER_DECAYED_DAMAGE);
 				}
 				case SLOSHER -> {
 					values.put(Param.COUNT, (double) Weapon.SLOSHER_FAN.length);

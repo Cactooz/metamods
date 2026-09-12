@@ -223,7 +223,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			return false;
 		}
 		splatBomb(level, player, color, tuning);
-		Ink.add(gun, -cost);
+		spend(level, gun, cost);
 		SPECIAL_READY.put(player.getUUID(), now + wait);
 		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 		return true;
@@ -246,7 +246,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		bomb.setSplatRadius(tuning.intValue(Param.SPECIAL_RADIUS));
 		bomb.setDamage(tuning.floatValue(Param.SPECIAL_DAMAGE));
 		bomb.setGravity(tuning.value(Param.SPECIAL_GRAVITY));
-		bomb.setBlast(Weapon.SPECIAL_BLAST);
+		bomb.setBlast(tuning.value(Param.SPECIAL_BLAST), tuning.floatValue(Param.SPECIAL_EDGE_DAMAGE), Weapon.SPECIAL_CORE);
 		bomb.setBlobScale(Weapon.SPECIAL_SCALE);
 		bomb.shootFromRotation(player, player.getXRot() + Weapon.SPECIAL_PITCH, player.getYRot(), 0.0f,
 				tuning.floatValue(Param.SPECIAL_VELOCITY), 0.0f);
@@ -317,7 +317,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		}
 		fire(serverLevel, player, color);
 		feel(serverLevel, player, color);
-		Ink.add(gun, -tuning.intValue(Param.INK));
+		spend(serverLevel, gun, tuning.intValue(Param.INK));
 		player.getCooldowns().addCooldown(gun, tuning.intValue(Param.COOLDOWN));
 		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 		return weapon == Weapon.SLOSHER ? InteractionResult.SUCCESS_SERVER : InteractionResult.CONSUME;
@@ -365,7 +365,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		}
 		fire(level, player, color);
 		feel(level, player, color);
-		Ink.add(gun, -cost);
+		spend(level, gun, cost);
 		player.getCooldowns().addCooldown(gun, tuning.intValue(Param.COOLDOWN));
 		return true;
 	}
@@ -385,6 +385,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		int count = tuning.intValue(Param.COUNT);
 		float fanYaw = tuning.floatValue(Param.FAN_YAW);
 		float pitch = player.getXRot() + tuning.floatValue(Param.FAN_PITCH);
+		// Splatoon doubles a shooter's spread for a player in the air; ours is one parameter rather than a
+		// multiplier, so a weapon that should not care can say so by leaving the two equal.
+		float spread = tuning.floatValue(player.onGround() ? Param.SPREAD : Param.SPREAD_AIR);
 		for (int i = 0; i < count; i++) {
 			// Centred on the view: an odd count puts one ball down the crosshair, an even one straddles it.
 			float offset = (i - (count - 1) / 2.0f) * fanYaw;
@@ -393,9 +396,12 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			ball.setWeapon(weapon);
 			ball.setSplatRadius(tuning.intValue(Param.SPLAT_RADIUS));
 			ball.setDamage(tuning.floatValue(Param.DAMAGE));
+			ball.setDecay(tuning.intValue(Param.DECAY_START), tuning.floatValue(Param.DECAY_PER_TICK),
+					tuning.floatValue(Param.DECAYED_DAMAGE));
 			ball.setGravity(tuning.value(Param.GRAVITY));
+			ball.setFlight(tuning.value(Param.STRAIGHT_BLOCKS), tuning.value(Param.DECAYED_SPEED));
 			ball.shootFromRotation(player, pitch, player.getYRot() + offset, 0.0f,
-					tuning.floatValue(Param.VELOCITY), tuning.floatValue(Param.SPREAD));
+					tuning.floatValue(Param.VELOCITY), spread);
 			level.addFreshEntity(ball);
 		}
 	}
@@ -458,7 +464,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		if (player.getCooldowns().isOnCooldown(gun)) return false;
 		fire(level, player, ready.get());
 		feel(level, player, ready.get());
-		Ink.add(gun, -cost);
+		spend(level, gun, cost);
 		player.getCooldowns().addCooldown(gun, tuning.intValue(Param.COOLDOWN));
 		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 		return true;
@@ -515,7 +521,8 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			if (PaintBall.hostile(color, inTheWay.getEntity())) {
 				float damageMin = tuning.floatValue(Param.CHARGE_DAMAGE_MIN);
 				float hurt = damageMin + (tuning.floatValue(Param.CHARGE_DAMAGE_FULL) - damageMin) * charge;
-				if (inTheWay.getEntity().hurtServer(serverLevel, serverLevel.damageSources().indirectMagic(player, player), hurt)) {
+				if (PaintDamage.hurt(serverLevel, inTheWay.getEntity(),
+						serverLevel.damageSources().indirectMagic(player, player), hurt)) {
 					InkOnScreen.hit(inTheWay.getEntity(), color, hurt);
 				}
 			}
@@ -523,7 +530,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			painted += Painter.splash(serverLevel, end, hit.getBlockPos(), hit.getDirection(), color, serverLevel.getRandom(), player);
 		}
 		Rivals.LOGGER.debug("charger: charge {}, range {}, {} cells painted", charge, range, painted);
-		Ink.add(stack, -cost);
+		spend(serverLevel, stack, cost);
 		player.getCooldowns().addCooldown(stack, tuning.intValue(Param.COOLDOWN));
 		// A half charge should not buck like a full one, so the kick rides the charge.
 		Recoil.kick(player, tuning.floatValue(Param.KICK) * charge);
@@ -553,6 +560,16 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			return Optional.empty();
 		}
 		return color;
+	}
+
+	/**
+	 * Pay for a shot: the ink, and the stamp that holds the own-paint top-up off for the weapon's
+	 * {@code refill_delay}. Every path that fires goes through here, so there is one place the two are
+	 * kept together and no way to spend ink without starting the wait.
+	 */
+	private static void spend(ServerLevel level, ItemStack gun, int cost) {
+		Ink.add(gun, -cost);
+		Ink.noteShot(gun, level.getServer().getTickCount());
 	}
 
 	/** An empty tank: start the refill, and hold the gun on cooldown until it is done. */

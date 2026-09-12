@@ -25,8 +25,33 @@ public final class Ink {
 	public static final int REFILL_TICKS = 30;
 	static final String INK = "rivals_ink";
 	static final String REFILL_UNTIL = "rivals_refill_until";
+	/** The tick of the last shot, for {@link #recovering}. */
+	static final String LAST_SHOT = "rivals_last_shot";
 
 	private Ink() {}
+
+	/**
+	 * Note that this weapon has just fired. Splatcraft calls the wait that follows
+	 * {@code ink_recovery_cooldown}: standing in your own ink does not top the tank up until the weapon
+	 * has been quiet for the weapon's own {@code refill_delay} ticks, so a weapon cannot be fired and
+	 * refilled in the same breath — which is most of why holding down a shooter over your own paint is
+	 * not free.
+	 */
+	public static void noteShot(ItemStack stack, long now) {
+		CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.putLong(LAST_SHOT, now));
+	}
+
+	/**
+	 * Is this weapon still inside its post-shot wait? An absolute server tick, so the same rule
+	 * {@link #stale} uses applies: a stamp further ahead than the wait itself cannot have been written
+	 * this session and counts as long past.
+	 */
+	public static boolean recovering(ItemStack stack, long now, int delay) {
+		if (delay <= 0) return false;
+		long last = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag().getLongOr(LAST_SHOT, Long.MIN_VALUE);
+		if (last == Long.MIN_VALUE || last > now) return false;
+		return now - last < delay;
+	}
 
 	/** What the stack holds, clamped: the tank has changed size once and may again. */
 	public static int get(ItemStack stack) {

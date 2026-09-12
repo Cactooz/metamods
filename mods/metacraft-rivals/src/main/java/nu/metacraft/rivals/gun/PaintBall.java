@@ -92,6 +92,8 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private static final double ORIENT_EPSILON = 1.0e-3;
 	/** Lifted off the struck face so the bounced ball does not start inside it. */
 	private static final double BOUNCE_LIFT = 0.05;
+	/** How much speed a landed bomb keeps off a face: enough to settle, not enough to travel. */
+	private static final double BOMB_RESTITUTION = 0.3;
 	/**
 	 * What a bounce throws off by default: how many droplets, how long each lives, and how they leave.
 	 * These are the defaults {@link WeaponTuning} is built from; what a bounce actually throws is the
@@ -111,6 +113,21 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private float damage = Weapon.SHOOTER.damage;
 	private double gravity = GRAVITY;
 	private int age = 0;
+	/** The straight-shot window: blocks of flight at full speed, and the speed left when it runs out. */
+	private double straightBlocks = 0.0;
+	private double decayedSpeed = 0.0;
+	/** How far this ball has actually flown, and whether the window has closed. */
+	private double travelled = 0.0;
+	private boolean decayed = false;
+	/** The damage falloff: full damage until {@code decayStart} ticks, then down to {@code decayedDamage}. */
+	private int decayStart = 0;
+	private float decayPerTick = 0.0f;
+	private float decayedDamage = Weapon.SHOOTER.damage;
+	/** Ticks left of a landed bomb's fuse, or −1 for a bomb that has not landed (and for every other ball). */
+	private int fuse = -1;
+	/** The bomb's blast at its edge, and how far the edge is. */
+	private float edgeDamage = 0.0f;
+	private double core = Weapon.SPECIAL_CORE;
 	private boolean droplet = false;
 	/** The display's resting size for this ball; the splat bomb is a much bigger blob. */
 	private float blobScale = BLOB_SCALE;
@@ -187,6 +204,39 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 
 	public void setDamage(float damage) {
 		this.damage = damage;
+		this.decayedDamage = damage;
+	}
+
+	/**
+	 * Splatoon's shot shape, and the one thing that most separates its weapons from each other: a ball
+	 * flies dead straight at its launch speed for {@code blocks}, and then drops to {@code speed} with
+	 * gravity under it. {@code blocks} of 0 is a ball that falls from the moment it leaves, which is what
+	 * a slosher's bucketful and a roller's flick do.
+	 */
+	public void setFlight(double blocks, double speed) {
+		this.straightBlocks = blocks;
+		this.decayedSpeed = speed;
+		if (blocks > 0) setNoGravity(true);
+	}
+
+	/**
+	 * The damage falloff: full {@link #damage()} until {@code start} ticks of flight, then {@code perTick}
+	 * off every tick down to {@code floor}. A {@code perTick} of 0 leaves the damage flat.
+	 */
+	public void setDecay(int start, float perTick, float floor) {
+		this.decayStart = start;
+		this.decayPerTick = perTick;
+		this.decayedDamage = floor;
+	}
+
+	/**
+	 * What this ball is worth <em>now</em>: the launch damage until the falloff starts, then down a step
+	 * a tick to its floor. Read at the hit rather than baked in at the throw, which is the whole point —
+	 * a shooter's shot is worth twice as much across a corridor as it is across a courtyard.
+	 */
+	public float damageNow() {
+		if (decayPerTick <= 0) return damage;
+		return Math.max(decayedDamage, damage - decayPerTick * Math.max(0, age - decayStart));
 	}
 
 	/**
@@ -301,11 +351,28 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 
 	@Override
 	public void tick() {
+		Vec3 was = position();
 		super.tick();
 		if (isRemoved() || !(level() instanceof ServerLevel serverLevel)) return;
 		if (blob == null) attachBlob();
+		travelled += position().distanceTo(was);
+		// The end of the straight shot: the ball keeps its direction, drops to the decayed speed and
+		// starts falling. One step rather than a taper, which is what Splatoon does and what makes the
+		// edge of a weapon's range a place rather than a gradient.
+		if (!decayed && straightBlocks > 0 && travelled >= straightBlocks) {
+			decayed = true;
+			setNoGravity(false);
+			Vec3 v = getDeltaMovement();
+			if (v.lengthSqr() > 1.0e-9) setDeltaMovement(v.normalize().scale(decayedSpeed));
+		}
 		shape();
 		age++;
+		// A landed bomb counts down where it lies, so it can be run away from. Its own lifetime still
+		// stands behind that, for one that never finds a floor.
+		if (fuse > 0 && --fuse == 0) {
+			detonate(serverLevel, position());
+			return;
+		}
 		if (lifetime > 0 && age >= lifetime) expire(serverLevel);
 	}
 
@@ -368,28 +435,82 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 
 	/** Out of time: splash the first surface within {@link #EXPIRE_RAY} straight down, then go. */
 	private void expire(ServerLevel level) {
+		if (isBomb()) {
+			detonate(level, position());
+			return;
+		}
 		Vec3 from = position();
 		Vec3 to = from.subtract(0, EXPIRE_RAY, 0);
 		BlockHitResult hit = level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
 		if (hit.getType() == HitResult.Type.BLOCK) {
 			Painter.splash(level, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, splatRadius, this);
 		}
-		if (isBomb()) hurtNearby(level, position());
+		discard();
+	}
+
+	/** The bomb's blast at its edge, and how far in from the centre the full damage reaches. */
+	public void setBlast(double range, float edgeDamage, double core) {
+		setBlast(range);
+		this.edgeDamage = edgeDamage;
+		this.core = core;
+	}
+
+	/** How far this ball has actually flown, in blocks. What the straight-shot window is measured against. */
+	public double travelled() {
+		return travelled;
+	}
+
+	/** Ticks left of a landed bomb's fuse, or −1 for one that has not landed. For the tests. */
+	public int fuse() {
+		return fuse;
+	}
+
+	/** Start the countdown, if it has not already started. A bomb lands once. */
+	private void land(int ticks) {
+		if (fuse < 0) fuse = Math.max(1, ticks);
+	}
+
+	/**
+	 * The splat bomb going off: the paint where it lies, the bang, and a hit on everyone from another
+	 * team in the blast. Called when the fuse runs out and when the bomb's own lifetime does, because a
+	 * bomb that never finds a floor should still go off rather than vanish.
+	 */
+	private void detonate(ServerLevel level, Vec3 at) {
+		BlockHitResult down = level.clip(new ClipContext(at, at.subtract(0, EXPIRE_RAY, 0),
+				ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
+		if (down.getType() == HitResult.Type.BLOCK) {
+			Painter.splash(level, down.getLocation(), down.getBlockPos(), down.getDirection(), color, random, splatRadius, this);
+		}
+		hurtNearby(level, at);
 		discard();
 	}
 
 	/**
-	 * The splat bomb's landing: a bang, and a hit on everyone from another team standing in the blast.
-	 * Called from the hit path and from {@link #expire}, because a bomb that runs out of time over
-	 * someone's head should still go off.
+	 * Everyone from another team within {@link #blast} blocks takes the bomb, falling off from
+	 * {@link #damage} at the centre to {@link #edgeDamage} at the edge, linear in distance <em>squared</em>
+	 * — which is the shape Splatcraft's {@code InkExplosion} uses, and reads as a blast that is lethal
+	 * where it lands and a shove where it does not. Inside {@link #core} blocks it is at full: the falloff
+	 * starts at the edge of the bomb rather than at a point.
+	 *
+	 * <p>No line-of-sight clip. One per victim is a real cost, and in a world of stairs and slabs it is
+	 * wrong about as often as it is right — a bomb at your feet behind a half-step would do nothing.
 	 */
 	private void hurtNearby(ServerLevel level, Vec3 at) {
 		level.playSound(null, at.x, at.y, at.z, SoundEvents.SLIME_BLOCK_BREAK, SoundSource.PLAYERS, 1.2f, 0.7f);
-		if (damage <= 0) return;
+		if (damage <= 0 || blast <= 0) return;
+		double inner = Math.min(core, blast);
 		for (LivingEntity caught : level.getEntitiesOfClass(LivingEntity.class, AABB.ofSize(at, blast * 2, blast * 2, blast * 2))) {
-			if (!hostile(color, caught) || caught.position().distanceToSqr(at) > blast * blast) continue;
-			if (caught.hurtServer(level, level.damageSources().thrown(this, getOwner()), damage)) {
-				InkOnScreen.hit(caught, color, damage);
+			if (!hostile(color, caught)) continue;
+			double distanceSqr = caught.position().distanceToSqr(at);
+			if (distanceSqr > blast * blast) continue;
+			float hurt = damage;
+			if (distanceSqr > inner * inner) {
+				double span = blast * blast - inner * inner;
+				double t = span <= 0 ? 1.0 : (distanceSqr - inner * inner) / span;
+				hurt = (float) (damage + (edgeDamage - damage) * t);
+			}
+			if (hurt > 0 && PaintDamage.hurt(level, caught, level.damageSources().thrown(this, getOwner()), hurt)) {
+				InkOnScreen.hit(caught, color, hurt);
 			}
 		}
 	}
@@ -403,16 +524,23 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	 */
 	@Override
 	protected void onHit(HitResult result) {
-		// A splat bomb neither bounces nor hurts only what it touched: wherever it stops, it goes off.
+		// A splat bomb is not a contact grenade. Splatoon's bounces where it is thrown and counts down on
+		// the ground, which is what makes it a thing you can run away from — and what makes throwing one
+		// at someone's feet a decision about where they will be in a second, not about where they are.
+		// Hitting a player does not arm it either; it rolls off them.
 		if (isBomb() && level() instanceof ServerLevel bombLevel) {
 			if (result instanceof BlockHitResult hit && !hit.isWorldBorderHit()) {
-				Painter.splash(bombLevel, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, splatRadius, this);
-			} else if (result instanceof EntityHitResult caught) {
-				Painter.splash(bombLevel, result.getLocation(), caught.getEntity().blockPosition().below(),
-						Direction.UP, color, random, splatRadius, this);
+				super.onHitBlock(hit);
+				land(WeaponTuning.get(weapon).intValue(WeaponTuning.Param.SPECIAL_FUSE));
+				Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getUnitVec3i());
+				Vec3 v = getDeltaMovement();
+				setDeltaMovement(v.subtract(normal.scale(2 * v.dot(normal))).scale(BOMB_RESTITUTION));
+				setPos(hit.getLocation().add(normal.scale(BOUNCE_LIFT)));
+				bombLevel.playSound(null, getX(), getY(), getZ(), SoundEvents.SLIME_BLOCK_STEP, SoundSource.PLAYERS, 0.7f, 1.2f);
+				return;
 			}
-			hurtNearby(bombLevel, result.getLocation());
-			discard();
+			if (result instanceof EntityHitResult) return; // it glances off; the fuse decides, not the touch
+			super.onHit(result);
 			return;
 		}
 		if (bounces > 0 && result instanceof BlockHitResult hit && !hit.isWorldBorderHit()
@@ -484,10 +612,13 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		if (!(level() instanceof ServerLevel serverLevel)) return;
 		BlockPos below = hit.getEntity().blockPosition().below();
 		Painter.splash(serverLevel, position(), below, Direction.UP, color, random, splatRadius, this);
-		if (damage > 0 && hostile(color, hit.getEntity())
-				&& hit.getEntity().hurtServer(serverLevel, serverLevel.damageSources().thrown(this, getOwner()), damage)) {
+		// What it is worth now, not what it left the barrel worth: see damageNow(). Through PaintDamage,
+		// because a weapon that lands two of these on one tick must land both of them.
+		float hurt = damageNow();
+		if (hurt > 0 && hostile(color, hit.getEntity())
+				&& PaintDamage.hurt(serverLevel, hit.getEntity(), serverLevel.damageSources().thrown(this, getOwner()), hurt)) {
 			// And a faceful of it on the way past: the shooter's colour, on the victim's screen.
-			InkOnScreen.hit(hit.getEntity(), color, damage);
+			InkOnScreen.hit(hit.getEntity(), color, hurt);
 		}
 	}
 

@@ -20,12 +20,23 @@ import java.util.stream.Stream;
  * base cost, with the charge surcharge added at release. {@code damage} is the same story: a direct
  * hit on someone from another team hurts, and the charger's share of that is on the charge rather
  * than on a ball.
+ *
+ * <p><b>Where the numbers come from.</b> Since round 7 they are Splatoon 1's own, read off Splatcraft
+ * (MIT), whose {@code data/splatcraft/weapon_settings/*.json} are that game's figures on the scale this
+ * module already uses: 20 hit points, a hundred-unit ink tank, twenty ticks to the second. Each default
+ * below names its file and its value, so the calibration can be checked rather than believed. What is
+ * <em>not</em> Splatoon is anything about paint coverage — splat radii, bounces, the charger's trail —
+ * because those are this game's geometry rather than that one's.
  */
 public enum Weapon {
-	SHOOTER("paint_gun", "Paint Gun", 1, 3, 1.8f, 2.0f, -2.5f, 3.0f),
-	CHARGER("charger", "Paint Charger", 4, 20, 0.0f, 0.0f, -6.0f, 0.0f),
-	SLOSHER("slosher", "Paint Slosher", 15, 14, 1.1f, 0.0f, -3.0f, 4.0f),
-	ROLLER("roller", "Paint Roller", 9, 15, 0.55f, 0.0f, -4.0f, 30.0f);
+	/** Splattershot ({@code splattershot.json}): 3 ticks a shot, 0.9 ink, speed 2.0, damage 8. */
+	SHOOTER("paint_gun", "Paint Gun", 1, 3, 2.0f, 6.0f, -2.5f, 8.0f, 7),
+	/** Splat Charger ({@code splat_charger.json}): the charge is the weapon; see the CHARGE_* below. */
+	CHARGER("charger", "Paint Charger", 2, 20, 0.0f, 0.0f, -6.0f, 0.0f, 7),
+	/** Slosher ({@code slosher.json}): a 12-tick cycle (2 startup, 10 endlag), 7 ink, 7 flat damage. */
+	SLOSHER("slosher", "Paint Slosher", 7, 12, 1.1f, 0.0f, -3.0f, 7.0f, 13),
+	/** Splat Roller ({@code splat_roller.json}), the swing half: 9 ink, 15 recovery, 30 damage at 0.55. */
+	ROLLER("roller", "Paint Roller", 9, 15, 0.55f, 0.0f, -4.0f, 30.0f, 15);
 
 	/** Registry path and model path. Also accepted by {@code /rivals gun <weapon>}. */
 	public final String id;
@@ -49,10 +60,29 @@ public enum Weapon {
 	// default behind the WeaponTuning parameter of the same meaning, named in its javadoc.
 
 	/**
-	 * Shooter: how many block hits reflect the ball instead of ending it. Two rather than one — a single
-	 * bounce reads as a ball that stuck to the second wall it met, two as a ball that is bouncing.
+	 * Shooter: how many block hits reflect the ball instead of ending it. One now rather than two: the
+	 * ball spends most of its flight decayed and slow, and a second bounce off that was a dribble.
 	 */
-	public static final int SHOOTER_BOUNCES = 2;
+	public static final int SHOOTER_BOUNCES = 1;
+	/**
+	 * Shooter: the flight, from {@code splattershot.json}. A Splatoon shot is straight and fast for a
+	 * fixed distance and then falls: speed 2.0 for eight blocks, then 0.5 with gravity 0.075 under it
+	 * (Splatcraft's {@code InkProjectileEntity} keeps {@code isNoGravity} for the straight-shot window).
+	 * That is the shape that makes a shooter accurate up close and a paint hose at range, and it is what
+	 * {@link PaintBall} now flies.
+	 */
+	public static final double SHOOTER_STRAIGHT_BLOCKS = 8.0;
+	public static final double SHOOTER_DECAYED_SPEED = 0.5;
+	public static final double SHOOTER_GRAVITY = 0.075;
+	/**
+	 * Shooter: the damage falls off with time in the air — 8 for the first three ticks, then 0.34 a tick
+	 * down to a floor of 4. Two shots kill at point-blank; four are needed across a room.
+	 */
+	public static final int SHOOTER_DECAY_START = 3;
+	public static final float SHOOTER_DECAY_PER_TICK = 0.34f;
+	public static final float SHOOTER_DECAYED_DAMAGE = 4.0f;
+	/** Shooter: 6 degrees of spread standing, 12 in the air. Splatoon doubles it for a jumping shooter. */
+	public static final float SHOOTER_SPREAD_AIR = 12.0f;
 
 	/**
 	 * Roller: the flick. Splatoon's Splat Roller swing throws three drops in a near-vertical arc that
@@ -65,6 +95,14 @@ public enum Weapon {
 	public static final float ROLLER_FAN_YAW = 20.0f;
 	public static final float ROLLER_PITCH = -67.0f;
 	public static final double ROLLER_GRAVITY = 0.06;
+	/**
+	 * Roller: the flick's damage falls off hard — 30 from tick 8, then 3.45 a tick to a floor of 7. A
+	 * flick that connects is a splat; the same flick caught at the end of its arc is a graze. The drops
+	 * fall from the moment they leave, so there is no straight-shot window on them at all.
+	 */
+	public static final int ROLLER_DECAY_START = 8;
+	public static final float ROLLER_DECAY_PER_TICK = 3.45f;
+	public static final float ROLLER_DECAYED_DAMAGE = 7.0f;
 	/** Roller: the flick lands as a bucketful, 5x5 on the face it finds. */
 	public static final int ROLLER_SPLAT_RADIUS = 2;
 	/**
@@ -95,59 +133,87 @@ public enum Weapon {
 	/** Roller: how far in front of the feet the head sweeps, in blocks. */
 	public static final double ROLL_REACH = 1.5;
 
-	/** Slosher: yaw offsets of the fan, degrees from the look direction. */
-	public static final float[] SLOSHER_FAN = {-15.0f, -5.0f, 5.0f, 15.0f};
+	/**
+	 * Slosher: two pellets eight degrees apart, which is {@code slosher.json}'s two projectiles at its
+	 * own 8° spread — not the four-ball spray this weapon threw before. Both carry flat damage: a
+	 * slosher's bucketful does not care how far it has flown.
+	 */
+	public static final float[] SLOSHER_FAN = {-4.0f, 4.0f};
 	/** Slosher: it lobs, so it aims above the crosshair and falls harder than a shooter's ball. */
-	public static final float SLOSHER_PITCH = -20.0f;
+	public static final float SLOSHER_PITCH = -15.0f;
 	public static final double SLOSHER_GRAVITY = 0.06;
 	/** Slosher: 5x5 on impact. */
 	public static final int SLOSHER_SPLAT_RADIUS = 2;
 
 	/** Charger: it is held to charge, so vanilla's cap for "as long as you like". */
 	public static final int CHARGE_MAX_TICKS = 72000;
-	/** Charger: a full charge, in ticks held; holding longer adds nothing. */
+	/** Charger: a full charge, in ticks held; holding longer adds nothing. {@code splat_charger.json}. */
 	public static final int CHARGE_FULL_TICKS = 20;
 	/** Charger: below this the release is a tap, not a shot — no line, no ink, no cooldown. */
 	public static final int MIN_CHARGE_TICKS = 5;
-	/** Charger: ink at no charge, and what a full charge adds on top. */
-	public static final int CHARGE_BASE_COST = 4;
-	public static final int CHARGE_EXTRA_COST = 8;
-	/** Charger: hitscan reach in blocks, at no charge and what a full charge adds. */
-	public static final double CHARGE_BASE_RANGE = 10.0;
-	public static final double CHARGE_EXTRA_RANGE = 30.0;
-	/** Charger: hearts off whoever stops the line, at no charge and what a full charge adds. */
-	public static final float CHARGE_BASE_DAMAGE = 4.0f;
-	public static final float CHARGE_EXTRA_DAMAGE = 6.0f;
+	/** Charger: ink at no charge, and what a full charge adds on top: 2.25 → 18 in Splatcraft. */
+	public static final int CHARGE_BASE_COST = 2;
+	public static final int CHARGE_EXTRA_COST = 16;
+	/** Charger: hitscan reach in blocks, at no charge and what a full charge adds: 9 → 24. */
+	public static final double CHARGE_BASE_RANGE = 9.0;
+	public static final double CHARGE_EXTRA_RANGE = 15.0;
+	/**
+	 * Charger: hearts off whoever stops the line, at no charge and what a full charge adds. Splatoon's
+	 * charger climbs 8 → 16 with the charge and then jumps to 32 at full, which is the one-shot splat
+	 * the weapon exists for; 8 → 32 here is that curve with the jump smoothed into it, and a full charge
+	 * is still more than a player has.
+	 */
+	public static final float CHARGE_BASE_DAMAGE = 8.0f;
+	public static final float CHARGE_EXTRA_DAMAGE = 24.0f;
 
 	/**
-	 * The splat bomb: the special every weapon but the charger throws on a left click. A slow lob that
-	 * arms nothing and asks for no aim — it splashes a wide patch of paint where it lands and hurts
-	 * whoever is standing in it — bought with most of a tank and a four-second wait of its own, so it is
-	 * a decision rather than a second trigger — most of a 40-ink tank, but not all of it, so a bomb still
-	 * leaves something to shoot with. The charger's left click is its shot instead; scoping is
-	 * what its right click does.
+	 * The splat bomb: the special every weapon but the charger throws on a left click ({@code
+	 * splat_bomb.json}, and {@code InkExplosion} for the blast). Seventy ink of a hundred-unit tank and a
+	 * four-second wait of its own, so it is a decision rather than a second trigger — and seventy still
+	 * leaves something to shoot with. The charger's left click is its shot instead; scoping is what its
+	 * right click does.
+	 *
+	 * <p>It now behaves like Splatoon's: it bounces where it is thrown and only <em>then</em> counts
+	 * down, {@link #SPECIAL_FUSE} ticks of it, so a bomb is a thing you can run away from rather than a
+	 * contact grenade. The blast falls off from {@link #SPECIAL_DAMAGE} at the centre to
+	 * {@link #SPECIAL_EDGE_DAMAGE} at {@link #SPECIAL_BLAST} blocks, linear in distance squared, which
+	 * is the shape Splatcraft's own explosion uses. No line-of-sight test: a blast that has to see you
+	 * costs a clip per victim and is wrong as often as it is right in a world of stairs.
 	 */
-	public static final int SPECIAL_INK = 25;
+	public static final int SPECIAL_INK = 70;
 	public static final int SPECIAL_COOLDOWN = 80;
 	/** How far the splash reaches: 3 is 7×7 on the face it lands on. */
 	public static final int SPECIAL_RADIUS = 3;
-	/** Hearts off everyone from another team within {@link #SPECIAL_BLAST} blocks of the landing. */
-	public static final float SPECIAL_DAMAGE = 6.0f;
-	public static final double SPECIAL_BLAST = 2.0;
+	/** Hearts at the centre of the blast, and at its edge {@link #SPECIAL_BLAST} blocks out. */
+	public static final float SPECIAL_DAMAGE = 36.0f;
+	public static final float SPECIAL_EDGE_DAMAGE = 6.0f;
+	public static final double SPECIAL_BLAST = 3.25;
+	/** Inside this, the blast is at full: the falloff starts at the edge of the bomb, not at its centre. */
+	public static final double SPECIAL_CORE = 0.5;
+	/** Ticks between landing and going off. */
+	public static final int SPECIAL_FUSE = 20;
 	/** A slow, heavy lob that gives everyone time to see it coming, and dies on its own after 2 s. */
-	public static final float SPECIAL_VELOCITY = 0.8f;
+	public static final float SPECIAL_VELOCITY = 0.75f;
 	public static final double SPECIAL_GRAVITY = 0.06;
 	public static final int SPECIAL_LIFETIME = 40;
 	/** The bomb is a big blob: this is its display scale outright, not a multiple of a ball's. */
 	public static final float SPECIAL_SCALE = 1.6f;
 	/** It is a lob, so it leaves above the crosshair, in degrees of pitch; negative is up. */
-	public static final float SPECIAL_PITCH = -15.0f;
+	public static final float SPECIAL_PITCH = -30.0f;
 
 	/** What a bounce droplet is worth — a graze, not a shot. */
 	public static final float DROPLET_DAMAGE = 0.5f;
 
+	/**
+	 * Ticks after a shot before standing in your own ink starts topping the tank up again — Splatcraft's
+	 * {@code ink_recovery_cooldown}, per weapon: a shooter is back on the tap almost at once, a roller
+	 * has to stop rolling first. It is why a weapon cannot be fired and refilled in the same breath.
+	 */
+	public final int refillDelay;
+
 	Weapon(String id, String displayName, int inkPerShot, int cooldownTicks, float velocity, float inaccuracy,
-			float kickPitch, float damage) {
+			float kickPitch, float damage, int refillDelay) {
+		this.refillDelay = refillDelay;
 		this.id = id;
 		this.displayName = displayName;
 		this.inkPerShot = inkPerShot;

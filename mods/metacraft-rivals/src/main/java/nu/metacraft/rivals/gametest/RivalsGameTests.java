@@ -2217,6 +2217,161 @@ public final class RivalsGameTests {
 	}
 
 	/**
+	 * Splatoon's shot shape: straight and fast for a fixed distance, then slow and falling. The ball keeps
+	 * the direction it was thrown in and drops to {@code decayed_speed} in one step, and only then does
+	 * gravity touch it — which is what makes a shooter accurate up close and a paint hose at range, and
+	 * what a straight line with a constant gravity under it never was.
+	 */
+	@GameTest
+	public void aShotFliesStraightThenDecays(GameTestHelper helper) {
+		// Ticked by hand, and over a shorter window than a shooter's eight blocks: the test's structure is
+		// eight blocks across and walled, so a real shooter's flight would end against the wall rather
+		// than at the end of its window. That the shooter's own numbers are 8 and 0.5 is
+		// tuningDefaultsMatchTheEnum's business; this is the shape they drive.
+		double window = 3.0;
+		double launch = 1.0;
+		PaintBall ball = new PaintBall(helper.getLevel(), null, PaintColor.DATA, 0, 0);
+		Vec3 at = helper.absoluteVec(new Vec3(4.0, 6.0, 0.5));
+		ball.setPos(at.x, at.y, at.z);
+		ball.setGravity(Weapon.SHOOTER_GRAVITY);
+		ball.setFlight(window, Weapon.SHOOTER_DECAYED_SPEED);
+		ball.setDeltaMovement(0, 0, launch); // straight along +z, level
+		helper.assertTrue(ball.isNoGravity(), "the straight stretch has no gravity under it");
+		double startY = ball.getY();
+		for (int i = 0; i < 3; i++) ball.tick();
+		helper.assertTrue(ball.travelled() < window, "still inside the window at " + ball.travelled() + " blocks");
+		helper.assertTrue(ball.isNoGravity(), "and still straight");
+		helper.assertTrue(Math.abs(ball.getY() - startY) < 1.0e-6, "and dead level: " + (ball.getY() - startY));
+		helper.assertTrue(ball.getDeltaMovement().z > 0.9, "and still fast: " + ball.getDeltaMovement().z);
+		ball.tick();
+		helper.assertTrue(ball.travelled() >= window, "past the window at " + ball.travelled() + " blocks");
+		helper.assertTrue(!ball.isNoGravity(), "past the window, gravity is on");
+		helper.assertTrue(ball.getDeltaMovement().z < Weapon.SHOOTER_DECAYED_SPEED + 0.05,
+				"and the speed has dropped to the decayed one: " + ball.getDeltaMovement().z);
+		// The window closes at the end of the tick that crossed it, so the first fall is the tick after.
+		ball.tick();
+		helper.assertTrue(ball.getY() < startY, "and it is falling: " + (ball.getY() - startY));
+		ball.discard();
+		helper.succeed();
+	}
+
+	/**
+	 * The damage falloff. A shooter's ball is worth its full damage for the first few ticks of flight and
+	 * then loses a slice a tick down to a floor, so the same weapon takes two shots to splat across a
+	 * doorway and four across a courtyard. Read at the hit, not baked in at the throw.
+	 */
+	@GameTest(maxTicks = 80)
+	public void damageFallsOffWithTimeInTheAir(GameTestHelper helper) {
+		PaintBall ball = new PaintBall(helper.getLevel(), null, PaintColor.DATA, 0, 0);
+		ball.setDamage(Weapon.SHOOTER.damage);
+		ball.setDecay(Weapon.SHOOTER_DECAY_START, Weapon.SHOOTER_DECAY_PER_TICK, Weapon.SHOOTER_DECAYED_DAMAGE);
+		ball.setNoGravity(true);
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 6.0, 2.5));
+		ball.setPos(at.x, at.y, at.z);
+		helper.assertValueEqual(ball.damageNow(), Weapon.SHOOTER.damage, "a shot leaves the barrel at full damage");
+		helper.getLevel().addFreshEntity(ball);
+		helper.runAfterDelay(Weapon.SHOOTER_DECAY_START, () ->
+				helper.assertValueEqual(ball.damageNow(), Weapon.SHOOTER.damage, "and holds it until the falloff starts"));
+		helper.runAfterDelay(Weapon.SHOOTER_DECAY_START + 4, () -> {
+			float expected = Weapon.SHOOTER.damage - 4 * Weapon.SHOOTER_DECAY_PER_TICK;
+			helper.assertTrue(Math.abs(ball.damageNow() - expected) < 1.0e-4,
+					"then a slice a tick: " + ball.damageNow() + ", expected " + expected);
+		});
+		helper.runAfterDelay(60, () -> {
+			helper.assertValueEqual(ball.damageNow(), Weapon.SHOOTER_DECAYED_DAMAGE, "and never below the floor");
+			ball.discard();
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * Two pellets in one tick are two hits. Vanilla keeps a twenty-tick window after a hit and, for the
+	 * first ten of it, applies only the <em>excess</em> over the last one — which is why a slosher's
+	 * bucketful used to do the damage of a single pellet, and why a shooter firing every three ticks lost
+	 * two shots in three. {@link PaintDamage} takes the window off before and after every paint hit;
+	 * this is the rule that makes every weapon in the module work, so it is measured as a number rather
+	 * than asserted as a comment.
+	 */
+	@GameTest
+	public void everyPelletLandsItsOwnDamage(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		Player target = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(target.getScoreboardName(), team(helper, PaintColor.IT));
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 2.0, 2.5));
+		target.setPos(at.x, at.y, at.z);
+		target.setHealth(target.getMaxHealth());
+		float damage = 3.0f;
+		float before = target.getHealth();
+		// Two pellets of one slosh, landing on the same tick.
+		for (int i = 0; i < 2; i++) {
+			PaintBall pellet = new PaintBall(helper.getLevel(), null, PaintColor.DATA, 0, 0);
+			pellet.setPos(at.x, at.y + 1.0, at.z);
+			pellet.setDamage(damage);
+			pellet.onHitEntity(new EntityHitResult(target));
+		}
+		helper.assertValueEqual(target.getHealth(), before - 2 * damage,
+				"both pellets of one slosh land in full, not the second as the excess over the first");
+		// And vanilla's own window is gone rather than merely shortened: nothing is left to gate a third.
+		helper.assertValueEqual(target.damageCooldownTime, 0, "the cooldown is left at zero for the next one");
+		PaintBall third = new PaintBall(helper.getLevel(), null, PaintColor.DATA, 0, 0);
+		third.setPos(at.x, at.y + 1.0, at.z);
+		third.setDamage(damage);
+		third.onHitEntity(new EntityHitResult(target));
+		helper.assertValueEqual(target.getHealth(), before - 3 * damage, "and a third lands too");
+		// The other half of the rule, and the one a shooter lives on: three shots three ticks apart are
+		// three shots, which is inside the ten ticks vanilla would have swallowed two of them in.
+		target.setHealth(target.getMaxHealth());
+		float volleyStart = target.getHealth();
+		for (int shot = 0; shot < 3; shot++) {
+			helper.runAfterDelay(shot * 3, () -> {
+				PaintBall ball = new PaintBall(helper.getLevel(), null, PaintColor.DATA, 0, 0);
+				ball.setPos(at.x, at.y + 1.0, at.z);
+				ball.setDamage(damage);
+				ball.onHitEntity(new EntityHitResult(target));
+			});
+		}
+		helper.runAfterDelay(8, () -> {
+			helper.assertValueEqual(target.getHealth(), volleyStart - 3 * damage,
+					"a three-tick cadence lands every shot");
+			helper.getEntities(PaintBall.TYPE, new BlockPos(2, 2, 2), 6.0).forEach(Entity::discard);
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * The splat bomb is not a contact grenade. It bounces where it is thrown and counts its fuse down on
+	 * the ground, so it is a thing that can be run away from; the blast then falls off from its centre
+	 * damage to its edge damage over {@code special_blast} blocks, linear in distance squared.
+	 */
+	@GameTest(maxTicks = 60)
+	public void theSplatBombLandsBeforeItGoesOff(GameTestHelper helper) {
+		stoneFloor(helper, 7);
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 3.5));
+		player.setPos(at.x, at.y, at.z);
+		player.setXRot(90.0f); // straight down, so it lands at once and cannot wander out of the structure
+		helper.assertTrue(((PaintWeapon) gun.getItem()).special(helper.getLevel(), player, gun), "the bomb is thrown");
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX - Weapon.SPECIAL_INK, "seventy ink of a hundred-unit tank");
+		List<PaintBall> bombs = helper.getEntities(PaintBall.TYPE, new BlockPos(3, 2, 3), 6.0);
+		helper.assertValueEqual(bombs.size(), 1, "one bomb");
+		PaintBall bomb = bombs.get(0);
+		helper.assertTrue(bomb.isBomb(), "and it is a bomb");
+		helper.assertValueEqual(bomb.fuse(), -1, "which has not landed yet");
+		helper.runAfterDelay(4, () -> {
+			helper.assertTrue(bomb.fuse() > 0, "it has landed and is counting down: " + bomb.fuse());
+			helper.assertTrue(!bomb.isRemoved(), "and has not gone off on contact");
+		});
+		helper.runAfterDelay(Weapon.SPECIAL_FUSE + 8, () -> {
+			helper.assertTrue(bomb.isRemoved(), "the fuse runs out and it goes off");
+			helper.assertTrue(isPaint(helper.getBlockState(new BlockPos(3, 2, 3)), PaintColor.DATA),
+					"leaving paint where it lay");
+			helper.succeed();
+		});
+	}
+
+	/**
 	 * The shooter is a held-use weapon: the press starts using it and fires at once, and every tick the
 	 * button stays down goes through {@code onUseTick}, which fires again as soon as the item cooldown is
 	 * up. That is the whole point of the change — a vanilla client repeats a held right click only every
@@ -2427,7 +2582,7 @@ public final class RivalsGameTests {
 	 * splat radius each, and the slosher is the one weapon whose use swings the arm.
 	 */
 	@GameTest
-	public void slosherThrowsFourInAFan(GameTestHelper helper) {
+	public void slosherThrowsTwoPelletsInAFan(GameTestHelper helper) {
 		Player player = gunner(helper);
 		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.SLOSHER)));
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
@@ -2435,11 +2590,13 @@ public final class RivalsGameTests {
 		helper.assertTrue(result.consumesAction(), "sloshes");
 		helper.assertTrue(result == InteractionResult.SUCCESS_SERVER, "the slosher swings the arm, got " + result);
 		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
-		helper.assertValueEqual(balls.size(), 4, "four balls");
+		helper.assertValueEqual(balls.size(), Weapon.SLOSHER_FAN.length, "two pellets, as Splatoon's slosher throws");
 		List<Double> yaws = new ArrayList<>();
 		for (PaintBall ball : balls) {
 			helper.assertValueEqual(ball.splatRadius(), 2, "5x5 splat");
 			helper.assertValueEqual(ball.bouncesLeft(), 0, "no bounce");
+			// Flat damage: a bucketful is worth the same wherever it lands, so the falloff is off.
+			helper.assertValueEqual(ball.damageNow(), Weapon.SLOSHER.damage, "a pellet's damage does not decay");
 			Vec3 v = ball.getDeltaMovement();
 			helper.assertTrue(v.y > 0, "the slosh is lobbed, not thrown flat: " + v.y);
 			yaws.add(Math.atan2(-v.x, v.z));
@@ -2447,7 +2604,7 @@ public final class RivalsGameTests {
 		for (int i = 0; i < yaws.size(); i++) {
 			for (int j = i + 1; j < yaws.size(); j++) {
 				helper.assertTrue(Math.abs(yaws.get(i) - yaws.get(j)) > 1.0e-4,
-						"the four balls fan out: " + yaws.get(i) + " vs " + yaws.get(j));
+						"the pellets fan out: " + yaws.get(i) + " vs " + yaws.get(j));
 			}
 		}
 		helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)), Ink.MAX - Weapon.SLOSHER.inkPerShot, "ink cost");
@@ -2500,7 +2657,8 @@ public final class RivalsGameTests {
 		}
 		helper.assertTrue(painted >= 3, "floor painted along the line, got " + painted);
 		helper.assertTrue(hasFace(helper.getBlockState(new BlockPos(5, 2, 3)), PaintColor.DATA, Direction.EAST), "end wall splatted");
-		helper.assertValueEqual(Ink.get(charger), Ink.MAX - 12, "full charge costs 12");
+		helper.assertValueEqual(Ink.get(charger), Ink.MAX - (Weapon.CHARGE_BASE_COST + Weapon.CHARGE_EXTRA_COST),
+				"a full charge costs charge_ink_full");
 		helper.succeed();
 	}
 
@@ -2593,8 +2751,8 @@ public final class RivalsGameTests {
 					"a full charge is held, got " + player.getTicksUsingItem());
 			helper.assertTrue(PaintWeapon.leftClick(player), "left click fires");
 			helper.assertTrue(!player.isUsingItem(), "and lets go of the scope");
-			helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)), Ink.MAX - 12,
-					"a full charge costs 12");
+			helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)),
+					Ink.MAX - (Weapon.CHARGE_BASE_COST + Weapon.CHARGE_EXTRA_COST), "a full charge costs charge_ink_full");
 			int painted = 0;
 			for (int x = 1; x <= 5; x++) {
 				if (isPaint(helper.getBlockState(new BlockPos(x, 2, 3)), PaintColor.DATA)) painted++;
@@ -3024,7 +3182,31 @@ public final class RivalsGameTests {
 			// The ball weapons: the numbers each arm of fire used to spell out for itself.
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("bounces"), (double) Weapon.SHOOTER_BOUNCES, "shooter bounces");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("count"), 1.0, "shooter fires one ball");
-			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("gravity"), PaintBall.GRAVITY, "shooter gravity");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("gravity"), Weapon.SHOOTER_GRAVITY, "shooter gravity");
+			// The straight-shot window, which is the shape of a Splatoon weapon more than any other number.
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("straight_blocks"), Weapon.SHOOTER_STRAIGHT_BLOCKS,
+					"shooter straight-shot window");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("decayed_speed"), Weapon.SHOOTER_DECAYED_SPEED,
+					"shooter speed after it");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("decay_start"), (double) Weapon.SHOOTER_DECAY_START,
+					"shooter falloff start");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("decay_per_tick"), (double) Weapon.SHOOTER_DECAY_PER_TICK,
+					"shooter falloff rate");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("decayed_damage"), (double) Weapon.SHOOTER_DECAYED_DAMAGE,
+					"shooter damage floor");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("spread_air"), (double) Weapon.SHOOTER_SPREAD_AIR,
+					"a shooter fired in the air scatters twice as wide");
+			// A weapon that says nothing about falloff has none: the floor is the launch damage.
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("decay_per_tick"), 0.0, "a bucketful does not decay");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("decayed_damage"), (double) Weapon.SLOSHER.damage,
+					"so its floor is its damage");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("straight_blocks"), 0.0,
+					"and it falls from the moment it leaves");
+			// The post-shot wait before own paint refills, per weapon.
+			for (Weapon weapon : Weapon.values()) {
+				helper.assertValueEqual(WeaponTuning.get(weapon).value("refill_delay"), (double) weapon.refillDelay,
+						weapon.commandId() + " refill delay");
+			}
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("splat_radius"), (double) Painter.RADIUS, "shooter splat radius");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("count"), (double) Weapon.ROLLER_FLICK_BALLS, "roller flick drops");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("fan_yaw"), (double) Weapon.ROLLER_FAN_YAW, "roller flick fan");
@@ -3052,8 +3234,19 @@ public final class RivalsGameTests {
 					"charger ink at a full charge");
 			helper.assertValueEqual(charger.value("charge_damage_full"), (double) (Weapon.CHARGE_BASE_DAMAGE + Weapon.CHARGE_EXTRA_DAMAGE),
 					"charger damage at a full charge");
+			// Splatoon's charger: 9 blocks to 24, 2 ink to 18, 8 damage to a one-shot splat at full.
+			helper.assertValueEqual(charger.value("range_min"), 9.0, "a snap shot reaches nine blocks");
+			helper.assertValueEqual(charger.value("range_full"), 24.0, "a full charge reaches twenty-four");
+			helper.assertValueEqual(charger.value("charge_ink_min"), 2.0, "a snap shot costs two");
+			helper.assertValueEqual(charger.value("charge_ink_full"), 18.0, "a full charge costs eighteen");
+			helper.assertValueEqual(charger.value("charge_damage_min"), 8.0, "a snap shot is worth a shooter's shot");
+			helper.assertTrue(charger.value("charge_damage_full") > 20.0,
+					"and a full charge is a splat: " + charger.value("charge_damage_full"));
 			helper.assertFalse(WeaponTuning.applies(Weapon.SLOSHER, Param.RANGE_FULL), "the slosher has no charge to tune");
 			helper.assertFalse(WeaponTuning.applies(Weapon.CHARGER, Param.BOUNCES), "the charger throws nothing to bounce");
+			// The roll belongs to the roller alone, as the charge belongs to the charger.
+			helper.assertFalse(WeaponTuning.applies(Weapon.SHOOTER, Param.ROLL_WIDTH), "a shooter does not roll");
+			helper.assertTrue(WeaponTuning.applies(Weapon.ROLLER, Param.ROLL_WIDTH), "the roller does");
 		});
 		helper.succeed();
 	}
@@ -3068,17 +3261,24 @@ public final class RivalsGameTests {
 			shooter.reset();
 			shooter.set(Param.VELOCITY, 0.5);
 			shooter.set(Param.BOUNCES, 0.0);
+			// Vanilla adds the spread's jitter to the unit direction before scaling by the velocity, so a
+			// spread of six degrees moves the speed by a good tenth. Turned off, the tuned velocity is the
+			// speed exactly, and that is what this is measuring.
+			shooter.set(Param.SPREAD, 0.0);
+			shooter.set(Param.SPREAD_AIR, 0.0);
 			PaintBall slow = onlyBall(helper, player);
-			// The spread is still on, and vanilla adds its jitter to the unit direction before scaling by the
-			// velocity, so the speed is the tuned one give or take a few per cent — not give or take 1.3.
-			helper.assertTrue(Math.abs(slow.getDeltaMovement().length() - 0.5) < 0.06,
+			helper.assertTrue(Math.abs(slow.getDeltaMovement().length() - 0.5) < 1.0e-6,
 					"the tuned velocity is the shot's: " + slow.getDeltaMovement().length());
 			helper.assertValueEqual(slow.bouncesLeft(), 0, "the tuned bounces are the ball's");
 			slow.discard();
 			shooter.reset();
+			helper.assertValueEqual(shooter.value(Param.VELOCITY), (double) Weapon.SHOOTER.velocity,
+					"a reset puts the default velocity back");
+			shooter.set(Param.SPREAD, 0.0);
+			shooter.set(Param.SPREAD_AIR, 0.0);
 			PaintBall fast = onlyBall(helper, player);
-			helper.assertTrue(Math.abs(fast.getDeltaMovement().length() - Weapon.SHOOTER.velocity) < 0.15,
-					"a reset puts the default velocity back: " + fast.getDeltaMovement().length());
+			helper.assertTrue(Math.abs(fast.getDeltaMovement().length() - Weapon.SHOOTER.velocity) < 1.0e-6,
+					"and the shot leaves at it: " + fast.getDeltaMovement().length());
 			helper.assertValueEqual(fast.bouncesLeft(), Weapon.SHOOTER_BOUNCES, "and the default bounces");
 			fast.discard();
 			// A splat radius is the side of a loop and a count is a spawn, so neither takes a number that
@@ -3107,6 +3307,9 @@ public final class RivalsGameTests {
 		// The shooter is a held-use weapon now and its item cooldown is its fire rate, so a second shot in
 		// the same tick is refused on purpose. A test that wants two shots has to let the gun catch up.
 		readyToFire(player);
+		// shootFromRotation adds the shooter's own movement to the shot, and firing shoves the shooter
+		// backwards, so a second shot in the same breath would leave 0.06 slower than the tuned velocity.
+		player.setDeltaMovement(Vec3.ZERO);
 		InteractionResult result = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(result.consumesAction(), "shoots");
 		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);

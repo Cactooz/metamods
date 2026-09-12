@@ -28,6 +28,8 @@ import nu.metacraft.rivals.gun.Ink;
 import nu.metacraft.rivals.gun.InkOnScreen;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Roll;
+import nu.metacraft.rivals.gun.WeaponTuning;
+import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.paint.Paint;
 import nu.metacraft.rivals.paint.PaintDisplays;
 import nu.metacraft.rivals.paint.Painter;
@@ -346,7 +348,12 @@ public final class PlayerTick {
 			if (gain > 0) {
 				for (InteractionHand hand : InteractionHand.values()) {
 					ItemStack stack = player.getItemInHand(hand);
-					if (stack.getItem() instanceof PaintWeapon) Ink.add(stack, gain);
+					// A weapon that has just fired is still recovering and takes nothing: Splatcraft's
+					// ink_recovery_cooldown, which is why holding a shooter down over your own paint is
+					// not free.
+					if (!(stack.getItem() instanceof PaintWeapon gun)) continue;
+					if (Ink.recovering(stack, now, WeaponTuning.get(gun.weapon()).intValue(Param.REFILL_DELAY))) continue;
+					Ink.add(stack, gain);
 				}
 			}
 		}
