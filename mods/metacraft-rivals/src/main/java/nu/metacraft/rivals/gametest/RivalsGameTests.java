@@ -364,7 +364,7 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** A thrown ball paints the cell it lands in, on the struck face, and is gone afterwards. */
+	/** A thrown ball paints the cell it lands in, on the struck face, and spends its bounce doing it. */
 	@GameTest
 	public void paintBallPaintsWhereItLands(GameTestHelper helper) {
 		stoneFloor(helper, 5);
@@ -379,7 +379,14 @@ public final class RivalsGameTests {
 			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.CYAN)),
 					Component.literal("the cell where the ball landed should be cyan paint, got " + state));
 			helper.assertTrue(state.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
-			helper.assertTrue(helper.getEntities(PaintBall.TYPE, cell, 4.0).isEmpty(), "the ball is gone after the hit");
+			// A default ball carries one bounce, so ten ticks on it may still be in the air on its way
+			// back down from the floor it just painted; what the hit must have spent is that bounce.
+			List<PaintBall> left = helper.getEntities(PaintBall.TYPE, cell, 4.0);
+			helper.assertTrue(left.stream().allMatch(other -> other.bouncesLeft() == 0),
+					"the ball is gone after the hit, or has spent its bounce");
+			// A bouncing ball outlives the test it was thrown in; left alone it would sail on and paint
+			// into whatever test structure sits next door.
+			left.forEach(Entity::discard);
 			helper.succeed();
 		});
 	}
@@ -737,5 +744,59 @@ public final class RivalsGameTests {
 		helper.assertTrue(player.getHealth() == 1.5f, "never below one health, health " + player.getHealth());
 		player.setHealth(before);
 		helper.succeed();
+	}
+
+	@GameTest(maxTicks = 60)
+	public void paintBallBouncesOnce(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.CYAN, 1, 0);
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 4, 2.5));
+		ball.setPos(at.x, at.y, at.z);
+		ball.setDeltaMovement(0, -0.8, 0);
+		helper.getLevel().addFreshEntity(ball);
+		helper.runAfterDelay(6, () -> {
+			helper.assertTrue(!ball.isRemoved(), "still flying after the first impact");
+			helper.assertValueEqual(ball.bouncesLeft(), 0, "one bounce used");
+			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.CYAN)), "first impact painted");
+		});
+		helper.runAfterDelay(40, () -> {
+			helper.assertTrue(ball.isRemoved(), "gone after the second impact");
+			helper.succeed();
+		});
+	}
+
+	/** A sprayer droplet with a 12-tick lifetime splashes the floor beneath it when time runs out. */
+	@GameTest
+	public void dropletSplashesAfterLifetime(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		PaintBall drop = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.LIME, 0, 12);
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 3.2, 2.5));
+		drop.setPos(at.x, at.y, at.z);
+		drop.setDeltaMovement(0, 0.02, 0); // hovering: only the lifetime can end it
+		drop.setNoGravity(true);
+		helper.getLevel().addFreshEntity(drop);
+		helper.runAfterDelay(16, () -> {
+			helper.assertTrue(drop.isRemoved(), "droplet expired");
+			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.LIME)), "floor under the droplet painted");
+			helper.succeed();
+		});
+	}
+
+	/** The blob display follows the ball and is torn down with it. */
+	@GameTest
+	public void blobFollowsTheBall(GameTestHelper helper) {
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.MAGENTA, 0, 0);
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 5, 2.5));
+		ball.setPos(at.x, at.y, at.z);
+		ball.setNoGravity(true);
+		helper.getLevel().addFreshEntity(ball);
+		helper.runAfterDelay(2, () -> {
+			helper.assertTrue(ball.blobHolder() != null && ball.blobHolder().getAttachment() != null, "blob attached while flying");
+			ball.discard();
+		});
+		helper.runAfterDelay(4, () -> {
+			helper.assertTrue(ball.blobHolder() == null || ball.blobHolder().getAttachment() == null, "blob gone with the ball");
+			helper.succeed();
+		});
 	}
 }
