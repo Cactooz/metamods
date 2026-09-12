@@ -23,7 +23,6 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
-import net.minecraft.network.chat.FontDescription;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
@@ -973,13 +972,20 @@ public final class RivalsGameTests {
 		helper.assertTrue(InkOnScreen.color(player) == PaintColor.DATA, "the newest ink is the ink you see");
 		int full = InkOnScreen.amount(player);
 		InkOnScreen.tick(player, 100);
-		helper.assertValueEqual(InkOnScreen.amount(player), full - InkOnScreen.DECAY, "it runs off every tick");
-		// A tick spent standing in it adds less than the decay takes, so wading only slows the clearing.
+		helper.assertValueEqual(InkOnScreen.amount(player), full, "the tick a hit lands on does not also drain");
+		InkOnScreen.tick(player, 101);
+		helper.assertValueEqual(InkOnScreen.amount(player), full - InkOnScreen.DECAY, "it runs off on the ticks after");
+		// The decay is skipped on a tick something added ink, so wading through enemy paint gains ground
+		// rather than fighting the drain.
 		int standing = InkOnScreen.amount(player);
 		InkOnScreen.standing(player, PaintColor.IT);
 		InkOnScreen.tick(player, 102);
+		helper.assertValueEqual(InkOnScreen.amount(player), standing + InkOnScreen.STANDING_GAIN,
+				"standing in enemy ink raises the meter");
+		helper.assertTrue(InkOnScreen.color(player) == PaintColor.IT, "in the ink it is standing in");
+		InkOnScreen.tick(player, 104);
 		helper.assertValueEqual(InkOnScreen.amount(player), standing + InkOnScreen.STANDING_GAIN - InkOnScreen.DECAY,
-				"standing in enemy ink tops it up as it drains");
+				"and the tick after, with nothing adding, it runs off again");
 		InkOnScreen.hit(player, PaintColor.IT, 100.0f);
 		helper.assertValueEqual(InkOnScreen.amount(player), InkOnScreen.MAX, "never more than the amount byte holds");
 		for (int i = 0; i < InkOnScreen.MAX / InkOnScreen.DECAY + 2; i++) InkOnScreen.tick(player, 200 + i * 2L);
@@ -997,46 +1003,71 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * The data pixel: one glyph of the mod's own font, coloured (255, team, amount). Red at full and green
+	 * The data LED: the value written onto the held weapon is (255, team, amount). Red at full and green
 	 * under 16 is the signature the probe shader hunts for; green's low nibble is the enemy team, so the
-	 * shader knows which ink to draw; blue is the amount. Nothing here may drift from the shader's own
-	 * decode without the ink coming out the wrong colour or the wrong size.
+	 * shader knows which ink to draw; blue is the amount. With no ink the value is a dark grey that fails
+	 * the signature, so the LED reads as an indicator that is off. Nothing here may drift from the
+	 * shader's own decode without the ink coming out the wrong colour or the wrong size.
 	 */
 	@GameTest
-	public void inkTitleEncodesAmountAndColour(GameTestHelper helper) {
-		Component title = InkOnScreen.title(PaintColor.IT, 200);
-		helper.assertValueEqual(title.getString(), String.valueOf(InkOnScreen.MARKER), "one glyph and nothing else");
-		TextColor color = title.getStyle().getColor();
-		helper.assertTrue(color != null, "the glyph carries a colour");
-		int rgb = color.getValue();
-		helper.assertValueEqual(rgb >> 16 & 0xFF, InkOnScreen.SIGNATURE_RED, "red at full");
-		helper.assertValueEqual(rgb >> 8 & 0xFF, PaintColor.IT.ordinal(), "green is the enemy team's index");
-		helper.assertTrue((rgb >> 8 & 0xFF) < 16, "and stays inside the nibble the shader tests");
-		helper.assertValueEqual(rgb & 0xFF, 200, "blue is the amount");
-		helper.assertTrue(title.getStyle().getFont() instanceof FontDescription.Resource font
-				&& font.id().equals(Rivals.id(InkOnScreen.FONT)), "drawn in the data font: " + title.getStyle().getFont());
-		TextColor dataInk = InkOnScreen.title(PaintColor.DATA, 1).getStyle().getColor();
-		helper.assertTrue(dataInk != null && dataInk.getValue() == 0xFF0001, "DATA at amount 1 is 0xFF0001");
+	public void inkLedEncodesAmountAndColour(GameTestHelper helper) {
+		int value = InkOnScreen.led(PaintColor.IT, 200);
+		helper.assertValueEqual(value >> 16 & 0xFF, InkOnScreen.SIGNATURE_RED, "red at full");
+		helper.assertValueEqual(value >> 8 & 0xFF, PaintColor.IT.ordinal(), "green is the enemy team's index");
+		helper.assertTrue((value >> 8 & 0xFF) < 16, "and stays inside the nibble the shader tests");
+		helper.assertValueEqual(value & 0xFF, 200, "blue is the amount");
+		helper.assertValueEqual(InkOnScreen.led(PaintColor.DATA, 1), 0xFF0001, "DATA at amount 1 is 0xFF0001");
 		// Out-of-range amounts are clamped rather than spilling into the team nibble.
-		TextColor over = InkOnScreen.title(PaintColor.DATA, 9000).getStyle().getColor();
-		helper.assertTrue(over != null && over.getValue() == 0xFF00FF, "clamped to the byte, teams untouched");
+		helper.assertValueEqual(InkOnScreen.led(PaintColor.DATA, 9000), 0xFF00FF, "clamped to the byte, teams untouched");
+		// The idle value must fail the shader's test on both counts, or a clean screen would draw ink.
+		helper.assertTrue((InkOnScreen.IDLE >> 16 & 0xFF) != 0xFF, "idle is not red at full");
+		helper.assertTrue((InkOnScreen.IDLE >> 8 & 0xFF) >= 16, "and its green is outside the nibble");
+
+		// And the value has to reach the weapon. PaintWeapon.inventoryTick is the one writer, so that is
+		// what a held gun gets its LED from — the same tick that keeps its tank dyed.
+		ServerPlayer player = mockServerPlayer(helper, GameType.SURVIVAL);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		InkOnScreen.forget(player);
+		ItemStack gun = new ItemStack(PaintWeapon.of(Weapon.SHOOTER));
+		player.setItemInHand(InteractionHand.MAIN_HAND, gun);
+		PaintWeapon weapon = (PaintWeapon) gun.getItem();
+		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
+		helper.assertValueEqual(InkOnScreen.ledOf(gun), InkOnScreen.IDLE, "a clean screen leaves the LED dark");
+		long now = helper.getLevel().getGameTime();
+		InkOnScreen.hit(player, PaintColor.IT, 4.0f);
+		InkOnScreen.tick(player, now);
+		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
+		int lit = InkOnScreen.led(PaintColor.IT, 4 * InkOnScreen.PER_DAMAGE);
+		helper.assertValueEqual(InkOnScreen.ledOf(gun), lit, "the first tick with ink lights the LED");
+		// Every change is an item-slot sync, so the value is held still for a tick or two.
+		InkOnScreen.hit(player, PaintColor.IT, 1.0f);
+		InkOnScreen.tick(player, now + 1);
+		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
+		helper.assertValueEqual(InkOnScreen.ledOf(gun), lit, "and not again within the send window");
+		InkOnScreen.tick(player, now + InkOnScreen.SEND_EVERY);
+		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
+		helper.assertTrue(InkOnScreen.ledOf(gun) != lit, "but the tick after the window it catches up");
+		// A weapon stowed with a full screen must not come back out still carrying a live number.
+		InkOnScreen.clear(player);
+		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
+		helper.assertValueEqual(InkOnScreen.ledOf(gun), InkOnScreen.IDLE, "a cleared meter darkens the LED again");
 		helper.succeed();
 	}
 
 	/**
 	 * The pack side of the ink: the {@code end_of_frame} chain vanilla asks for every frame, its two
-	 * shaders, and the one-glyph font the meter is written in. The chain has to read
-	 * {@code minecraft:main}, find the data pixel in a one-by-one target (so the search runs once a frame
-	 * rather than once a pixel) and put the frame back where it found it.
+	 * shaders, and the LED the meter is written onto — its texture, the tint source that colours it, and
+	 * the one element on every weapon model that wears it. The chain has to read {@code minecraft:main},
+	 * find the LED in a one-by-one target (so the search runs once a frame rather than once a pixel) and
+	 * put the frame back where it found it.
 	 */
 	@GameTest
 	public void packCarriesTheInkPostEffect(GameTestHelper helper) throws IOException {
 		Map<String, byte[]> files = InkArt.packFiles();
 		String chainPath = "assets/minecraft/post_effect/end_of_frame.json";
-		String fontPath = "assets/metacraft-rivals/font/data.json";
-		String glyphPath = "assets/metacraft-rivals/textures/font/data.png";
+		String ledPath = "assets/metacraft-rivals/textures/item/data_led.png";
 		for (String path : new String[] {chainPath, "assets/metacraft-rivals/shaders/post/ink.fsh",
-				"assets/metacraft-rivals/shaders/post/ink_probe.fsh", fontPath, glyphPath}) {
+				"assets/metacraft-rivals/shaders/post/ink_probe.fsh", ledPath}) {
 			helper.assertTrue(files.containsKey(path), "in pack: " + path);
 		}
 		JsonObject chain = JsonParser.parseString(new String(files.get(chainPath), StandardCharsets.UTF_8)).getAsJsonObject();
@@ -1063,7 +1094,7 @@ public final class RivalsGameTests {
 		String probe = new String(files.get("assets/metacraft-rivals/shaders/post/ink_probe.fsh"), StandardCharsets.UTF_8);
 		helper.assertTrue(probe.contains("frame.r > 0.99") && probe.contains("frame.g < 0.0627"),
 				"the probe tests the marker signature: red at full, green under 16");
-		helper.assertTrue(probe.contains("ScreenSize"), "and searches in screen pixels");
+		helper.assertTrue(probe.contains("InSize"), "and searches in the input's own pixels");
 		String ink = new String(files.get("assets/metacraft-rivals/shaders/post/ink.fsh"), StandardCharsets.UTF_8);
 		helper.assertTrue(ink.contains("ProbeSampler") && ink.contains("GameTime"), "the ink reads the data pixel and the clock");
 		for (PaintColor team : PaintColor.values()) {
@@ -1071,21 +1102,57 @@ public final class RivalsGameTests {
 			String red = String.format(Locale.ROOT, "%.4f", (team.rgb >> 16 & 0xFF) / 255.0);
 			helper.assertTrue(ink.contains(red), team + "'s ink (" + red + ") is in the shader");
 		}
-		// The font: one bitmap provider, our glyph, and a sprite that is solid white so the style's colour
-		// is what lands on the screen.
-		JsonObject font = JsonParser.parseString(new String(files.get(fontPath), StandardCharsets.UTF_8)).getAsJsonObject();
-		JsonObject provider = font.getAsJsonArray("providers").get(0).getAsJsonObject();
-		helper.assertValueEqual(provider.get("type").getAsString(), "bitmap", "a bitmap provider");
-		helper.assertValueEqual(provider.get("file").getAsString(), "metacraft-rivals:font/data.png", "of the generated sprite");
-		helper.assertValueEqual(provider.getAsJsonArray("chars").get(0).getAsString(), String.valueOf(InkOnScreen.MARKER),
-				"for the character the title is made of");
-		helper.assertValueEqual(provider.get("height").getAsInt(), InkArt.GLYPH_SIZE, "one text pixel per texel");
-		BufferedImage glyph = ImageIO.read(new ByteArrayInputStream(files.get(glyphPath)));
-		helper.assertValueEqual(glyph.getWidth(), InkArt.GLYPH_SIZE, "the sprite is as wide as the font says");
-		helper.assertValueEqual(glyph.getHeight(), InkArt.GLYPH_SIZE, "and as tall");
-		for (int y = 0; y < glyph.getHeight(); y++) {
-			for (int x = 0; x < glyph.getWidth(); x++) {
-				helper.assertValueEqual(glyph.getRGB(x, y), 0xFFFFFFFF, "opaque white at " + x + "," + y);
+		// The item shaders' half: the unlit vertex tint, and the branch that puts it on the frame exactly.
+		String itemFsh = new String(RivalsPack.shader("item.fsh"), StandardCharsets.UTF_8);
+		String itemVsh = new String(RivalsPack.shader("item.vsh"), StandardCharsets.UTF_8);
+		helper.assertTrue(itemVsh.contains("out vec4 rawColor") && itemVsh.contains("rawColor = Color"),
+				"the vertex shader carries the tint before lighting");
+		helper.assertTrue(itemFsh.contains("in vec4 rawColor") && itemFsh.contains("RIVALS_LED"),
+				"and the fragment shader draws the LED from it");
+		helper.assertTrue(itemFsh.contains(String.format(Locale.ROOT, "%.4f", InkArt.LED_ALPHA / 255.0)),
+				"guarded on the LED's marker alpha " + InkArt.LED_ALPHA);
+		// The LED's own texture: one flat value, so every mip level carries the marker unchanged.
+		BufferedImage led = ImageIO.read(new ByteArrayInputStream(files.get(ledPath)));
+		helper.assertValueEqual(led.getWidth(), InkArt.LED_SIZE, "the LED sprite is 16 px wide");
+		helper.assertValueEqual(led.getHeight(), InkArt.LED_SIZE, "and 16 px tall");
+		for (int y = 0; y < led.getHeight(); y++) {
+			for (int x = 0; x < led.getWidth(); x++) {
+				helper.assertValueEqual(led.getRGB(x, y), InkArt.LED_ALPHA << 24 | 0xFFFFFF, "marker alpha on white at " + x + "," + y);
+			}
+		}
+		// And every weapon has to wear it: a second tint source for custom_model_data colour 0, and one
+		// element whose faces take that tint.
+		for (String id : new String[] {"paint_gun", "sprayer", "charger", "slosher"}) {
+			try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/items/" + id + ".json")) {
+				JsonArray tints = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8))
+						.getAsJsonObject().getAsJsonObject("model").getAsJsonArray("tints");
+				JsonObject tint = tints.get(1).getAsJsonObject();
+				helper.assertValueEqual(tint.get("type").getAsString(), "minecraft:custom_model_data", id + ": LED tint source");
+				helper.assertValueEqual(tint.get("index").getAsInt(), 0, id + ": colour 0");
+				helper.assertValueEqual(tint.get("default").getAsInt(), InkOnScreen.IDLE, id + ": dark until the server says otherwise");
+			}
+			try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/models/item/" + id + ".json")) {
+				JsonObject model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+				helper.assertValueEqual(model.getAsJsonObject("textures").get("led").getAsString(),
+						Rivals.MOD_ID + ":item/" + InkArt.LED_TEXTURE, id + ": the model names the LED texture");
+				int leds = 0;
+				for (JsonElement element : model.getAsJsonArray("elements")) {
+					JsonObject box = element.getAsJsonObject();
+					boolean isLed = false;
+					for (var face : box.getAsJsonObject("faces").entrySet()) {
+						JsonObject json = face.getValue().getAsJsonObject();
+						if ("#led".equals(json.get("texture").getAsString())) {
+							isLed = true;
+							helper.assertValueEqual(json.get("tintindex").getAsInt(), 1, id + ": the LED takes the second tint");
+						}
+					}
+					if (!isLed) continue;
+					leds++;
+					helper.assertValueEqual(box.getAsJsonObject("faces").size(), 6, id + ": visible from every side");
+					double size = box.getAsJsonArray("to").get(1).getAsDouble() - box.getAsJsonArray("from").get(1).getAsDouble();
+					helper.assertTrue(size == 1.0, id + ": one model pixel tall, got " + size);
+				}
+				helper.assertValueEqual(leds, 1, id + ": exactly one LED");
 			}
 		}
 		helper.succeed();

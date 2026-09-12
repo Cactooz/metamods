@@ -3,7 +3,8 @@
 	"texture_size": [16, 16],
 	"textures": {
 		"0": "metacraft-rivals:item/charger_palette",
-		"particle": "metacraft-rivals:item/charger_palette"
+		"particle": "metacraft-rivals:item/charger_palette",
+		"led": "metacraft-rivals:item/data_led"
 	},
 	"elements": [
 		{
@@ -3508,6 +3509,19 @@
 				"west": {"uv": [12, 0, 13, 1], "texture": "#0", "tintindex": 0},
 				"up": {"uv": [12, 0, 13, 1], "texture": "#0", "tintindex": 0},
 				"down": {"uv": [12, 0, 13, 1], "texture": "#0", "tintindex": 0}
+			}
+		},
+		{
+			"name": "data_led",
+			"from": [7.426, 11.288, 7.325],
+			"to": [8.426, 12.288, 8.325],
+			"faces": {
+				"north": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"south": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"east": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"west": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"up": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"down": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1}
 			}
 		}
 	],

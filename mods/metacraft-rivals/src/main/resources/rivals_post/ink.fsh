@@ -20,11 +20,9 @@ const float MAX_RADIUS = 0.19;
 const float CLEAR = 0.09;
 /** The lighter edge of a blob, in screen heights — about one grid cell. */
 const float RIM = 0.007;
-/** The two team inks, #BD3754 and #8A57BD, indexed by the team byte in the data pixel. */
+/** The two team inks, #BD3754 and #8A57BD, indexed by the team bit in the data pixel. */
 const vec3 DATA_INK = vec3(0.7412, 0.2157, 0.3294);
 const vec3 IT_INK = vec3(0.5412, 0.3412, 0.7412);
-/** How far the data pixel and its drop shadow are painted over, in screen heights. */
-const vec2 COVER = vec2(0.030, 0.055);
 
 float hash(float n) {
     return fract(sin(n * 127.1 + 311.7) * 43758.5453);
@@ -38,7 +36,10 @@ void main() {
         fragColor = vec4(frame, 1.0);
         return;
     }
-    vec3 ink = probe.g * 255.0 < 0.5 ? DATA_INK : IT_INK;
+    // The probe packs the LED's half extent in pixels and the team's one bit into the same byte.
+    float packed = floor(probe.g * 255.0 + 0.5);
+    vec3 ink = mod(packed, 2.0) < 0.5 ? DATA_INK : IT_INK;
+    float ledHalf = floor(packed * 0.5);
     float aspect = ScreenSize.x / ScreenSize.y;
     // Pixel art: the whole decision is taken at the centre of a 4x4 block of screen pixels, so every
     // edge — blob, rim and cover — comes out stepped rather than smooth. Units below are screen heights
@@ -67,11 +68,12 @@ void main() {
     // The middle of the screen is where the player is aiming: ink there is a blindfold, not a nuisance.
     if (length(p) < CLEAR) d = 1.0;
 
-    // And the data pixel itself, painted over with ink so the player never sees the number they are
-    // being told. The probe hands over where it found it; the box is generous enough to take the
-    // glyph's drop shadow and the text backdrop with it.
-    vec2 marker = ScreenSize * 0.5 + vec2(probe.b * 255.0 - 128.0, (probe.a * 255.0 - 127.5) * 2.0);
-    bool cover = all(lessThan(abs(pixel - marker), COVER * ScreenSize.y));
+    // And the LED itself, painted over with ink so the player never sees the number they are being told.
+    // The probe measured where it is and how big it is; the margin is the half pixel of slack the
+    // position's one byte per axis leaves, plus a cell of the grid.
+    vec2 led = vec2(probe.b, probe.a) * ScreenSize;
+    vec2 margin = ScreenSize / 510.0 + vec2(ledHalf + GRID);
+    bool cover = all(lessThan(abs(pixel - led), margin));
 
     if (cover) {
         fragColor = vec4(ink, 1.0);

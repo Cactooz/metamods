@@ -42,6 +42,9 @@ layout(location = 6) out vec2 texCoordGlint;
 // every variant (the alpha-only OIT phase discards paint too, so it runs the same border test).
 layout(location = 7) out vec3 viewPos;
 layout(location = 8) out vec3 paintPos;
+// RIVALS: the vertex tint before any lighting, for the data LED — the one place in the frame a
+// server-side mod can put an exact colour for a post effect to read back (see InkOnScreen).
+layout(location = 9) out vec4 rawColor;
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
@@ -51,6 +54,7 @@ void main() {
     cylindricalVertexDistance = fog_cylindrical_distance(Position);
     #endif
     vertexColor = minecraft_mix_light(Light0_Direction, Light1_Direction, Normal, Color);
+    rawColor = Color;
     #ifndef OIT_ALPHA_ONLY
     lightMapColor = sample_lightmap(Sampler2, UV2);
     overlayColor = texelFetch(Sampler1, UV1, 0);

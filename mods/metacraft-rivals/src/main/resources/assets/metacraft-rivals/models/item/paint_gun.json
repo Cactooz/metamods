@@ -6,7 +6,8 @@
 	],
 	"textures": {
 		"0": "metacraft-rivals:item/paint_gun_palette",
-		"particle": "metacraft-rivals:item/paint_gun_palette"
+		"particle": "metacraft-rivals:item/paint_gun_palette",
+		"led": "metacraft-rivals:item/data_led"
 	},
 	"elements": [
 		{
@@ -23083,6 +23084,19 @@
 					"texture": "#0",
 					"tintindex": 0
 				}
+			}
+		},
+		{
+			"name": "data_led",
+			"from": [6.842, 13.327, 9.425],
+			"to": [7.842, 14.327, 10.425],
+			"faces": {
+				"north": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"south": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"east": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"west": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"up": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1},
+				"down": {"uv": [0, 0, 16, 16], "texture": "#led", "tintindex": 1}
 			}
 		}
 	],

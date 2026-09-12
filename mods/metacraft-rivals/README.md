@@ -211,30 +211,41 @@ dedicated Rivals server wants.
   wobbling on `GameTime`, every edge snapped to a 4-pixel grid for the pixel-art look, and the middle
   of the screen left clear so the reticle stays readable. At full it covers about 45% of the screen.
   `InkOnScreen` keeps the meter server-side: 25 per point of damage from an enemy weapon (the victim's
-  screen, in the shooter's colour), 2 a tick standing in enemy ink, 4 a tick off, clamped to 0..255,
-  and cleared outright on nought, on death, on spectating, on leaving the teams and on logging out.
-  All five numbers are constants at the top of that class.
+  screen, in the shooter's colour), 2 a tick standing in enemy ink, 4 a tick off on the ticks nothing
+  added any, clamped to 0..255, and cleared outright on nought, on death, on spectating, on leaving the
+  teams and on logging out. All five numbers are constants at the top of that class.
 
   It is drawn by a post effect, which is where the interesting part is. A server-side mod cannot run
   client code, but 26.3's `GameRenderer.update` asks for the post effect `minecraft:end_of_frame`
   *every single frame* and drops the request silently when no pack defines it — so a pack that does
-  define it gets one full-screen pass per frame, with nothing to trigger and nothing to switch on. It
-  cannot set a uniform either, so the number is written into the frame the shader reads: every player
-  with ink on screen is held on a title made of one glyph of the mod's own two-by-two white `data`
-  font, coloured `(255, team, amount)` — red at full with green under 16 is the signature, green's low
-  nibble picks which ink to draw, blue is the amount. The title is set up once with no fade and a
-  million ticks of stay, so it neither animates nor expires, and the text is only re-sent when the
-  value changes and at most every other tick.
+  define it gets one full-screen pass per frame, with nothing to trigger and nothing to switch on.
 
-  The chain's first pass renders to a **one-by-one** target, so the hunt for that pixel — a band around
-  the middle of the screen, which is where a title lands whatever the GUI scale is, checking two
-  samples a step apart so a lone red pixel in the world is never mistaken for it — runs once a frame
-  rather than once a pixel. It hands the amount, the team and the marker's position to the ink pass,
-  which paints ink over the marker and its drop shadow, so the player never sees the number they are
-  being told. Known limits: the pass runs every frame whether there is ink or not (two full-screen
-  passes' worth of work); the players' "text background" option, if they switch it on for everything,
-  draws a backdrop behind the marker, which the ink patch is sized to cover; and a shader pack that
-  replaces the post chain loses the effect, exactly as it loses the gloss.
+  It cannot set a uniform either, so the number has to be *in the frame* — and in the frame before the
+  effect runs. `GameRenderer.render` calls `renderLevel()`, then `applyPostEffects()`, and only then
+  `GuiRenderer.render()`, so nothing on the HUD (a title, the action bar) is on the target the effect
+  samples; what is on it is the held item, drawn inside `renderLevel` by `renderItemInHand`. So the
+  meter rides the weapon. Every gun model carries a **data LED**: one model pixel standing on the
+  highest point of the gun, six faces on a dedicated 16×16 texture whose alpha is 246, tinted by
+  `custom_model_data` colour 0. 246 is in 245..247, one of only three three-wide alpha bands that no
+  texel of any blocks- or items-atlas texture reaches at *any* mip level 0..4, so the item shader can
+  recognise it: it takes the unlit vertex tint (`rawColor`, a varying our `item.vsh` adds) and writes it
+  to the frame exactly, before lighting, fog and the paint gloss. `InkOnScreen` writes
+  `(255, team, amount)` into that component — red at full with green under 16 is the signature, green's
+  low nibble picks the ink colour, blue is the amount — and `PaintWeapon.inventoryTick` is the one place
+  it reaches the stacks, in the same tick that keeps the tank dyed, so a weapon stowed with a full screen
+  cannot come back out still carrying a live number. With no ink the value is a dark grey that fails the
+  signature on both counts, and the pip reads as an indicator that is simply off.
+
+  The chain's first pass renders to a **one-by-one** target, so the hunt for the LED — the bottom 55% of
+  the screen, whichever hand the item is in, stepped at half the LED's own width and requiring two
+  samples in a row so a red pixel in the world is never mistaken for it — runs once a frame rather than
+  once a pixel. It then walks outwards until the signature stops, and hands the amount, the team and the
+  LED's centre and half extent to the ink pass, which paints ink over exactly that patch so the player
+  never sees the number they are being told. Known limits: no weapon in view means no ink, so third
+  person and an empty hand show a clean screen however full the meter is (the meter keeps running, and
+  the ink comes back with the weapon); the pass runs every frame whether there is ink or not (two
+  full-screen passes' worth of work); and a shader pack that replaces the post chain loses the effect,
+  exactly as it loses the gloss.
 - The guns' 3D models live under `assets/metacraft-rivals/models/item/`; each tank is dye-tinted
   to the team colour. The shooter (`paint_gun.json`) is Kenney's `blaster-b`, the sprayer is
   `blaster-o`, and the charger is `blaster-p` (all CC0, Blaster Kit), each converted into a

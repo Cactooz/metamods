@@ -536,6 +536,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	public void inventoryTick(ItemStack stack, ServerLevel level, Entity entity, EquipmentSlot slot) {
 		Ink.finishIfDue(stack, level.getServer().getTickCount());
 		if (!(entity instanceof LivingEntity holder)) return; // a dropped weapon keeps the dye it had
+		// The ink-on-screen meter rides the weapon's data LED, and this is the one place it is written, so a
+		// weapon stowed with a full screen cannot come back out still carrying a live number.
+		if (holder instanceof Player carrier) InkOnScreen.put(stack, InkOnScreen.ledFor(carrier));
 		PlayerTeam team = holder.getTeam();
 		DyedItemColor wanted = PaintColor.byTeam(team).map(color -> new DyedItemColor(color.rgb)).orElse(null);
 		if (Objects.equals(stack.get(DataComponents.DYED_COLOR), wanted)) return;

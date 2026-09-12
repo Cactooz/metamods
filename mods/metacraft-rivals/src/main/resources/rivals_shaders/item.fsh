@@ -30,6 +30,7 @@ layout(location = 6) in vec2 texCoordGlint;
 #endif
 layout(location = 7) in vec3 viewPos;
 layout(location = 8) in vec3 paintPos;
+layout(location = 9) in vec4 rawColor;
 
 #ifndef OIT_ALPHA_ONLY
 layout(location = 0) out vec4 fragColor;
@@ -77,12 +78,31 @@ void main() {
     color.a = max(color.a, GlintAlpha);
     #endif
 
+    // RIVALS_LED: the ink meter's data pixel. The one texture in either atlas at alpha 246/255 = 0.9647 is
+    // the mod's own data_led sprite, on a one-pixel cube on every paint weapon, and the window here admits
+    // only 245..247 — the three values no texel of any blocks- or items-atlas texture reaches at any mip
+    // level 0..4 (244 and 248 are both reachable: burning fire, a jungle door top). Its colour is the
+    // custom_model_data tint, handed to the frame unlit and unmodulated so the post effect reads back the
+    // exact bytes the server wrote. Before the gloss and before the lighting, and it never discards.
+    if (abs(tex.a - 0.9647) < 0.006) {
+        #ifdef OIT_ALPHA_ONLY
+        executeAlphaOnlyPhase(gl_FragCoord.z, 1.0);
+        #else
+        fragColor = vec4(rawColor.rgb, 1.0);
+        #endif
+        return;
+    }
+
     // RIVALS_GLOSS: the same block terrain.fsh carries, for the paint that is a block display rather
     // than a block — stairs, slabs, fences, panes. Both display kinds draw block models through
     // Sheets.cutoutBlockItemSheet(), which is RenderPipelines.ITEM_CUTOUT, which is this pair; the
     // paint texels carry alpha 235/255 = 0.9216 as their marker, and no texture in either atlas the
-    // item pipelines draw (blocks and items) has an alpha anywhere in the 233..237 the window admits,
-    // so held items, dropped items and the inventory come through untouched. The in-plane coordinate
+    // item pipelines draw (blocks and items) has an alpha anywhere in the 233..237 the window admits at
+    // mip level 0, so held items, dropped items and the inventory come through untouched. Known limit: at
+    // mip level 3 a handful of textures do average to 236 (fire_0/1, soul_fire_0/1, tall_grass_bottom,
+    // sniffer_egg and the two nautilus spawn eggs), so a few texels of those, seen small enough to reach
+    // that level, take the paint's border test; they decode bits 12 from their red channel and may
+    // discard. Narrowing the window would cost the filtering tolerance the marker needs. The in-plane coordinate
     // is the world one (paintPos), not a model one, so a quad's border lines up with the paint block
     // next to it. Derivatives are only defined in uniform control flow: take them before the branch.
     vec3 paintDx = dFdx(paintPos), paintDy = dFdy(paintPos);
