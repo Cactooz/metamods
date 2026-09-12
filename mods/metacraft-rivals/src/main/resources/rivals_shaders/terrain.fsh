@@ -124,12 +124,12 @@ void main() {
 		float lo_u = negU ? -1.0 : 0.06 + w0, hi_u = posU ? 2.0 : 0.94 + w1;
 		float lo_v = negV ? -1.0 : 0.06 + w2, hi_v = posV ? 2.0 : 0.94 + w3;
 		vec2 centre = vec2(lo_u + hi_u, lo_v + hi_v) * 0.5;
-		vec2 half = vec2(hi_u - lo_u, hi_v - lo_v) * 0.5;
+		vec2 halfSize = vec2(hi_u - lo_u, hi_v - lo_v) * 0.5;
 		// Corner radius only where both sides meeting at that corner are unconnected.
 		bool cu = p.x < centre.x ? !negU : !posU;
 		bool cv = p.y < centre.y ? !negV : !posV;
 		float r = (cu && cv) ? 0.28 : 0.0;
-		vec2 q = abs(p - centre) - half + r;
+		vec2 q = abs(p - centre) - halfSize + r;
 		float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
 		if (d > 0.0) discard;
 		vec3 n = normalize(cross(viewDx, viewDy));
