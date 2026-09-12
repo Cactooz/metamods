@@ -196,17 +196,29 @@ dedicated Rivals server wants.
 - The pack overrides `assets/minecraft/shaders/core/item.vsh`/`item.fsh` as well, with the same gloss
   block behind the same marker guard, because that is the pair that draws the display quads: both
   display kinds render block models through `Sheets.cutoutBlockItemSheet()`, which is
-  `RenderPipelines.ITEM_CUTOUT`, which is `core/item` — not terrain, not entity. The delta over
-  vanilla's item pair is two varyings. `viewPos` is the view-space position, for the normal (from its
-  derivatives) and the view vector. `paintPos` is the *world* position, because `Position` in the item
-  pair is camera-relative render space rather than model space: it is rebuilt as
-  `Position - CameraOffset + CameraBlockPos`, wrapped to 1024 blocks so float precision holds while
-  `fract()` — the in-cell coordinate the border is cut from — is left exactly alone. A quad's border is
-  therefore cut on the very same 1/16-block grid as the paint block next to it, and the wobble crawls on
-  the same clock: `Globals` is bound for every ITEM pipeline (`ITEM_SNIPPET` builds on
-  `MATRICES_FOG_LIGHT_DIR_SNIPPET`, which builds on `GLOBALS_SNIPPET`), so `GameTime` is there to read.
+  `RenderPipelines.ITEM_CUTOUT`, which is `core/item` — not terrain, not entity. Two varyings carry it.
+  `viewPos` is the view-space position, for the normal (from its derivatives) and the view vector;
+  `rawColor` is the vertex tint before vanilla's directional light, which the chunks never get — without
+  that, display paint came out visibly darker than the paint block beside it (the lightmap and the fog
+  still apply, exactly as for terrain).
+
+  The in-face coordinate comes off the **sprite**: `fract(texCoord0 * textureSize(Sampler0, 0) / 16)`.
+  terrain.fsh can use `chunkPos` because chunk geometry is stored chunk-relative, but a display's
+  vertices are baked by the render PoseStack with the camera rotation already in them — there is no world
+  position in the item pair to take `fract()` of. (v6 first tried to rebuild one from the `Globals`
+  camera; on a village path it drew borders across the middle of cells, each quad a random blob with
+  holes.) The sprite works because the paint sprites are 16×16 and the stitcher lays equal-size sprites
+  out on multiples of their own size; the one setting that breaks it is anisotropic texture filtering,
+  which asks the stitcher for padding around every sprite and so shifts the pattern inside the cell.
+  Which way round the sprite lies is decided by the `uv` array `PaintArt` writes per face — vanilla maps
+  a face's u and v to world axes differently per face, so each of the six gets the flip that lines its
+  sprite up with the paint's own in-plane axes. The wobble and the waves then run on the cell's own
+  coordinate with the connection bits shifting their phase, so the pattern repeats from cell to cell;
+  that shows only where a cell ends, and where a cell ends there is a border anyway.
+
   Held items, dropped items and the inventory come through untouched: no texture in either atlas an
-  item pipeline draws — blocks and items — carries an alpha anywhere in the 233..237 the guard admits.
+  item pipeline draws — blocks and items — carries an alpha anywhere in the 233..237 the guard admits at
+  mip 0 (a handful average to 236 at mip 3, which is noted in the shader).
 - **Ink on your screen.** Taking enemy paint in the face throws ink over the player's view: blobs in
   the enemy's colour at fixed pseudo-random places, growing and dripping as the meter fills, edges
   wobbling on `GameTime`, every edge snapped to a 4-pixel grid for the pixel-art look, and the middle

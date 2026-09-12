@@ -32,6 +32,10 @@ import java.util.stream.Collectors;
  * blockstate for each donor block mapping every client state in use to its model and texture; donor
  * states we do not use point at the empty model so a stray vanilla sculk vein shows nothing.
  *
+ * <p>Each quad's {@code uv} is flipped per face so the sprite's u and v axes line up with the paint's
+ * own in-plane axes: the gloss shader takes its in-face coordinate from the sprite (a block display has no
+ * world position to read), so the UVs are what tell it which side of a cell is which. See {@link #uv}.
+ *
  * <p>A variants file cannot do multipart, so the two kinds of client state take two kinds of model: a
  * connected cell gets a wrapper that hangs its (colour, bits) texture on one of the six shared face
  * quads, and a splat mask gets one model listing a quad per painted face, all on the all-connected
@@ -138,7 +142,7 @@ public final class PaintArt {
 		element.add("from", corner(axis, plane, 0));
 		element.add("to", corner(axis, plane, SIZE));
 		JsonObject faces = new JsonObject();
-		for (Direction side : sides(axis)) faces.add(side.getSerializedName(), face());
+		for (Direction side : sides(axis)) faces.add(side.getSerializedName(), face(side));
 		element.add("faces", faces);
 		return element;
 	}
@@ -159,13 +163,43 @@ public final class PaintArt {
 		};
 	}
 
-	private static JsonObject face() {
+	private static JsonObject face(Direction side) {
 		JsonArray uv = new JsonArray();
-		for (int value : new int[] {0, 0, SIZE, SIZE}) uv.add(value);
+		for (int value : uv(side)) uv.add(value);
 		JsonObject face = new JsonObject();
 		face.add("uv", uv);
 		face.addProperty("texture", "#paint");
 		return face;
+	}
+
+	/**
+	 * The {@code uv} array for one face, flipped so that the sprite's own u axis runs along the paint's
+	 * +u and its v axis along the paint's +v — the axes
+	 * {@link nu.metacraft.rivals.paint.ConnectedPaintBlock#inPlane} names the connection bits after (an
+	 * attach on Y: u = +x, v = +z; on X: u = +z, v = +y; on Z: u = +x, v = +y). The gloss shader reads its
+	 * in-face coordinate off the sprite, so this table <em>is</em> the orientation: get it wrong and a
+	 * cell's border opens on the wrong side.
+	 *
+	 * <p>Vanilla's own convention, from the 26.3 client: {@code CuboidFace.UVs.getVertexU/V} give vertex 0
+	 * (minU, minV), 1 (minU, maxV), 2 (maxU, maxV), 3 (maxU, minV) — straight out of the {@code uv} array,
+	 * with no sorting — and {@code FaceInfo}'s per-facing vertex table puts those four corners at
+	 * particular box extents. Reading the two together, u and v run along:
+	 *
+	 * <ul>
+	 * <li>{@code up}: u = +x, v = +z — already the paint's own axes, so no flip;</li>
+	 * <li>{@code down}: u = +x, v = −z — flip v;</li>
+	 * <li>{@code north}: u = −x, v = −y — flip both;</li>
+	 * <li>{@code south}: u = +x, v = −y — flip v;</li>
+	 * <li>{@code west}: u = +z, v = −y — flip v;</li>
+	 * <li>{@code east}: u = −z, v = −y — flip both.</li>
+	 * </ul>
+	 */
+	public static int[] uv(Direction side) {
+		return switch (side) {
+			case UP -> new int[] {0, 0, SIZE, SIZE};
+			case DOWN, SOUTH, WEST -> new int[] {0, SIZE, SIZE, 0};
+			case NORTH, EAST -> new int[] {SIZE, SIZE, 0, 0};
+		};
 	}
 
 	/** Whole sixteenths as integers, so the JSON reads like vanilla's own models. */

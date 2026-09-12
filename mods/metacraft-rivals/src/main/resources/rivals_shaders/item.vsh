@@ -6,10 +6,6 @@
 #include <minecraft:dynamictransforms.glsl>
 #include <minecraft:projection.glsl>
 #include <minecraft:sample_lightmap.glsl>
-// RIVALS: the camera's block position and sub-block offset, so the fragment shader can put a display
-// quad back on the world's block grid (see paintPos below). Bound for ITEM_CUTOUT: the pipeline's
-// ITEM_SNIPPET is built on MATRICES_FOG_LIGHT_DIR_SNIPPET, which is built on GLOBALS_SNIPPET.
-#include <minecraft:globals.glsl>
 
 layout(location = 0) in vec3 Position;
 layout(location = 1) in vec4 Color;
@@ -38,13 +34,13 @@ layout(location = 5) out vec2 texCoord0;
 #ifdef GLINT
 layout(location = 6) out vec2 texCoordGlint;
 #endif
-// RIVALS: the two things the paint gloss needs and vanilla's item pair does not carry. Declared for
-// every variant (the alpha-only OIT phase discards paint too, so it runs the same border test).
+// RIVALS: the two things the paint gloss and the data LED need and vanilla's item pair does not carry.
+// Declared for every variant (the alpha-only OIT phase discards paint too, so it runs the same border
+// test). viewPos is view space, for the gloss's normal (from its derivatives) and view vector; rawColor
+// is the vertex tint before any lighting, which is both the LED's exact colour for the post effect to
+// read back and the paint's own colour without the directional term the chunks never get.
 layout(location = 7) out vec3 viewPos;
-layout(location = 8) out vec3 paintPos;
-// RIVALS: the vertex tint before any lighting, for the data LED — the one place in the frame a
-// server-side mod can put an exact colour for a post effect to read back (see InkOnScreen).
-layout(location = 9) out vec4 rawColor;
+layout(location = 8) out vec4 rawColor;
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
@@ -70,14 +66,9 @@ void main() {
     #endif
 
     // RIVALS: view space, for the gloss's normal (from its derivatives) and view vector — the same two
-    // uses terrain.vsh's viewPos has.
+    // uses terrain.vsh's viewPos has. There is deliberately no world position here: for an entity or a
+    // display, Position is whatever the render PoseStack left in the buffer (the camera rotation is
+    // already baked in), not a camera-relative world offset, so no arithmetic on it recovers one. The
+    // paint's in-cell coordinate comes off the sprite instead — see item.fsh.
     viewPos = (ModelViewMat * vec4(Position, 1.0)).xyz;
-    // RIVALS: the world position, wrapped to keep it small. `Position` here is camera-relative render
-    // space (terrain.vsh builds it as worldPos - CameraBlockPos + CameraOffset), so worldPos is
-    // Position - CameraOffset + CameraBlockPos. The wrap subtracts a multiple of 1024 blocks, which
-    // leaves fract() — the in-cell coordinate the border is cut from — exactly unchanged while keeping
-    // float precision far better than a raw world coordinate would; the offset is one value per frame,
-    // so it cannot vary across a quad. Paint on a block display therefore lands on the very same
-    // 1/16-block grid as the paint blocks beside it.
-    paintPos = Position - CameraOffset + vec3(CameraBlockPos & 1023);
 }

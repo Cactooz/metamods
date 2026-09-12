@@ -248,7 +248,10 @@ public final class RivalsGameTests {
 			helper.assertValueEqual(json.get("texture").getAsString(), "#paint", facePath + " " + side + " texture");
 			helper.assertTrue(!json.has("tintindex"), facePath + " " + side + " is untinted");
 			JsonArray uv = json.getAsJsonArray("uv");
-			helper.assertValueEqual(uv.toString(), "[0,0,16,16]", facePath + " " + side + " uv covers the sprite");
+			// Which way round is paintQuadUvsOrientTheSprite's business; here it only has to be the whole
+			// sprite, because the shader reads the cell's own coordinate out of it.
+			helper.assertValueEqual(uv.toString(), java.util.Arrays.toString(PaintArt.uv(Direction.byName(side))).replace(" ", ""),
+					facePath + " " + side + " uv covers the sprite");
 		}
 		helper.succeed();
 	}
@@ -928,11 +931,11 @@ public final class RivalsGameTests {
 
 	/**
 	 * The same gloss in the item pair, which is what draws the block displays on stairs, slabs and panes
-	 * (cutoutBlockItemSheet → ITEM_CUTOUT → core/item). The delta over vanilla is two varyings: the view
-	 * position, for the normal and the view vector, and the world position, so a quad's border is cut on
-	 * the same 1/16-block grid as the paint block beside it — vanilla's item pair carries neither, and
-	 * {@code Position} there is camera-relative render space, not model space, so the world position has
-	 * to be rebuilt from the Globals camera.
+	 * (cutoutBlockItemSheet → ITEM_CUTOUT → core/item). The delta over vanilla is two varyings and where
+	 * the in-face coordinate comes from: the sprite, not a position. A display's vertices are baked by the
+	 * render PoseStack with the camera rotation already in them, so there is no world position in the item
+	 * pair to take fract() of — the first attempt reconstructed one from the Globals camera and drew
+	 * borders across the middle of cells.
 	 */
 	@GameTest
 	public void itemShaderCarriesTheSameGloss(GameTestHelper helper) {
@@ -941,15 +944,68 @@ public final class RivalsGameTests {
 		String vsh = new String(RivalsPack.shader("item.vsh"), StandardCharsets.UTF_8);
 		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.9216") && fsh.contains("0.008"),
 				"fragment shader guards on the marker alpha");
-		helper.assertTrue(fsh.contains("in vec3 paintPos") && vsh.contains("out vec3 paintPos"), "the pair agrees on the world position");
-		helper.assertTrue(fsh.contains("in vec3 viewPos") && vsh.contains("out vec3 viewPos"), "and on the view position");
-		helper.assertTrue(vsh.contains("CameraBlockPos") && vsh.contains("CameraOffset"), "the world position comes off the camera");
-		helper.assertTrue(fsh.contains("floor(p * TEXELS) + 0.5") && fsh.contains("floor(paintPos * TEXELS) + 0.5"),
-				"and snaps to the same 16-px grid the terrain gloss does");
+		helper.assertTrue(fsh.contains("fract(texCoord0 * vec2(textureSize(Sampler0, 0)) / SPRITE)"),
+				"the in-face coordinate is the sprite's own");
+		helper.assertTrue(!fsh.contains("paintPos") && !vsh.contains("paintPos") && !vsh.contains("CameraBlockPos"),
+				"and no reconstructed world position is left anywhere in the pair");
+		helper.assertTrue(fsh.contains("in vec3 viewPos") && vsh.contains("out vec3 viewPos"), "the pair agrees on the view position");
+		helper.assertTrue(fsh.contains("floor(p * TEXELS) + 0.5"), "and snaps to the same 16-px grid the terrain gloss does");
+		// Lighting parity: the chunks never get a directional term, so neither may the quads.
+		helper.assertTrue(fsh.contains("color = vec4(tex.rgb * rawColor.rgb, 1.0)"),
+				"paint takes the tint without the item pair's directional light");
 		// Vanilla's own item work has to survive: the cutout, the lightmap and overlay, the glint.
 		helper.assertTrue(fsh.contains("#ifdef ALPHA_CUTOUT") && fsh.contains("lightMapColor") && fsh.contains("GlintSampler"),
 				"vanilla item shading kept");
 		helper.assertTrue(vsh.contains("minecraft_mix_light(Light0_Direction"), "vanilla item lighting kept");
+		// And terrain keeps its own path: chunk geometry does have a chunk-relative position.
+		String terrain = new String(RivalsPack.shader("terrain.fsh"), StandardCharsets.UTF_8);
+		helper.assertTrue(terrain.contains("in vec3 chunkPos"), "the terrain gloss still reads the chunk position");
+		helper.succeed();
+	}
+
+	/**
+	 * The paint quads' UVs carry the orientation. The gloss shader reads its in-face coordinate off the
+	 * sprite, so which way round the sprite lies decides which side of a cell a border opens on; vanilla
+	 * maps a face's u and v to world axes differently per face, so every face needs its own flip. The
+	 * expected arrays below are written out rather than computed, so that a change to the table has to be
+	 * argued for here: with vertex 0 at (uv[0], uv[1]), 1 at (uv[0], uv[3]), 2 at (uv[2], uv[3]) and 3 at
+	 * (uv[2], uv[1]) — CuboidFace.UVs in 26.3, which does not sort them — and FaceInfo's corner table,
+	 * vanilla's u and v run along up (+x, +z), down (+x, −z), north (−x, −y), south (+x, −y), west (+z, −y)
+	 * and east (−z, −y), while the paint's own axes are (+x, +z) on a Y attach, (+z, +y) on X and (+x, +y)
+	 * on Z.
+	 */
+	@GameTest
+	public void paintQuadUvsOrientTheSprite(GameTestHelper helper) {
+		Map<String, int[]> expected = new LinkedHashMap<>();
+		expected.put("up", new int[] {0, 0, 16, 16});      // already the paint's axes
+		expected.put("down", new int[] {0, 16, 16, 0});    // v runs −z, so flip v
+		expected.put("north", new int[] {16, 16, 0, 0});   // u runs −x and v runs −y, so flip both
+		expected.put("south", new int[] {0, 16, 16, 0});   // v runs −y
+		expected.put("west", new int[] {0, 16, 16, 0});    // u already runs +z, v runs −y
+		expected.put("east", new int[] {16, 16, 0, 0});    // u runs −z and v runs −y
+		for (var entry : expected.entrySet()) {
+			Direction side = Direction.byName(entry.getKey());
+			helper.assertValueEqual(java.util.Arrays.toString(PaintArt.uv(side)),
+					java.util.Arrays.toString(entry.getValue()), side + " uv");
+		}
+		// And every generated face model actually carries them: two faces per attach direction, the two
+		// sides of the paper-thin quad, each with the flip its own facing needs.
+		Map<String, byte[]> files = PaintArt.packFiles();
+		for (Direction attach : Direction.values()) {
+			String path = "assets/metacraft-rivals/models/block/" + PaintArt.modelName(attach) + ".json";
+			helper.assertTrue(files.containsKey(path), "model in pack: " + path);
+			JsonObject model = JsonParser.parseString(new String(files.get(path), StandardCharsets.UTF_8)).getAsJsonObject();
+			JsonObject faces = model.getAsJsonArray("elements").get(0).getAsJsonObject().getAsJsonObject("faces");
+			helper.assertValueEqual(faces.size(), 2, attach + ": both sides of the quad are drawn");
+			for (var face : faces.entrySet()) {
+				int[] want = expected.get(face.getKey());
+				helper.assertTrue(want != null, attach + ": unexpected face " + face.getKey());
+				JsonArray uv = face.getValue().getAsJsonObject().getAsJsonArray("uv");
+				for (int i = 0; i < 4; i++) {
+					helper.assertValueEqual(uv.get(i).getAsInt(), want[i], attach + " " + face.getKey() + " uv[" + i + "]");
+				}
+			}
+		}
 		helper.succeed();
 	}
 
