@@ -3,8 +3,10 @@ package nu.metacraft.rivals.paint;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.particles.BlockParticleOption;
+import net.minecraft.core.particles.ParticleOptions;
 import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
@@ -22,6 +24,7 @@ import nu.metacraft.rivals.PaintColor;
 import org.jspecify.annotations.Nullable;
 
 import java.util.EnumMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -178,6 +181,60 @@ public final class Painter {
 	}
 
 	/**
+	 * How clear of a viewer's eyes a paint particle has to spawn, in blocks. Vanilla's {@code TerrainParticle}
+	 * textures a crumb with a random <em>quarter</em> of its block state's particle sprite — four texels of our
+	 * uniform 16x16 paint tile, at alpha 235 — so a crumb that spawns on a camera is one translucent
+	 * team-coloured quad across the whole screen. That is the "4 pixels" of the full-screen purple overlay this
+	 * clearance exists to prevent; it is not the post-effect and not vanilla's inside-a-block overlay.
+	 */
+	public static final double NEAR_EYES = 0.9;
+	/**
+	 * Vanilla's own cut-off for an unforced particle packet: a viewer farther than this is never sent one, so
+	 * neither are we — {@link #burst}'s count is then the truth about who actually got it.
+	 */
+	public static final double PARTICLE_RANGE = 32.0;
+
+	/**
+	 * Sends a paint burst to every player in the level whose eyes are clear of it, and returns how many that
+	 * was — the only thing a server-side test can see, since particles leave no trace in the level.
+	 *
+	 * <p>Every paint particle in the module goes out through here. A burst at a wall inches from the shooter's
+	 * face, or on the body of the victim who took the shot, lands inside a camera, and {@link #NEAR_EYES} says
+	 * what that means.
+	 */
+	public static int burst(ServerLevel level, ParticleOptions particle, Vec3 at, int count,
+			double dx, double dy, double dz, double speed) {
+		return burst(level, level.players(), particle, at, count, dx, dy, dz, speed);
+	}
+
+	/**
+	 * The same over a given set of viewers: the sites with someone to leave out (a shooter who gets a smaller
+	 * burst at the barrel, a squid whose own wake goes behind it) pass the rest of the level.
+	 */
+	public static int burst(ServerLevel level, List<ServerPlayer> viewers, ParticleOptions particle, Vec3 at,
+			int count, double dx, double dy, double dz, double speed) {
+		double spread = Math.max(dx, Math.max(dy, dz));
+		int sent = 0;
+		for (ServerPlayer viewer : viewers) {
+			if (!clearOfEyes(viewer, at, spread)) continue;
+			level.sendParticles(viewer, particle, false, false, at.x, at.y, at.z, count, dx, dy, dz, speed);
+			sent++;
+		}
+		return sent;
+	}
+
+	/**
+	 * Is a burst at {@code at} that scatters up to {@code spread} blocks worth sending to {@code viewer}: far
+	 * enough from their eyes to stay off their screen, near enough that the client would draw it at all. The
+	 * spread counts because a grain thrown that far from the spawn point can land on the camera on its own.
+	 */
+	public static boolean clearOfEyes(ServerPlayer viewer, Vec3 at, double spread) {
+		double clear = NEAR_EYES + spread;
+		if (viewer.getEyePosition().distanceToSqr(at) <= clear * clear) return false;
+		return viewer.position().distanceToSqr(at) <= PARTICLE_RANGE * PARTICLE_RANGE;
+	}
+
+	/**
 	 * The charger's trail: crumbs along the segment, and under every whole block position it passes
 	 * through a look straight down for up to {@link #LINE_DROP} blocks, painting the face it lands on.
 	 * That is what makes a charger shot read as a line drawn on the floor rather than as a single splat
@@ -192,7 +249,7 @@ public final class Painter {
 		for (int i = 0; i <= steps; i++) {
 			double along = i * LINE_STEP;
 			Vec3 at = length <= 0 ? from : from.lerp(to, Math.min(1.0, along / length));
-			if (along >= LINE_DUST_START) level.sendParticles(dust, at.x, at.y, at.z, 1, 0.02, 0.02, 0.02, 0.0);
+			if (along >= LINE_DUST_START) burst(level, dust, at, 1, 0.02, 0.02, 0.02, 0.0);
 			BlockPos here = BlockPos.containing(at);
 			if (here.equals(last)) continue;
 			last = here;
@@ -268,11 +325,11 @@ public final class Painter {
 			if (paintFace(level, hit.getBlockPos(), hit.getDirection(), color)) changed++;
 			if (perRay == 0) continue;
 			Vec3 at = hit.getLocation();
-			level.sendParticles(dust, at.x, at.y, at.z, perRay, 0.1, 0.1, 0.1, 0.01);
+			burst(level, dust, at, perRay, 0.1, 0.1, 0.1, 0.01);
 		}
-		int burst = 3 + 3 * weight;
+		int grains = 3 + 3 * weight;
 		double spread = 0.15 + 0.1 * weight;
-		level.sendParticles(dust, impact.x, impact.y, impact.z, burst, spread, spread, spread, 0.02);
+		burst(level, dust, impact, grains, spread, spread, spread, 0.02);
 		level.playSound(null, impact.x, impact.y, impact.z, SoundEvents.SLIME_BLOCK_HIT, SoundSource.BLOCKS, 0.8f, 1.3f);
 		return changed;
 	}

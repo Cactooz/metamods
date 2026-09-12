@@ -654,8 +654,6 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		muzzle(level, shooter, color);
 	}
 
-	/** How far a muzzle burst is worth sending; past this nobody reads it as a shot anyway. */
-	private static final double MUZZLE_RANGE = 32.0;
 	/** The burst everyone but the shooter sees, at eye + look × this. */
 	private static final double MUZZLE_REACH = 0.9;
 	/** The shooter's own, smaller burst: at the barrel tip, off to the right of the view and below it. */
@@ -673,10 +671,10 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		// couple at the barrel tip instead — off the centre of the screen, where a muzzle is.
 		Vec3 muzzle = shooter.getEyePosition().add(look.scale(MUZZLE_REACH));
 		BlockParticleOption dust = Painter.crumbs(color);
-		for (ServerPlayer viewer : level.players()) {
-			if (viewer == shooter || viewer.position().distanceToSqr(muzzle) > MUZZLE_RANGE * MUZZLE_RANGE) continue;
-			level.sendParticles(viewer, dust, false, false, muzzle.x, muzzle.y, muzzle.z, 5, 0.1, 0.1, 0.1, 0.02);
-		}
+		List<ServerPlayer> others = level.players().stream().filter(viewer -> viewer != shooter).toList();
+		// Painter.burst keeps the burst off the eyes of whoever the shooter is standing on top of, and holds
+		// vanilla's own thirty-two-block cut-off for an unforced particle packet.
+		Painter.burst(level, others, dust, muzzle, 5, 0.1, 0.1, 0.1, 0.02);
 		if (shooter instanceof ServerPlayer self) {
 			Vec3 across = look.cross(UP);
 			Vec3 right = across.lengthSqr() < 1.0e-6 ? Vec3.ZERO : across.normalize(); // straight up or down: no side
@@ -684,8 +682,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 					.add(look.scale(BARREL_REACH))
 					.add(right.scale(BARREL_RIGHT))
 					.subtract(UP.scale(BARREL_DROP));
-			level.sendParticles(self, dust, false, false,
-					barrel.x, barrel.y, barrel.z, 2, 0.05, 0.05, 0.05, 0.0);
+			Painter.burst(level, List.of(self), dust, barrel, 2, 0.05, 0.05, 0.05, 0.0);
 		}
 		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SNOWBALL_THROW, SoundSource.PLAYERS, 0.7f, 0.7f);
 		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SLIME_BLOCK_PLACE, SoundSource.PLAYERS, 0.5f, 1.4f);

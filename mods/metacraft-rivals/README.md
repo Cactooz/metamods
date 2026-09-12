@@ -62,6 +62,13 @@ dedicated Rivals server wants.
   team's paint tile, and a redstone-wire-backed state would have been tinted dark red by vanilla's own
   colour provider instead. Crumbs are much bigger than grains, so every burst count is about half what
   the dust counts were.
+- No paint particle is ever spawned on a camera. Vanilla textures a crumb with a random *quarter* of
+  its state's particle sprite — four texels of our uniform paint tile, translucent — so one that spawns
+  at a player's eyes is a team-coloured wash over their whole screen. Every burst goes out per viewer
+  through `Painter.burst`, which drops any player whose eyes are within `NEAR_EYES` (0.9 blocks) plus
+  the burst's own spread, and keeps vanilla's 32-block cut-off. The squid's wake is the one case the
+  distance rule cannot fix on its own — a pillar at the feet rises into the camera after it spawns — so
+  the squid gets crumbs only, a stride behind it, and everyone else gets the full wake at its feet.
 - A swimming squid leaves a wake: a few crumbs of its own ink at its feet on every tick it is
   actually moving (measured between ticks, because a real player's server-side delta is zero most
   ticks), a soft swim note every sixth such tick, and a ring of specks thrown outwards on the dive. A

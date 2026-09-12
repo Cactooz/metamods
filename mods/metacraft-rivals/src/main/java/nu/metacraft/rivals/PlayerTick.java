@@ -36,6 +36,7 @@ import nu.metacraft.rivals.paint.Painter;
 import org.jspecify.annotations.Nullable;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
@@ -115,6 +116,11 @@ public final class PlayerTick {
 	/** Ticks between two swim notes. */
 	private static final int SWIM_SOUND_EVERY = 6;
 	/** Pillars thrown in a ring on the dive, and how far out they land. */
+	/**
+	 * How far behind itself a squid gets its own wake. Far enough that {@link Painter#NEAR_EYES} plus the
+	 * crumb's spread clears the eyes of a swimming squid, which sit barely half a block over its feet.
+	 */
+	private static final double WAKE_BEHIND = 1.5;
 	private static final int DIVE_RING_PARTICLES = 6;
 	private static final double DIVE_RING_RADIUS = 0.5;
 
@@ -442,31 +448,58 @@ public final class PlayerTick {
 	private static void wake(Player player, PaintColor own, Vec3 moved, long now) {
 		if (!(player.level() instanceof ServerLevel level)) return;
 		Vec3 at = player.position();
-		if (ripples(level, player, own, moved) > 0 && now % SWIM_SOUND_EVERY == 0) {
+		if (ripples(level, player, own, moved).total() > 0 && now % SWIM_SOUND_EVERY == 0) {
 			level.playSound(null, at.x, at.y, at.z, SoundEvents.PLAYER_SWIM, SoundSource.PLAYERS, 0.25f, 1.6f);
 		}
 	}
 
+	/** What one tick of wake put out: the particles at the feet for everyone else, the crumbs behind it for the squid. */
+	public record Wake(int others, int self) {
+		static final Wake NONE = new Wake(0, 0);
+
+		/** Everything the tick sent, which is what {@link #wake} listens for. */
+		public int total() {
+			return others + self;
+		}
+	}
+
 	/**
-	 * Ink specks at the squid's feet, if it is moving horizontally at all. Returns how many were sent —
-	 * the only thing a server-side test can see, since particles leave no trace in the level.
+	 * Ink specks at the squid's feet, if it is moving horizontally at all. Returns what it sent — the only
+	 * thing a server-side test can see, since particles leave no trace in the level.
 	 *
 	 * <p>Mostly dust pillars — vanilla's mace-smash particle, a chunky column that rises and falls, so the
 	 * wake reads as displaced ink rather than as grit — with one block crumb under them for texture. The
 	 * shots and the splashes keep the crumb on its own; this is the one place ink is supposed to look big.
 	 *
-	 * <p>Everyone gets them, the squid included: they come out at foot level, under the camera of a
-	 * half-height squid, and leaving your own wake out is what makes squid form feel like nothing is
-	 * happening.
+	 * <p>The squid does <em>not</em> get that wake. It comes out at foot level, and a half-height squid's eyes
+	 * are only about half a block above its feet, so a rising pillar walks straight through its own camera and
+	 * fills the screen with a translucent team-coloured square ({@link Painter#NEAR_EYES}). Leaving your own
+	 * wake out entirely is what made squid form feel like nothing was happening, so the squid gets a wake of
+	 * its own instead: crumbs only, {@link #WAKE_BEHIND} behind it, which is where a wake trails anyway.
 	 */
-	public static int ripples(ServerLevel level, Player player, PaintColor color, Vec3 velocity) {
-		if (velocity.horizontalDistance() <= RIPPLE_SPEED) return 0;
+	public static Wake ripples(ServerLevel level, Player player, PaintColor color, Vec3 velocity) {
+		if (velocity.horizontalDistance() <= RIPPLE_SPEED) return Wake.NONE;
+		Vec3 feet = new Vec3(player.getX(), player.getY() + 0.05, player.getZ());
+		List<ServerPlayer> others = level.players().stream().filter(viewer -> viewer != player).toList();
 		// A little upward speed so the ink hops out of the pool and falls back rather than sitting on it.
-		level.sendParticles(Painter.pillar(color), player.getX(), player.getY() + 0.05,
-				player.getZ(), RIPPLE_PARTICLES, 0.35, 0.02, 0.35, 0.05);
-		level.sendParticles(Painter.crumbs(color), player.getX(), player.getY() + 0.05,
-				player.getZ(), RIPPLE_CRUMBS, 0.3, 0.02, 0.3, 0.05);
-		return RIPPLE_PARTICLES + RIPPLE_CRUMBS;
+		Painter.burst(level, others, Painter.pillar(color), feet, RIPPLE_PARTICLES, 0.35, 0.02, 0.35, 0.05);
+		Painter.burst(level, others, Painter.crumbs(color), feet, RIPPLE_CRUMBS, 0.3, 0.02, 0.3, 0.05);
+		int self = 0;
+		if (player instanceof ServerPlayer squid) {
+			self = Painter.burst(level, List.of(squid), Painter.crumbs(color), wakeBehind(player, velocity),
+					RIPPLE_CRUMBS, 0.2, 0.02, 0.2, 0.05);
+		}
+		return new Wake(RIPPLE_PARTICLES + RIPPLE_CRUMBS, self);
+	}
+
+	/**
+	 * Where the squid's own wake goes: {@link #WAKE_BEHIND} back along the way it came, at foot level. A still
+	 * squid never gets here — {@link #ripples} has already answered nothing — so the horizontal velocity always
+	 * has a direction to reverse.
+	 */
+	public static Vec3 wakeBehind(Player player, Vec3 velocity) {
+		Vec3 back = new Vec3(-velocity.x, 0, -velocity.z).normalize().scale(WAKE_BEHIND);
+		return new Vec3(player.getX(), player.getY() + 0.05, player.getZ()).add(back);
 	}
 
 	/**
@@ -484,13 +517,16 @@ public final class PlayerTick {
 		velocitySyncs++;
 		if (player.level() instanceof ServerLevel level) {
 			level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_SPLASH, SoundSource.PLAYERS, 0.4f, 1.5f);
-			// A ring of ink thrown outwards, so the dive lands with a splat rather than a shove.
+			// A ring of ink thrown outwards, so the dive lands with a splat rather than a shove. Through
+			// Painter.burst, which at a radius of half a block drops the whole ring for the diver: pillars
+			// rising a hand's width from their own eyes are a screenful of colour, not a splat.
 			PaintColor.byTeam(player.getTeam()).ifPresent(color -> {
 				for (int i = 0; i < DIVE_RING_PARTICLES; i++) {
 					double angle = i * 2.0 * Math.PI / DIVE_RING_PARTICLES;
-					level.sendParticles(Painter.pillar(color),
-							player.getX() + Math.cos(angle) * DIVE_RING_RADIUS, player.getY() + 0.05,
-							player.getZ() + Math.sin(angle) * DIVE_RING_RADIUS, 1, 0.0, 0.0, 0.0, 0.0);
+					Painter.burst(level, Painter.pillar(color),
+							new Vec3(player.getX() + Math.cos(angle) * DIVE_RING_RADIUS, player.getY() + 0.05,
+									player.getZ() + Math.sin(angle) * DIVE_RING_RADIUS),
+							1, 0.0, 0.0, 0.0, 0.0);
 				}
 			});
 		}

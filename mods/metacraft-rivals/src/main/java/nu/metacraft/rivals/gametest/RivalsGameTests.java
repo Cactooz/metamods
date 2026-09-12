@@ -22,6 +22,9 @@ import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.network.Connection;
+import net.minecraft.network.protocol.Packet;
+import net.minecraft.network.protocol.PacketFlow;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.Identifier;
@@ -30,6 +33,8 @@ import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.CommonListenerCookie;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -449,6 +454,22 @@ public final class RivalsGameTests {
 	}
 
 	/**
+	 * Gives a mock server player a connection that swallows whatever is sent to it. Vanilla's helper builds one
+	 * without a connection at all, and a particle packet aimed at a single viewer — which is how every paint
+	 * burst goes out now, so that none of them lands on a camera — is written straight to
+	 * {@code player.connection} and throws on a null one. The listener's constructor is what sets that field;
+	 * the override keeps the packet off the wire, since there is no channel under it.
+	 */
+	private static ServerPlayer connected(ServerPlayer player) {
+		new ServerGamePacketListenerImpl(player.level().getServer(), new Connection(PacketFlow.SERVERBOUND), player,
+				CommonListenerCookie.createInitial(player.getGameProfile(), false)) {
+			@Override
+			public void send(Packet<?> packet) {}
+		};
+		return player;
+	}
+
+	/**
 	 * A mock survival <em>server</em> player on {@code color}'s team, for the wall climb: only a
 	 * {@link ServerPlayer} carries the client input {@code PlayerTick} reads to decide which wall is
 	 * being pushed into, so a plain mock player can never climb.
@@ -459,7 +480,7 @@ public final class RivalsGameTests {
 	 * healthy and never re-adds it — the climb is what these tests are about.
 	 */
 	private static ServerPlayer wallSquid(GameTestHelper helper, PaintColor color) {
-		ServerPlayer player = mockServerPlayer(helper, GameType.SURVIVAL);
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, color));
 		player.getActiveEffectsMap().put(MobEffects.INVISIBILITY,
 				new MobEffectInstance(MobEffects.INVISIBILITY, 600, 0, true, false, false));
@@ -1860,25 +1881,82 @@ public final class RivalsGameTests {
 	 * {@code paintUnder} must still find it by falling back to the cell above the feet.
 	 */
 	/**
-	 * A swimming squid leaves a wake and a still one does not. Particles leave nothing behind on the
-	 * server to assert on, so {@link PlayerTick#ripples} answers with how many it sent.
+	 * A swimming squid leaves a wake, a still one does not, and none of the wake lands in the squid's own
+	 * camera. Particles leave nothing behind on the server to assert on, so {@link PlayerTick#ripples} answers
+	 * with what it sent: the count at the feet for everyone else, and the crumbs behind the squid for itself.
 	 */
 	@GameTest
-	public void squidSwimLeavesRipples(GameTestHelper helper) {
+	public void ripplesLeaveTheSquidsOwnCamera(GameTestHelper helper) {
 		Player player = gunner(helper);
 		ServerLevel level = helper.getLevel();
 		// Two dust pillars and a crumb: the pillars are the mace-smash particle, which is what makes the
 		// wake read as a mass of ink rather than as grit.
-		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.2, 0, 0)), 3, "swimming east leaves a wake");
-		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.IT, new Vec3(0, 0, -0.2)), 3, "swimming north too");
+		PlayerTick.Wake east = PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.2, 0, 0));
+		helper.assertValueEqual(east.others(), 3, "swimming east leaves a wake for everyone else");
+		helper.assertValueEqual(east.total(), 3, "and nothing more");
+		// A plain mock player is no viewer at all (only a ServerPlayer can be sent a particle packet), so the
+		// self wake is not even attempted; the path it would have taken is asserted below.
+		helper.assertValueEqual(east.self(), 0, "a plain mock player gets no wake of its own");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.IT, new Vec3(0, 0, -0.2)).others(), 3,
+				"swimming north too");
 		helper.assertTrue(Painter.pillar(PaintColor.DATA).getType() == ParticleTypes.DUST_PILLAR, "the wake is dust pillars");
 		helper.assertTrue(Painter.pillar(PaintColor.DATA).getState().getBlock() == Painter.crumbs(PaintColor.DATA).getState().getBlock(),
 				"carrying the same paint state the crumbs do, so it comes out in the team colour");
-		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, Vec3.ZERO), 0, "a still squid leaves nothing");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, Vec3.ZERO).total(), 0, "a still squid leaves nothing");
 		// Only horizontal movement counts: falling is not swimming, and a crawl under the threshold is
 		// the squid holding position rather than moving.
-		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0, -0.8, 0)), 0, "falling is not swimming");
-		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.01, 0, 0.01)), 0, "a crawl is not swimming");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0, -0.8, 0)).total(), 0,
+				"falling is not swimming");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.01, 0, 0.01)).total(), 0,
+				"a crawl is not swimming");
+		// The self path: the squid's own wake trails a stride behind it at foot level, which is far enough from
+		// its own eyes that Painter.burst keeps it — at the feet a rising pillar goes through the camera.
+		ServerPlayer squid = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		Vec3 stand = helper.absoluteVec(new Vec3(4, 3, 4));
+		squid.setPos(stand.x, stand.y, stand.z);
+		Vec3 swum = new Vec3(0.2, 0, 0);
+		Vec3 trail = PlayerTick.wakeBehind(squid, swum);
+		helper.assertTrue(trail.x < squid.getX() - 1.0, "the wake is behind the swimmer, not under it");
+		helper.assertValueEqual(trail.y, squid.getY() + 0.05, "at foot level");
+		Vec3 feet = new Vec3(squid.getX(), squid.getY() + 0.05, squid.getZ());
+		helper.assertTrue(squid.getEyePosition().distanceToSqr(trail) > squid.getEyePosition().distanceToSqr(feet),
+				"and farther from the squid's own eyes than the wake everyone else gets");
+		PlayerTick.Wake own = PlayerTick.ripples(level, squid, PaintColor.DATA, swum);
+		helper.assertValueEqual(own.self(), 1, "a viewer of its own wake gets the crumb behind it");
+		helper.assertValueEqual(own.others(), 3, "while everyone else still gets the full wake at its feet");
+		helper.succeed();
+	}
+
+	/**
+	 * {@link Painter#burst} drops any viewer whose eyes the burst would land in: a block crumb wears a random
+	 * quarter of its state's particle sprite, so one spawned on a camera is a translucent team-coloured square
+	 * over the whole screen.
+	 *
+	 * <p>The viewer is {@link #connected}: sending a particle to one player goes through the connection
+	 * vanilla's mock player does not have, so without that the delivered case could not be counted at all.
+	 */
+	@GameTest
+	public void burstsClearTheEyes(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		ServerPlayer viewer = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		Vec3 stand = helper.absoluteVec(new Vec3(4, 3, 4));
+		viewer.setPos(stand.x, stand.y, stand.z);
+		Vec3 eyes = viewer.getEyePosition();
+		helper.assertValueEqual(Painter.burst(level, List.of(viewer), Painter.crumbs(PaintColor.DATA), eyes, 4, 0.1, 0.1, 0.1, 0.02),
+				0, "a burst in a viewer's eyes reaches nobody");
+		helper.assertFalse(Painter.clearOfEyes(viewer, eyes, 0.1), "the eyes themselves are never clear");
+		helper.assertValueEqual(Painter.burst(level, List.of(viewer), Painter.crumbs(PaintColor.DATA), eyes.add(2.0, 0, 0), 4, 0.1, 0.1, 0.1, 0.02),
+				1, "two blocks away it reaches them");
+		// The spread counts: grains thrown half a block wide from a point that close still land on the camera.
+		helper.assertFalse(Painter.clearOfEyes(viewer, eyes.add(1.2, 0, 0), 0.5), "a wide spread needs more room");
+		helper.assertTrue(Painter.clearOfEyes(viewer, eyes.add(1.2, 0, 0), 0.1), "a tight one at that distance does not");
+		// Vanilla only sends an unforced particle packet within thirty-two blocks; past that we do not either.
+		Vec3 faraway = eyes.add(40.0, 0, 0);
+		helper.assertFalse(Painter.clearOfEyes(viewer, faraway, 0.1), "past vanilla's cut-off nothing is worth sending");
+		helper.assertValueEqual(Painter.burst(level, List.of(viewer), Painter.crumbs(PaintColor.DATA), faraway, 4, 0.1, 0.1, 0.1, 0.02),
+				0, "so that burst reaches nobody either");
+		helper.assertValueEqual(Painter.burst(level, List.of(), Painter.crumbs(PaintColor.IT), eyes, 4, 0.1, 0.1, 0.1, 0.02),
+				0, "and with nobody in the level, nobody at all");
 		helper.succeed();
 	}
 
