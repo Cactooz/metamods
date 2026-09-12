@@ -20,6 +20,8 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.ai.attributes.AttributeInstance;
+import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -38,6 +40,7 @@ import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.PlayerTick;
 import nu.metacraft.rivals.Rivals;
+import nu.metacraft.rivals.SquidState;
 import nu.metacraft.rivals.RivalsCommands;
 import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintGun;
@@ -626,7 +629,12 @@ public final class RivalsGameTests {
 		player.setShiftKeyDown(true);
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(PlayerTick.isSquid(player), "squid form on");
-		helper.assertTrue(player.hasEffect(MobEffects.INVISIBILITY) && player.hasEffect(MobEffects.SPEED), "invisible and fast");
+		helper.assertTrue(player.hasEffect(MobEffects.INVISIBILITY), "invisible");
+		AttributeInstance scale = player.getAttribute(Attributes.SCALE);
+		helper.assertTrue(scale != null && scale.hasModifier(SquidState.SCALE_ID) && scale.getValue() < 0.6, "squid is half size");
+		helper.assertTrue(player.getAttribute(Attributes.MOVEMENT_SPEED).hasModifier(SquidState.SPEED_ID), "squid is fast");
+		helper.assertTrue(player.getAttribute(Attributes.JUMP_STRENGTH).hasModifier(SquidState.JUMP_ID), "squid hops");
+		helper.assertTrue(player.getAttribute(Attributes.STEP_HEIGHT).hasModifier(SquidState.STEP_ID), "squid glides over steps");
 		// A fresh effect ticks down for real, one server tick at a time. Re-applying it here should not
 		// reset it back to full: it is still well above the running-low threshold, so `keep` must leave it.
 		MobEffectInstance invisibility = player.getEffect(MobEffects.INVISIBILITY);
@@ -641,9 +649,13 @@ public final class RivalsGameTests {
 		player.setShiftKeyDown(false);
 		PlayerTick.tick(player, 1);
 		helper.assertTrue(!PlayerTick.isSquid(player), "squid form off when not sneaking");
+		helper.assertTrue(!player.getAttribute(Attributes.SCALE).hasModifier(SquidState.SCALE_ID)
+				&& !player.getAttribute(Attributes.MOVEMENT_SPEED).hasModifier(SquidState.SPEED_ID), "modifiers removed on exit");
 		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.LIME);
 		PlayerTick.tick(player, 2);
 		helper.assertTrue(player.hasEffect(MobEffects.SLOWNESS), "enemy paint slows");
+		helper.assertValueEqual(player.getEffect(MobEffects.SLOWNESS).getAmplifier(), 1, "Slowness II");
+		helper.assertTrue(player.getAttribute(Attributes.JUMP_STRENGTH).hasModifier(SquidState.NO_JUMP_ID), "enemy ink kills the jump");
 		helper.succeed();
 	}
 
@@ -665,6 +677,43 @@ public final class RivalsGameTests {
 				"quads are keyed one cell above the slab, not at the slab's own cell");
 		helper.assertTrue(PlayerTick.paintUnder(player) == PaintColor.MAGENTA,
 				"paint on the slab tread is found from the player's feet cell below it");
+		helper.succeed();
+	}
+
+	/** Pushing against an own-colour painted wall while a squid lifts the player. */
+	@GameTest
+	public void squidWallSwim(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.STONE);
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		player.setPos(at.x, at.y, at.z);
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(3, 1, 2)), Direction.UP, PaintColor.MAGENTA); // floor under
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 2)), Direction.WEST, PaintColor.MAGENTA); // wall beside
+		player.setShiftKeyDown(true);
+		player.horizontalCollision = true;
+		player.setDeltaMovement(0.1, 0, 0);
+		PlayerTick.tick(player, 0);
+		helper.assertTrue(SquidState.isSquid(player), "squid");
+		helper.assertTrue(player.getDeltaMovement().y > 0.2, "lifted up the inked wall, dy=" + player.getDeltaMovement().y);
+		helper.succeed();
+	}
+
+	/** Enemy ink drips: 1 damage every 20 ticks in survival, never below 1 health. */
+	@GameTest
+	public void enemyInkDripDamage(GameTestHelper helper) {
+		helper.setBlock(new BlockPos(4, 2, 4), Blocks.STONE);
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.LIME);
+		float before = player.getHealth();
+		PlayerTick.tick(player, 20);
+		helper.assertTrue(player.getHealth() <= before - 1.0f, "hurt on a damage tick, health " + player.getHealth());
+		player.setHealth(1.5f);
+		PlayerTick.tick(player, 40);
+		helper.assertTrue(player.getHealth() >= 1.0f, "never below one health");
+		player.setHealth(before);
 		helper.succeed();
 	}
 }

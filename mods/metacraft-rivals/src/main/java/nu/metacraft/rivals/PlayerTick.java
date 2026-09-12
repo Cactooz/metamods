@@ -3,6 +3,7 @@ package nu.metacraft.rivals;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -12,28 +13,41 @@ import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.Vec3;
 import nu.metacraft.rivals.gun.Ink;
 import nu.metacraft.rivals.gun.PaintGun;
 import nu.metacraft.rivals.paint.PaintBlock;
 import nu.metacraft.rivals.paint.PaintDisplays;
+import nu.metacraft.rivals.paint.Painter;
 import org.jspecify.annotations.Nullable;
 
-import java.util.HashSet;
 import java.util.Optional;
-import java.util.Set;
-import java.util.UUID;
 
 /**
- * Per-player paint effects, every tick. Sneaking in own-colour paint is squid form: invisible, fast,
- * refilling, unable to shoot. Standing in another colour slows. Effects are short and topped back up to
- * their full duration only once they run low, so leaving the paint lets them run out within a second
- * with no bookkeeping, and vanilla isn't resyncing a fresh effect packet to the client every tick.
+ * Per-player paint effects, every tick.
+ *
+ * <p>Sneaking in own-colour paint is squid form: small, quick, invisible, refilling, unable to shoot,
+ * and able to swim up a wall it is pushing against if that wall is inked too. The size and speed come
+ * from {@link SquidState}'s attribute modifiers rather than potion effects, so they are exact and do
+ * not show up in the client's effect list; only invisibility is still a potion effect, because there
+ * is no attribute for it.
+ *
+ * <p>Standing in another colour is a trap rather than an inconvenience: Slowness II, no jump at all,
+ * and a point of damage every second (never the last one — enemy ink wears you down, it does not kill
+ * you on its own). Potion effects here are short and topped back up to their full duration only once
+ * they run low, so leaving the paint lets them run out within a second with no bookkeeping, and
+ * vanilla isn't resyncing a fresh effect packet to the client every tick.
  */
 public final class PlayerTick {
 	private static final int EFFECT_TICKS = 15;
 	private static final int TOPUP_EVERY = 5;
-	private static final Set<UUID> SQUIDS = new HashSet<>();
+	/** Ticks between two drips of enemy-ink damage. */
+	private static final int DRIP_EVERY = 20;
+	private static final float DRIP_DAMAGE = 1.0f;
+	/** Upward speed while swimming up an inked wall, blocks per tick. */
+	private static final double WALL_SWIM_SPEED = 0.28;
 
 	private PlayerTick() {}
 
@@ -42,13 +56,11 @@ public final class PlayerTick {
 			long now = server.getTickCount();
 			for (ServerPlayer player : server.getPlayerList().getPlayers()) tick(player, now);
 		});
-		// The set is keyed by UUID and lives past the server it was filled from; a single-process
-		// restart (a dev run, an integrated server) would otherwise start with everyone still a squid.
-		ServerLifecycleEvents.SERVER_STOPPING.register(server -> SQUIDS.clear());
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> SquidState.clearAll());
 	}
 
 	public static boolean isSquid(Player player) {
-		return SQUIDS.contains(player.getUUID());
+		return SquidState.isSquid(player);
 	}
 
 	/**
@@ -87,30 +99,75 @@ public final class PlayerTick {
 	}
 
 	public static void tick(Player player, long now) {
-		// A spectator flies through the paint blocks they are "standing in"; giving them invisibility,
-		// speed or slowness for it is noise, and their gun (if any) is not usable anyway.
+		// A spectator flies through the paint blocks they are standing in; giving them squid form,
+		// slowness or damage for it is noise, and their gun (if any) is not usable anyway.
 		if (player.isSpectator()) {
-			SQUIDS.remove(player.getUUID());
+			SquidState.exit(player);
+			SquidState.clearEnemyInk(player);
 			return;
 		}
 		PaintColor under = paintUnder(player);
 		Optional<PaintColor> own = PaintColor.byTeam(player.getTeam());
-		boolean squid = under != null && own.isPresent() && under == own.get() && player.isShiftKeyDown();
+		boolean inOwn = under != null && own.isPresent() && under == own.get();
+		boolean inEnemy = under != null && own.isPresent() && under != own.get();
+		boolean squid = inOwn && player.isShiftKeyDown();
 		if (squid) {
-			SQUIDS.add(player.getUUID());
+			SquidState.enter(player);
 			keep(player, MobEffects.INVISIBILITY, 0);
-			keep(player, MobEffects.SPEED, 1);
+			// Swimming up a wall is a shove, not an attribute: set the upward speed directly and mark
+			// the movement dirty so the server tells the client about it this tick.
+			if (player.horizontalCollision && paintedWallBeside(player, own.get())) {
+				Vec3 velocity = player.getDeltaMovement();
+				player.setDeltaMovement(velocity.x, WALL_SWIM_SPEED, velocity.z);
+				player.hurtMarked = true;
+			}
 		} else {
-			SQUIDS.remove(player.getUUID());
+			SquidState.exit(player);
 		}
-		if (under != null && own.isPresent() && under != own.get()) {
-			keep(player, MobEffects.SLOWNESS, 0);
+		if (inEnemy) {
+			keep(player, MobEffects.SLOWNESS, 1);
+			SquidState.applyEnemyInk(player);
+			// Never the killing blow: enemy ink leaves you at one heart for someone else to finish.
+			if (now % DRIP_EVERY == 0 && !player.isCreative() && player.getHealth() - DRIP_DAMAGE >= 1.0f
+					&& player.level() instanceof ServerLevel level) {
+				player.hurtServer(level, level.damageSources().magic(), DRIP_DAMAGE);
+			}
+		} else {
+			SquidState.clearEnemyInk(player);
 		}
-		if (under != null && own.isPresent() && under == own.get() && now % TOPUP_EVERY == 0) {
+		if (inOwn && now % TOPUP_EVERY == 0) {
 			for (InteractionHand hand : InteractionHand.values()) {
 				ItemStack stack = player.getItemInHand(hand);
 				if (stack.getItem() instanceof PaintGun) Ink.add(stack, squid ? 4 : 1);
 			}
 		}
+	}
+
+	/**
+	 * Is there own-colour paint on a wall face the player is pushing against? Any of the four
+	 * horizontal neighbours counts: the server does not know which way the collision was, and a squid
+	 * pressed into a corner should climb either wall.
+	 *
+	 * <p>Paint on a wall face lives in the cell in front of that face, which is the player's own cell
+	 * (feet or head): as a paint block with the face flag pointing back at the wall, or as display
+	 * quads keyed at that same cell when the wall is not a full cube.
+	 */
+	static boolean paintedWallBeside(Player player, PaintColor own) {
+		if (!(player.level() instanceof ServerLevel level)) return false;
+		BlockPos feet = player.blockPosition();
+		PaintDisplays displays = PaintDisplays.of(level);
+		for (Direction side : Direction.Plane.HORIZONTAL) {
+			BlockPos wall = feet.relative(side);
+			if (!Painter.paintable(level.getBlockState(wall))) continue;
+			if (facing(level.getBlockState(feet), side, own) || facing(level.getBlockState(feet.above()), side, own)) return true;
+			if (displays.colorAt(feet) == own) return true;
+		}
+		return false;
+	}
+
+	/** Is {@code cell} a paint block of {@code own} carrying a face that looks towards {@code side}? */
+	private static boolean facing(BlockState cell, Direction side, PaintColor own) {
+		return cell.getBlock() instanceof PaintBlock paint && paint.color == own
+				&& cell.getValue(MultifaceBlock.getFaceProperty(side));
 	}
 }
