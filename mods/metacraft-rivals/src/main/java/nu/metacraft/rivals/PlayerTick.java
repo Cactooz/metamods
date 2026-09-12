@@ -2,9 +2,11 @@ package nu.metacraft.rivals;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
+import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.player.Player;
@@ -23,8 +25,9 @@ import java.util.UUID;
 
 /**
  * Per-player paint effects, every tick. Sneaking in own-colour paint is squid form: invisible, fast,
- * refilling, unable to shoot. Standing in another colour slows. Effects are short and re-applied each
- * tick, so leaving the paint ends them within a second with no bookkeeping.
+ * refilling, unable to shoot. Standing in another colour slows. Effects are short and topped back up to
+ * their full duration only once they run low, so leaving the paint lets them run out within a second
+ * with no bookkeeping, and vanilla isn't resyncing a fresh effect packet to the client every tick.
  */
 public final class PlayerTick {
 	private static final int EFFECT_TICKS = 15;
@@ -44,13 +47,34 @@ public final class PlayerTick {
 		return SQUIDS.contains(player.getUUID());
 	}
 
-	/** The colour of the paint in the cell the player stands in (block paint or display quads), or null. */
+	/**
+	 * The colour of the paint in the cell the player stands in, checked at two heights. Block paint and
+	 * a wall/fence's display quads are keyed at the player's own feet cell, so that is checked first. A
+	 * stair tread or bottom slab's quads are keyed one cell higher — {@link PaintDisplays#paint} stores
+	 * them at {@code surface.relative(face)}, i.e. the cell above the tread — even though a player
+	 * standing on that tread has {@code blockPosition()} equal to the tread's own cell, not the cell
+	 * above it. So when the feet cell has nothing, the cell above is checked for quads only (a full
+	 * paint block can't occupy the space a player's feet are standing in one cell below it).
+	 */
 	public static @Nullable PaintColor paintUnder(Player player) {
 		if (!(player.level() instanceof ServerLevel level)) return null;
-		BlockPos cell = player.blockPosition();
-		BlockState state = level.getBlockState(cell);
+		BlockPos feet = player.blockPosition();
+		BlockState state = level.getBlockState(feet);
 		if (state.getBlock() instanceof PaintBlock paint) return paint.color;
-		return PaintDisplays.of(level).colorAt(cell);
+		PaintColor quads = PaintDisplays.of(level).colorAt(feet);
+		if (quads != null) return quads;
+		return PaintDisplays.of(level).colorAt(feet.above());
+	}
+
+	/**
+	 * Refresh {@code effect} to its full duration only when it is missing, weaker, or running low;
+	 * re-adding it every tick regardless would make vanilla resend the effect packet every tick.
+	 */
+	private static void keep(Player player, Holder<MobEffect> effect, int amplifier) {
+		MobEffectInstance current = player.getEffect(effect);
+		if (current == null || current.getAmplifier() < amplifier || current.getDuration() < EFFECT_TICKS / 2) {
+			player.addEffect(new MobEffectInstance(effect, EFFECT_TICKS, amplifier, true, false, false));
+		}
 	}
 
 	public static void tick(Player player, long now) {
@@ -59,13 +83,13 @@ public final class PlayerTick {
 		boolean squid = under != null && own.isPresent() && under == own.get() && player.isShiftKeyDown();
 		if (squid) {
 			SQUIDS.add(player.getUUID());
-			player.addEffect(new MobEffectInstance(MobEffects.INVISIBILITY, EFFECT_TICKS, 0, true, false, false));
-			player.addEffect(new MobEffectInstance(MobEffects.SPEED, EFFECT_TICKS, 1, true, false, false));
+			keep(player, MobEffects.INVISIBILITY, 0);
+			keep(player, MobEffects.SPEED, 1);
 		} else {
 			SQUIDS.remove(player.getUUID());
 		}
 		if (under != null && own.isPresent() && under != own.get()) {
-			player.addEffect(new MobEffectInstance(MobEffects.SLOWNESS, EFFECT_TICKS, 0, true, false, false));
+			keep(player, MobEffects.SLOWNESS, 0);
 		}
 		if (under != null && own.isPresent() && under == own.get() && now % TOPUP_EVERY == 0) {
 			for (InteractionHand hand : InteractionHand.values()) {

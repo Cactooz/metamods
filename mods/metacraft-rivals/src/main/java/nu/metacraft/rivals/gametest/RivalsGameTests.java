@@ -14,6 +14,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -554,6 +555,15 @@ public final class RivalsGameTests {
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(PlayerTick.isSquid(player), "squid form on");
 		helper.assertTrue(player.hasEffect(MobEffects.INVISIBILITY) && player.hasEffect(MobEffects.SPEED), "invisible and fast");
+		// A fresh effect ticks down for real, one server tick at a time. Re-applying it here should not
+		// reset it back to full: it is still well above the running-low threshold, so `keep` must leave it.
+		MobEffectInstance invisibility = player.getEffect(MobEffects.INVISIBILITY);
+		int firstDuration = invisibility.getDuration();
+		invisibility.tickServer(helper.getLevel(), player, () -> {});
+		PlayerTick.tick(player, 0);
+		int secondDuration = player.getEffect(MobEffects.INVISIBILITY).getDuration();
+		helper.assertTrue(secondDuration == firstDuration - 1,
+				"effect ticks down instead of resetting to full: first=" + firstDuration + " second=" + secondDuration);
 		InteractionResult shot = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(shot == InteractionResult.FAIL, "no shooting as a squid");
 		player.setShiftKeyDown(false);
@@ -562,6 +572,27 @@ public final class RivalsGameTests {
 		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.LIME);
 		PlayerTick.tick(player, 2);
 		helper.assertTrue(player.hasEffect(MobEffects.SLOWNESS), "enemy paint slows");
+		helper.succeed();
+	}
+
+	/**
+	 * A bottom slab's paint lands as display quads keyed one cell above the slab (like a stair tread), but
+	 * a player standing on the slab has {@code blockPosition()} at the slab's own cell, one below that.
+	 * {@code paintUnder} must still find it by falling back to the cell above the feet.
+	 */
+	@GameTest
+	public void squidDetectsPaintOnSlabTread(GameTestHelper helper) {
+		BlockPos slab = new BlockPos(4, 2, 4);
+		helper.setBlock(slab, Blocks.STONE_SLAB.defaultBlockState());
+		Player player = helper.makeMockPlayer(GameType.SURVIVAL);
+		Vec3 at = helper.absoluteVec(new Vec3(4.5, 2.5, 4.5)); // standing on top of the bottom slab
+		player.setPos(at.x, at.y, at.z);
+		boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(slab), Direction.UP, PaintColor.MAGENTA);
+		helper.assertTrue(painted, "slab top accepted paint");
+		helper.assertTrue(PaintDisplays.of(helper.getLevel()).colorAt(helper.absolutePos(slab)) == null,
+				"quads are keyed one cell above the slab, not at the slab's own cell");
+		helper.assertTrue(PlayerTick.paintUnder(player) == PaintColor.MAGENTA,
+				"paint on the slab tread is found from the player's feet cell below it");
 		helper.succeed();
 	}
 }
