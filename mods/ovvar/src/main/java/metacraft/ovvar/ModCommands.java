@@ -11,7 +11,7 @@ import metacraft.ovvar.content.*;
 import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.sewing.SewingGame;
 import metacraft.ovvar.sewing.StandSewing;
-import metacraft.ovvar.sewing.StashGui;
+import metacraft.ovvar.sewing.WardrobeGui;
 import metacraft.ovvar.sewing.StashSession;
 import metacraft.ovvar.store.Stash;
 import metacraft.ovvar.store.Wardrobe;
@@ -87,7 +87,7 @@ public final class ModCommands {
 						// Anyone: their stash.
 						.then(Commands.literal("stash")
 								.executes(ctx -> {
-									StashGui.open(ctx.getSource().getPlayerOrException());
+									WardrobeGui.open(ctx.getSource().getPlayerOrException());
 									return 1;
 								})
 								.then(Commands.literal("done").executes(ctx -> {
@@ -355,14 +355,7 @@ public final class ModCommands {
 			// stand uses a different model and misplaces them. Default on; pass false for stands.
 			Entity display;
 			if (mannequin) {
-				Mannequin m = new Mannequin(EntityTypes.MANNEQUIN, level);
-				m.setPos(pos.x, y, pos.z);
-				m.setYRot(yaw + 180);
-				m.setYBodyRot(yaw + 180);
-				m.setYHeadRot(yaw + 180);
-				m.setItemSlot(EquipmentSlot.LEGS, ovve);
-				if (top != null) m.setItemSlot(EquipmentSlot.CHEST, top);
-				display = m;
+				display = buildMannequin(level, pos, yaw, ovve, top);
 			} else {
 				ArmorStand stand = new ArmorStand(level, pos.x, y, pos.z);
 				stand.setYRot(yaw + 180);
@@ -382,6 +375,48 @@ public final class ModCommands {
 		String kind = mannequin ? "mannequins" : "stands";
 		ctx.getSource().sendSuccess(() -> Component.literal("Placed " + count + " " + chapter.name + " " + kind), false);
 		return count;
+	}
+
+	/** The companion top an ovve's item pass needs beside it (the top is up, and its patches), or null. */
+	private static @Nullable ItemStack companionTop(ItemStack ovve) {
+		if (!OvveItem.topUp(ovve) || !(ovve.getItem() instanceof OvveItem item)) return null;
+		ItemStack top = new ItemStack(ModContent.top(item.chapter));
+		var patches = ovve.get(ModComponents.PATCHES);
+		if (patches != null) top.set(ModComponents.PATCHES, patches);
+		return top;
+	}
+
+	/**
+	 * A mannequin at {@code pos} facing {@code yaw}'s owner, wearing {@code ovve} and its companion
+	 * {@code top} (nullable) -- not yet added to the level, so callers can tag or flag it first.
+	 * Shared by {@link #showcase} and {@link #spawnMannequinWearing} so there is one place that
+	 * knows how a mannequin wears an ovve.
+	 */
+	private static Mannequin buildMannequin(ServerLevel level, Vec3 pos, float yaw, ItemStack ovve, @Nullable ItemStack top) {
+		Mannequin m = new Mannequin(EntityTypes.MANNEQUIN, level);
+		m.setPos(pos.x, Math.floor(pos.y), pos.z);
+		m.setYRot(yaw + 180);
+		m.setYBodyRot(yaw + 180);
+		m.setYHeadRot(yaw + 180);
+		m.setItemSlot(EquipmentSlot.LEGS, ovve);
+		if (top != null) m.setItemSlot(EquipmentSlot.CHEST, top);
+		return m;
+	}
+
+	/**
+	 * A mannequin wearing {@code ovve} (and its companion top, if the top is up), {@code blocksInFront}
+	 * of {@code player} and facing them -- the single-display half of {@link #showcase}, reused by
+	 * the wardrobe screen's "show on mannequin" action ({@link metacraft.ovvar.sewing.WardrobeMannequin}),
+	 * which is the one that adds the lifecycle (one per player, a timeout, a leash range) a gamemaster
+	 * command does not need.
+	 */
+	public static Mannequin spawnMannequinWearing(ServerPlayer player, ItemStack ovve, double blocksInFront) {
+		ServerLevel level = player.level();
+		float yaw = player.getYRot();
+		Vec3 pos = player.position().add(Vec3.directionFromRotation(0, yaw).scale(blocksInFront));
+		Mannequin m = buildMannequin(level, pos, yaw, ovve, companionTop(ovve));
+		level.addFreshEntity(m);
+		return m;
 	}
 
 	private static int minigame(CommandContext<CommandSourceStack> ctx, Boolean on, int stitches) {

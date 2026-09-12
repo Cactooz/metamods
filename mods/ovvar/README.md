@@ -111,7 +111,7 @@ stands`, showcase) keep their patches on the item as before.
 
 ### The stash
 
-`/ovvar stash` is a chest menu of the patches you own (`StashGui`). On a survival server:
+`/ovvar stash` opens the wardrobe screen (below). On a survival server:
 
 - **left-click a patch** to take one out as an ordinary item: sew it on any armour stand wearing
   your ovve, the way it always worked, or trade it. The chest button puts every patch item you
@@ -130,6 +130,75 @@ and any patch item that lands in an inventory is banked into the stash at once, 
 to a locked or wiped inventory. Sewing also needs a game mode in `sew_game_modes` (adventure is
 not one) and a score of 0 in the `ingame` objective. A patch earned (`/ovvar patch give`, or banked)
 plays the totem-of-undying flourish with the patch's art and explains the stash in chat.
+
+### Wardrobe screen
+
+`WardrobeGui` (`/ovvar stash`) is a `GENERIC_9x6` chest drawn as a full-bleed piece of stitched
+cloth, tinted to the open chapter's colour, instead of the plain vanilla chest background. Slot
+`row * 9 + col`:
+
+```
+row 0   [tab][tab][tab][tab][tab][tab][top][feet][ · ]   <- one tab per owned chapter, then the two piece toggles
+row 1   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
+row 2   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
+row 3   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
+row 4   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
+row 5   [take out][deposit][sew hint][mannequin][finish][ · ][ · ][help][close]
+```
+
+The left block (cols 0-4, rows 1-4) is the patch collection — the stash, one slot per kind, left
+and right click exactly as before (take out / start a session); a wardrobe with more than 20 kinds
+gives up the last slot to a "+N more" marker instead of a 21st kind. The right block (cols 5-8,
+rows 1-4) is the preview: a hover-only item (no click handler) at the slot nearest every sewn spot,
+`WardrobeGui.previewSlot`, so hovering shows "\<patch\> on \<spot\>". The mapping is hand-written
+in `WardrobeGui.PREVIEW_CELL`: a front view of the wearer, column 0 their left, column 3 their
+right, the two middle columns the body; several of the garment's 33 spots share a cell on
+purpose (16 preview slots is not enough for one each), so the last placement drawn to a cell wins
+its tooltip — a design with only one spot per cell (the common case) always shows correctly.
+Row 5's "finish" (col 4) is the old `StashGui`'s "Finish sewing" button, shown only while a stash
+session is running.
+
+The container title carries the background: `WardrobeArt` tints the single greyscale template
+(`art/ovvar/wardrobe_template.png`) to the chapter's colour and draws it as one `bitmap` glyph in
+the `ovvar:wardrobe` font, the same negative-space trick as the sewing dialog
+(`SewingFont`) and better-pets' `pet_gui` — a `space` provider moves the cursor to the corner,
+the glyph draws the whole 176×126 background, another space moves the cursor back so the ordinary
+stats text (`earned N · sewn N · stash N`, white) can follow on the same line. 176×126 is exactly
+the `GENERIC_9x6` container's own six 18px rows below its header (`18 + 18*6`), not a px more, so
+the glyph never paints opaque cloth or a stitch line over the player's own inventory below it.
+
+"Show on mannequin" (col 3) reuses the `/ovvar showcase` mannequin builder
+(`ModCommands.buildMannequin`) through `WardrobeMannequin`, which adds the guardrails a
+gamemaster-only command does not need: refused outright on a minigame server; one per player (a
+second click discards the first, tracked by holding the entity, not by re-finding it in the
+world); gone on its own after 60 seconds, past 8 blocks, or on disconnect; and the copy of the
+ovve it wears has its `BUNDLE_CONTENTS` stripped and is permanently invulnerable (and can never
+die at all (`ServerLivingEntityEvents.ALLOW_DEATH`), so there is no death event left to drop
+its equipment on) — the guard against a copy of somebody's real, pocket-stuffed ovve becoming a
+dupe machine.
+
+**Deviations from the design doc**, for the record:
+- The doc calls for 7 backgrounds; `Chapter` has 6 values (`DATA`, `IT`, `IT_KISEL`, `MEDIA`,
+  `DATA_POLYMITER`, `IT_POLYMITER`), so there are 6 — one per chapter, as the doc's own "one
+  background per chapter" says.
+- `feet` in the tab row is `Piece.BOTTOM` (legs and waist) read informally — there is no separate
+  "feet" piece in the data model, only the boots render channel `OvveFeet` adds to it.
+- Row 5's "take out" and "sew on stand" are reminder icons, not buttons: there is no "selected
+  patch" state, so the actual gestures stay on the collection slots themselves, as they always
+  were. On a minigame server both reminders disappear entirely (look-only) and the help book's
+  first line says why.
+- The doc's "mode text in the middle, drawn as background text" is instead the mode's first line
+  in the help book (col 7): a container title is one line, already spent on the chapter glyph and
+  the stats strip.
+
+**Template art notes** (`tools/wardrobe_template.py`, run once, checked in): 176×126 (see above —
+exactly the container's own rows), greyscale + alpha; a base cloth tone (132) with ±6 per-pixel
+luminance noise for a woven feel; the patch panel (cols 0-4, rows 1-4) is a lighter "cream canvas
+pocket" (200); the preview panel (cols 5-8, rows 1-4) is a slightly darker cloth (118) with a
+simple standing-ovve silhouette in mid grey (96); a dashed white overlock-stitch outline (255) runs
+around the tab row, both panels, the action row, and the whole background. `WardrobeArt` tints
+every non-white pixel by `luminance/255 * colour` and leaves anything at or above luminance 250
+pure white, so the stitching reads the same on every chapter.
 
 `config/ovvar.json` → `designs` (the store):
 
@@ -174,6 +243,12 @@ gets before they join: `METAcraft Survival · ovve sewing on stands, patches are
 `METAcraft Minigame · ovve stash only, no sewing` where `stash.minigame_server` is on. Every key
 above is optional in the file: the defaults are the ones documented here, and a key only needs
 writing to change it.
+
+Since JSON has no comments, `config/ovvar.json` and each of its `designs`, `stash`, `server` and
+`designs.jdbc` blocks carry their own `_help` object (rewritten every save, so edits to it do not
+stick) with a `_about` line and one entry per key, the same text as above; open the file itself if
+you would rather read the help there than here. Every block is always written, even one that is
+exactly its own defaults, so its `_help` is always there too.
 
 The file backend is fine for one server or a shared mount; a network of servers wants `jdbc`
 (MariaDB/MySQL and PostgreSQL drivers ship in the jar).

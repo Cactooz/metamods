@@ -45,7 +45,8 @@ import java.util.UUID;
  * defence, no durability (it breaking would spill someone's pockets). The client is handed a
  * bundle with our equipment asset, chosen per stack.
  *
- * An ovve belongs to a player ({@link ModComponents#OWNER}, set when a player first holds it) and
+ * An ovve belongs to a player ({@link ModComponents#OWNER}, set when a player first holds it, and
+ * moved to a later holder only under {@code designs.others_ovve: rebind}, see {@link Ownership}) and
  * its patches are that player's design in their wardrobe ({@link Wardrobes}); the component on the
  * item is a copy kept in step every tick, so a second ovve of the same owner looks the same and
  * never holds a patch of its own.
