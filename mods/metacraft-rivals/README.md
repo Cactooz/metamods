@@ -3,8 +3,10 @@
 METAmods module `mods/metacraft-rivals` (mod id `metacraft-rivals`). A Splatoon-style paint
 prototype for vanilla clients: Fabric + [Polymer](https://polymer.pb4.eu), Minecraft 26.2, Java 25.
 Players need only the auto-served resource pack. Design: `docs/superpowers/specs/2026-09-11-metacraft-rivals-paint-prototype-design.md`
-(v1) and `docs/superpowers/specs/2026-09-12-metacraft-rivals-v2-design.md` (v2: feel, art, any-block
-paint, ink); the gun's design sheet is next to the v1 spec.
+(v1), `docs/superpowers/specs/2026-09-12-metacraft-rivals-v2-design.md` (v2: feel, art, any-block
+paint, ink) and `docs/superpowers/specs/2026-09-12-metacraft-rivals-v3-design.md` (v3: gloss that
+actually renders, real squid form, blobby bouncing shots, three more weapons); the gun's design
+sheet is next to the v1 spec.
 
 **Standalone.** This module is not bundled into the `dist` jar (root `build.gradle`, `standaloneMods`):
 its pack retextures sculk vein, resin clump and glow lichen as paint, which only a dedicated
@@ -17,15 +19,35 @@ Rivals server wants.
   (vanilla's lit one; what a client shows for our unlit paint block is unverified). Donors accept
   paint even when waterlogged — the check is on the block, not the fluid state it carries.
 - One colour per cell: a hit in another colour recolours the cell and keeps its faces.
-- The paint gun throws a snowball-based paint ball shown as a tinted firework star; on impact it
-  splashes: the usual 3×3 blob on the struck face (corners at random), plus fourteen short rays
-  from the impact point (six axis directions and eight diagonals) that paint whatever face they
-  hit, so a floor shot next to a wall also paints the wall and fills in the corner. A coloured
-  dust burst and a wet impact sound go with it. Colour comes from the shooter's vanilla team,
-  whose name is the colour id.
+- Four weapons, one item class (`PaintWeapon`) parameterised by a `Weapon` enum, given with
+  `/rivals gun <shooter|sprayer|charger|slosher>` (default shooter) or all at once with
+  `/rivals kit`:
+
+  | Weapon | Ink/shot | Cooldown | Shot |
+  |---|---|---|---|
+  | shooter | 1 | 4 ticks | one ball, one bounce, 3×3 splat |
+  | sprayer | 1/click | 4 ticks | 3 short-lived droplets in a cone, single-face splat + rays, no bounce |
+  | charger | 4 + 8 × charge | 20 ticks | hold to charge (up to 20 ticks), release for a hitscan line with a splash where it stops |
+  | slosher | 15 | 14 ticks | 4 balls in a fan, gravity-heavy lob, 5×5 splat, no bounce |
+
+  Only the slosher swings the arm on use — it's a bucket, and the throw reads as one — so its
+  `use` returns `SUCCESS_SERVER` (the server broadcasts the swing, including to the thrower); the
+  other three return `CONSUME`, which takes the click without animating the hand, since a
+  four-tick swing loop on a rapid-fire weapon looks like a stutter rather than firing.
+- Every paint ball is a snowball entity hidden from clients, with a Polymer item display — a
+  rounded, dyed blob model, not the vanilla firework-star particle — riding along on an
+  attachment and squashing/stretching as it flies. The shooter's ball keeps one bounce: on a
+  block hit it splashes, reflects off the hit face at 45% of its speed, and keeps flying until
+  the second impact spends it; sprayer and slosher shots don't bounce. On impact (or the final
+  bounce) it splashes: the usual blob on the struck face (3×3 for the shooter and sprayer, 5×5
+  for the slosher), plus fourteen short rays from the impact point (six axis directions and eight
+  diagonals) that paint whatever face they hit, so a floor shot next to a wall also paints the
+  wall and fills in the corner. A coloured dust burst and a wet impact sound go with it. Colour
+  comes from the shooter's vanilla team, whose name is the colour id.
 - Firing has a kick: the client's pitch is nudged up on the shot and eased back down two ticks
-  later, plus a small push, a muzzle particle burst and a layered sound. Recoil packets only
-  reach real connected players; mock players (game tests) are unaffected.
+  later (scaled to the charger's charge), plus a small push, a muzzle particle burst and a
+  layered sound (a low slime step added under the slosher's throw for weight). Recoil packets
+  only reach real connected players; mock players (game tests) are unaffected.
 - Paint blocks only ever sit on a full face — vanilla's own attach rule for a multiface block, and
   exactly the rule paint wants. A face that isn't full (stairs, slabs, fences, panes, walls, glass
   panes) instead gets a set of flat splat-quad item displays that wrap the block's own outline
@@ -41,27 +63,40 @@ Rivals server wants.
   shader looks for. The resource pack's blockstate overrides for `sculk_vein`, `resin_clump` and
   `glow_lichen` pick one of the 32 variants per block position at random, so adjacent painted
   cells stop visibly tiling.
-- The pack also overrides `block.vsh`/`block.fsh` to add a subtle specular/fresnel gloss on paint
-  texels only; every other texel keeps vanilla's shading byte for byte. Known limit: a shader pack
-  (e.g. Iris) replaces the core shaders wholesale and loses the gloss.
-- The gun's 3D model is `assets/metacraft-rivals/models/item/paint_gun.json`; its tank is
-  dye-tinted to the team colour. It's Kenney's `blaster-b` (CC0, Blaster Kit) converted into a
+- The pack also overrides `assets/minecraft/shaders/core/terrain.vsh`/`terrain.fsh` — the pair
+  that actually draws chunk geometry in 26.2 — to add a subtle specular/fresnel gloss on paint
+  texels only; every other texel keeps vanilla's shading byte for byte. (v2 keyed this into
+  `block.vsh`/`block.fsh`, which chunk terrain never runs through, so the gloss never rendered;
+  those overrides are gone.) Known limit: a shader pack (e.g. Iris) replaces the core shaders
+  wholesale and loses the gloss.
+- The guns' 3D models live under `assets/metacraft-rivals/models/item/`; each tank is dye-tinted
+  to the team colour. The shooter (`paint_gun.json`) is Kenney's `blaster-b`, the sprayer is
+  `blaster-o`, and the charger is `blaster-p` (all CC0, Blaster Kit), each converted into a
   vanilla element model by `tools/obj2mc.py` (stdlib + Pillow): voxelise the mesh, greedy-merge
-  same-colour voxels into boxes, quantise colours to a palette texture. Rerun it after touching
-  the source mesh; pass `--flip` if the muzzle ends up pointing backwards. The model's in-hand
-  `display` transforms (first and third person) were checked against in-game screenshots on
-  2026-09-12; the converter's neutral values are the ones that look right. Re-render the design sheet after editing the model — it reads its colours straight
+  same-colour voxels into boxes, quantise colours to a palette texture. The slosher is a
+  hand-built bucket model instead — body, rim and handle — using the same tinted-tank approach.
+  Rerun the converter after touching a source mesh; pass `--flip` if the muzzle ends up pointing
+  backwards. The model's in-hand `display` transforms (first and third person) were checked
+  against in-game screenshots on 2026-09-12; the converter's neutral values are the ones that
+  look right. Re-render the design sheet after editing a model — it reads its colours straight
   from the palette PNG the model references, so it never drifts from the JSON:
   `python3 mods/metacraft-rivals/tools/gun_sheet.py <model.json> <out.svg>`.
-- Ink: the gun holds 40 shots, tracked in the stack's own data so it survives item moves. Each
-  shot costs 1; trying to fire at 0 starts a 30-tick refill (sound, cooldown) that fills the tank
-  the moment the deadline passes. Standing in your own colour's paint tops the tank up over time,
-  faster in squid form. An action-bar ammo bar in the team colour refreshes every 10 ticks and
-  after every shot, rounded to ten cells (`INK ██████░░░░ 24/40`), and reads `REFILLING…` or adds
-  `SQUID` as appropriate.
-- Sneaking on your own colour's paint is squid form: vanilla invisibility plus Speed II, reapplied
-  every tick so it fades within a second of leaving the paint or standing back up, and the gun
-  refuses to fire while it's active. Standing on an enemy colour's paint applies Slowness instead.
+- Ink: every gun holds 40 shots in one shared tank size, tracked in the stack's own data so it
+  survives item moves. A shot costs the weapon's own ink (see the table above — 1 for the
+  shooter/sprayer, 4 plus up to 8 more for the charger's charge, 15 for the slosher); trying to
+  fire on a tank that can't cover the shot starts a 30-tick refill (sound, cooldown) that fills
+  the tank the moment the deadline passes. Standing in your own colour's paint tops the tank up
+  over time, faster in squid form. An action-bar ammo bar in the team colour refreshes every 10
+  ticks and after every shot, rounded to ten cells (`INK ██████░░░░ 24/40`), and reads
+  `REFILLING…` or adds `SQUID` as appropriate.
+- Sneaking on your own colour's paint is squid form, and it's now a real mechanic rather than a
+  cosmetic buff: half size, +80% movement speed, a higher jump and a taller step (four attribute
+  modifiers, not potion effects, so they're exact and don't show up in the client's effect list),
+  plus vanilla invisibility — all reapplied every tick so they fade within a second of leaving the
+  paint or standing back up — and the gun refuses to fire while it's active. Pressed against a
+  wall face painted in your own colour while a squid, you swim straight up it. Standing on an
+  enemy colour's paint is a trap instead: Slowness II, no jumping at all, and half a heart of
+  damage every second that never brings you below one health.
 - Score: bossbars show each colour's share of painted faces across all levels — paint blocks and
   surviving display quads alike — counted once a second from the cells the painter has touched (in
   memory; a restart forgets them). `/rivals score` counts only the level it is run in, and names
@@ -72,7 +107,9 @@ Rivals server wants.
 ```
 /rivals setup            teams magenta, lime, cyan
 /team join magenta @s
-/rivals gun
+/rivals gun              shooter, the default
+/rivals gun slosher      or sprayer / charger
+/rivals kit              one of every weapon
 /rivals score
 /rivals reset
 ```
@@ -82,7 +119,7 @@ Rivals server wants.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (24 of ours, plus vanilla's always_pass: 25 in total)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (34 of ours, plus vanilla's always_pass: 35 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so
@@ -117,9 +154,11 @@ rcon.password=rivals-dev
 
 ## Credits
 
-Splat sprites and the blaster model are from Kenney (kenney.nl), CC0.
+Splat sprites and the shooter, sprayer and charger models (`blaster-b`, `blaster-o`, `blaster-p`
+of Kenney's Blaster Kit) are from Kenney (kenney.nl), CC0. The slosher's bucket is hand-built.
 
 ## Not yet
 
 Arena bounds and a round loop; persisting display quads and the tally across a restart; damage on
-enemy paint; a real squid model; Iris-compatible gloss.
+enemy paint (beyond the enemy-ink drip); a real squid model; Iris-compatible gloss; respawn/death
+handling for the drip; weapon-switching UI.
