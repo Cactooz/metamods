@@ -1,13 +1,11 @@
 package nu.metacraft.rivals.paint;
 
 import net.minecraft.core.BlockPos;
-import net.minecraft.core.Direction;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
-import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import nu.metacraft.rivals.PaintColor;
 
@@ -29,7 +27,6 @@ import java.util.Set;
  */
 public final class PaintTally {
 	private static final Map<ResourceKey<Level>, PaintTally> TALLIES = new HashMap<>();
-	private static final Direction[] DIRECTIONS = Direction.values();
 
 	private final Set<BlockPos> cells = new HashSet<>();
 
@@ -53,7 +50,8 @@ public final class PaintTally {
 
 	/**
 	 * Faces per colour over the tracked cells plus the level's {@link PaintDisplays} quads, pruning cells
-	 * that hold no paint any more. Every colour has an entry.
+	 * that hold no paint any more. Every colour has an entry. A connected cell is one face, a multiface
+	 * splat cell as many as it carries.
 	 */
 	public Map<PaintColor, Integer> count(ServerLevel level) {
 		Map<PaintColor, Integer> counts = new EnumMap<>(PaintColor.class);
@@ -62,15 +60,11 @@ public final class PaintTally {
 		while (it.hasNext()) {
 			BlockPos pos = it.next();
 			BlockState state = level.getBlockState(pos);
-			if (!(state.getBlock() instanceof PaintBlock paint)) {
+			if (!(state.getBlock() instanceof Paint paint)) {
 				it.remove();
 				continue;
 			}
-			int faces = 0;
-			for (Direction d : DIRECTIONS) {
-				if (state.getValue(MultifaceBlock.getFaceProperty(d))) faces++;
-			}
-			counts.merge(paint.color, faces, Integer::sum);
+			counts.merge(paint.color(), Integer.bitCount(paint.faceMask(state)), Integer::sum);
 		}
 		PaintDisplays.of(level).count(level).forEach((color, quads) -> counts.merge(color, quads, Integer::sum));
 		return counts;
@@ -90,7 +84,7 @@ public final class PaintTally {
 	public int reset(ServerLevel level) {
 		int removed = 0;
 		for (BlockPos pos : cells) {
-			if (level.getBlockState(pos).getBlock() instanceof PaintBlock) {
+			if (Painter.isPaint(level.getBlockState(pos))) {
 				level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
 				removed++;
 			}

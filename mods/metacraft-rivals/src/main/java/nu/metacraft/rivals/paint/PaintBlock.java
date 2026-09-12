@@ -5,49 +5,47 @@ import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import nu.metacraft.rivals.PaintColor;
-import nu.metacraft.rivals.Rivals;
 
 /**
- * Paint of one colour. A vanilla multiface block on the server (six independent face flags, no
- * collision, faces drop off when their support goes), shown to clients as the colour's donor block
- * with the same faces. One block per cell, so one colour per cell.
+ * Paint of one colour on more than one face of a cell: the corner fallback behind
+ * {@link ConnectedPaintBlock} (spec §3). A vanilla multiface block on the server (six independent face
+ * flags, no collision, faces drop off when their support goes), mapped to a client state through
+ * {@link PaintStates#splat}. One block per cell, so one colour per cell.
+ *
+ * <p>It carries no connection bits: a corner is where the sheet ends anyway, so the client shows the
+ * plain splat for these and keeps the bit-carrying states for the single-face cells.
  *
  * <p>Paint blocks only ever attach to full faces — {@link Painter} sends every other shape to
  * {@link PaintDisplays} quads — so vanilla's own survival rule is exactly the rule paint wants.
  */
-public final class PaintBlock extends MultifaceBlock implements PolymerBlock {
-	public final PaintColor color;
+public final class PaintBlock extends MultifaceBlock implements PolymerBlock, Paint {
+	private final PaintColor color;
 
 	public PaintBlock(Properties properties, PaintColor color) {
 		super(properties);
 		this.color = color;
-		verifyDonor();
 	}
 
-	/** Fail startup, not gameplay, if a donor ever stops being a multiface block. */
-	private void verifyDonor() {
-		BlockState donor = color.donor.defaultBlockState();
+	@Override
+	public PaintColor color() {
+		return color;
+	}
+
+	@Override
+	public int faceMask(BlockState state) {
+		int mask = 0;
 		for (Direction d : DIRECTIONS) {
-			if (!donor.hasProperty(getFaceProperty(d))) {
-				throw new IllegalStateException("[" + Rivals.MOD_ID + "] donor " + color.donor + " for paint colour "
-						+ color.id + " has no " + d + " face property; it cannot show paint");
-			}
+			if (state.getValue(getFaceProperty(d))) mask |= 1 << d.ordinal();
 		}
-		if (!donor.hasProperty(WATERLOGGED)) {
-			throw new IllegalStateException("[" + Rivals.MOD_ID + "] donor " + color.donor + " for paint colour "
-					+ color.id + " has no waterlogged property");
-		}
+		return mask;
 	}
 
 	@Override
 	public BlockState getPolymerBlockState(BlockState state, PacketContext context) {
-		BlockState out = color.donor.defaultBlockState().setValue(WATERLOGGED, false);
-		for (Direction d : DIRECTIONS) {
-			BooleanProperty face = getFaceProperty(d);
-			out = out.setValue(face, state.getValue(face));
-		}
-		return out;
+		int mask = faceMask(state);
+		// The faceless state has no client state to stand for — vanilla drops such a block the moment
+		// its last face goes, so it never reaches a player — but Polymer may still ask about it.
+		return mask == 0 ? PaintStates.connected(color, Direction.DOWN, 0) : PaintStates.splat(color, mask);
 	}
 }

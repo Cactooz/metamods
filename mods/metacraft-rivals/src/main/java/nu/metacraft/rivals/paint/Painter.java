@@ -13,7 +13,6 @@ import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
-import net.minecraft.world.level.block.state.properties.BooleanProperty;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
@@ -67,19 +66,26 @@ public final class Painter {
 		};
 	}
 
+	/** Either paint block. */
+	public static boolean isPaint(BlockState state) {
+		return state.getBlock() instanceof Paint;
+	}
+
 	/**
 	 * Anything solid: not air, not replaceable (grass, snow), not a liquid, not paint. Waterlogged blocks
 	 * hold paint like any other — the test is the block, not the fluid state it carries.
 	 */
 	public static boolean paintable(BlockState surface) {
-		return !surface.isAir() && !surface.canBeReplaced() && !(surface.getBlock() instanceof LiquidBlock) && !(surface.getBlock() instanceof PaintBlock);
+		return !surface.isAir() && !surface.canBeReplaced() && !(surface.getBlock() instanceof LiquidBlock) && !isPaint(surface);
 	}
 
 	/**
-	 * Paint one face: the {@code face} side of the block at {@code surface}. The surface must be solid; a
-	 * face that is not full takes display quads instead of a block. Otherwise the cell in front must be air
-	 * or paint: an air cell becomes this colour with that face; a same-colour cell gains the face; another
-	 * colour's cell is recoloured whole, keeping its faces. Returns whether anything changed.
+	 * Paint one face (spec §4): the {@code face} side of the block at {@code surface}. A face that is not
+	 * full takes display quads. Otherwise the cell in front must be air or paint. Air, or another colour,
+	 * becomes a connected cell for this face (overpaint wipes the cell); a same-colour connected cell on
+	 * another face becomes the multiface fallback with both; a same-colour multiface cell gains the face.
+	 * The connection bits come from {@link ConnectedPaintBlock#neighbourBits} here and follow neighbour
+	 * changes on their own afterwards. Returns whether anything changed.
 	 */
 	public static boolean paintFace(ServerLevel level, BlockPos surface, Direction face, PaintColor color) {
 		BlockState surfaceState = level.getBlockState(surface);
@@ -89,25 +95,34 @@ public final class Painter {
 		}
 		BlockPos cell = surface.relative(face);
 		Direction attach = face.getOpposite();
-		BooleanProperty attachFace = MultifaceBlock.getFaceProperty(attach);
+		int bit = 1 << attach.ordinal();
 		BlockState existing = level.getBlockState(cell);
 		BlockState next;
-		if (existing.isAir()) {
-			next = PaintBlocks.of(color).defaultBlockState().setValue(attachFace, true);
-		} else if (existing.getBlock() instanceof PaintBlock paint) {
-			if (paint.color == color && existing.getValue(attachFace)) return false;
-			next = PaintBlocks.of(color).defaultBlockState();
-			for (Direction d : DIRECTIONS) {
-				BooleanProperty property = MultifaceBlock.getFaceProperty(d);
-				next = next.setValue(property, existing.getValue(property));
-			}
-			next = next.setValue(attachFace, true);
+		if (existing.isAir() || (existing.getBlock() instanceof Paint other && other.color() != color)) {
+			next = connectedState(level, cell, attach, color);
+		} else if (existing.getBlock() instanceof Paint same) {
+			int mask = same.faceMask(existing);
+			if ((mask & bit) != 0) return false;
+			next = splatState(color, mask | bit);
 		} else {
 			return false;
 		}
 		if (!level.setBlock(cell, next, Block.UPDATE_ALL)) return false;
 		PaintTally.of(level).track(cell);
 		return true;
+	}
+
+	/** This colour on {@code attach}, bordered against whatever its four in-plane neighbours hold now. */
+	private static BlockState connectedState(ServerLevel level, BlockPos cell, Direction attach, PaintColor color) {
+		BlockState state = PaintBlocks.connected(color).defaultBlockState().setValue(ConnectedPaintBlock.FACE, attach);
+		return ConnectedPaintBlock.withBits(state, ConnectedPaintBlock.neighbourBits(level, cell, attach, color));
+	}
+
+	/** The multiface fallback carrying {@code mask}'s faces. */
+	private static BlockState splatState(PaintColor color, int mask) {
+		BlockState state = PaintBlocks.splat(color).defaultBlockState();
+		for (Direction d : DIRECTIONS) state = state.setValue(MultifaceBlock.getFaceProperty(d), (mask >> d.ordinal() & 1) != 0);
+		return state;
 	}
 
 	/** How often the charger's trail drops dust, and how far under it looks for a floor to paint. */

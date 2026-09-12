@@ -125,7 +125,7 @@ public final class PaintDisplays {
 
 	/** A cell quads may live in: empty, or a paint block put there by a full face beside it. */
 	private static boolean free(BlockState cell) {
-		return cell.isAir() || cell.getBlock() instanceof PaintBlock;
+		return cell.isAir() || Painter.isPaint(cell);
 	}
 
 	/** Destroy every holder in this level. Returns how many cells were cleared. */

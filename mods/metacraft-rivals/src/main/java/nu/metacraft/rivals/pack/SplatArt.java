@@ -2,8 +2,10 @@ package nu.metacraft.rivals.pack;
 
 import com.google.gson.JsonArray;
 import com.google.gson.JsonObject;
+import net.minecraft.core.registries.BuiltInRegistries;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.Rivals;
+import nu.metacraft.rivals.paint.PaintStates;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -68,7 +70,7 @@ public final class SplatArt {
 							quadModel(Rivals.MOD_ID + ":block/" + name).getBytes(java.nio.charset.StandardCharsets.UTF_8));
 				}
 			}
-			files.put("assets/minecraft/blockstates/" + color.donorPath() + ".json",
+			files.put("assets/minecraft/blockstates/" + donorPath(color) + ".json",
 					blockstate(color).getBytes(java.nio.charset.StandardCharsets.UTF_8));
 		}
 		// One white silhouette per shape for the display quads on non-full faces: the dye tint colours it.
@@ -207,6 +209,15 @@ public final class SplatArt {
 					}]
 				}
 				""".formatted(texture);
+	}
+
+	/**
+	 * The blockstate file a colour's v3 art overrides: the donor this colour's states start from in the
+	 * client-state table. Paint no longer maps one colour to one donor — {@link PaintStates} spreads a
+	 * colour's states over several — so this whole per-colour override is on its way out with the v4 pack.
+	 */
+	public static String donorPath(PaintColor color) {
+		return BuiltInRegistries.BLOCK.getKey(PaintStates.DONORS.get(color.ordinal())).getPath();
 	}
 
 	/** The multipart override for a colour's donor block: vanilla's structure, every face listing all 32 variants. */

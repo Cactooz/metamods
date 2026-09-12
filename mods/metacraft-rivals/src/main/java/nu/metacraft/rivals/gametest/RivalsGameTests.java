@@ -14,6 +14,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.server.ServerScoreboard;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -48,6 +49,8 @@ import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.Recoil;
+import nu.metacraft.rivals.paint.ConnectedPaintBlock;
+import nu.metacraft.rivals.paint.Paint;
 import nu.metacraft.rivals.paint.PaintBlock;
 import nu.metacraft.rivals.paint.PaintBlocks;
 import nu.metacraft.rivals.paint.PaintDisplays;
@@ -84,22 +87,30 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** Every paint state is sent as its donor block with the same six face flags and never waterlogged. */
+	/** Both paint blocks are sent as the client state the table (spec §2) keeps for them, and never as water. */
 	@GameTest
-	public void donorMappingKeepsFaces(GameTestHelper helper) {
+	public void paintMapsThroughTheStateTable(GameTestHelper helper) {
 		for (PaintColor color : PaintColor.values()) {
-			PaintBlock block = PaintBlocks.of(color);
-			BlockState state = block.defaultBlockState()
+			PaintBlock splat = PaintBlocks.splat(color);
+			int mask = 1 << Direction.DOWN.ordinal() | 1 << Direction.NORTH.ordinal();
+			BlockState state = splat.defaultBlockState()
 					.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true)
 					.setValue(MultifaceBlock.getFaceProperty(Direction.NORTH), true);
-			BlockState client = block.getPolymerBlockState(state, PacketContext.get());
-			helper.assertTrue(client.is(color.donor), Component.literal(color.id + " maps to " + client));
-			for (Direction d : Direction.values()) {
-				boolean expected = d == Direction.DOWN || d == Direction.NORTH;
-				helper.assertTrue(client.getValue(MultifaceBlock.getFaceProperty(d)) == expected,
-						Component.literal(color.id + ": face " + d + " should be " + expected));
+			helper.assertValueEqual(splat.faceMask(state), mask, color.id + " splat face mask");
+			BlockState client = splat.getPolymerBlockState(state, PacketContext.get());
+			helper.assertValueEqual(client, PaintStates.splat(color, mask), color.id + " splat maps to its own client state");
+			ConnectedPaintBlock connected = PaintBlocks.connected(color);
+			BlockState cell = ConnectedPaintBlock.withBits(
+					connected.defaultBlockState().setValue(ConnectedPaintBlock.FACE, Direction.NORTH), 0b1010);
+			helper.assertValueEqual(ConnectedPaintBlock.bits(cell), 0b1010, color.id + " connection bits round-trip");
+			helper.assertValueEqual(connected.faceMask(cell), 1 << Direction.NORTH.ordinal(), color.id + " connected face mask");
+			BlockState connectedClient = connected.getPolymerBlockState(cell, PacketContext.get());
+			helper.assertValueEqual(connectedClient, PaintStates.connected(color, Direction.NORTH, 0b1010),
+					color.id + " connected cell maps to its own client state");
+			for (BlockState sent : List.of(client, connectedClient)) {
+				helper.assertTrue(!sent.hasProperty(BlockStateProperties.WATERLOGGED) || !sent.getValue(BlockStateProperties.WATERLOGGED),
+						Component.literal(color.id + " sent waterlogged: " + sent));
 			}
-			helper.assertTrue(!client.getValue(MultifaceBlock.WATERLOGGED), Component.literal(color.id + " sent waterlogged"));
 		}
 		helper.succeed();
 	}
@@ -131,7 +142,7 @@ public final class RivalsGameTests {
 	public void blockstateOverridesReferenceGeneratedModels(GameTestHelper helper) {
 		Map<String, byte[]> files = SplatArt.packFiles();
 		for (PaintColor color : PaintColor.values()) {
-			String path = "assets/minecraft/blockstates/" + color.donorPath() + ".json";
+			String path = "assets/minecraft/blockstates/" + SplatArt.donorPath(color) + ".json";
 			helper.assertTrue(files.containsKey(path), "override present: " + path);
 			JsonObject state = JsonParser.parseString(new String(files.get(path), StandardCharsets.UTF_8)).getAsJsonObject();
 			JsonArray multipart = state.getAsJsonArray("multipart");
@@ -163,11 +174,18 @@ public final class RivalsGameTests {
 	}
 
 	private static int faces(BlockState state) {
-		int n = 0;
-		for (Direction d : Direction.values()) {
-			if (state.getValue(MultifaceBlock.getFaceProperty(d))) n++;
-		}
-		return n;
+		return state.getBlock() instanceof Paint paint ? Integer.bitCount(paint.faceMask(state)) : 0;
+	}
+
+	/** Paint of {@code color} in this cell, of either kind (a connected cell or the splat fallback). */
+	private static boolean isPaint(BlockState state, PaintColor color) {
+		return state.getBlock() instanceof Paint paint && paint.color() == color;
+	}
+
+	/** The same, carrying paint on the {@code face} side of the cell. */
+	private static boolean hasFace(BlockState state, PaintColor color, Direction face) {
+		return state.getBlock() instanceof Paint paint && paint.color() == color
+				&& (paint.faceMask(state) & 1 << face.ordinal()) != 0;
 	}
 
 	/** A splat on the top of a floor block paints the cell above it, on its down face, in that colour. */
@@ -179,8 +197,8 @@ public final class RivalsGameTests {
 				helper.getLevel().getRandom());
 		helper.assertTrue(painted >= 5 && painted <= 9, "painted " + painted + " faces, expected 5..9");
 		BlockState cell = helper.getBlockState(struck.above());
-		helper.assertTrue(cell.is(PaintBlocks.of(PaintColor.DATA)), Component.literal("cell above the hit is DATA paint, got " + cell));
-		helper.assertTrue(cell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
+		helper.assertTrue(isPaint(cell, PaintColor.DATA), Component.literal("cell above the hit is DATA paint, got " + cell));
+		helper.assertTrue(hasFace(cell, PaintColor.DATA, Direction.DOWN), "paint sits on its down face");
 		helper.succeed();
 	}
 
@@ -201,32 +219,32 @@ public final class RivalsGameTests {
 				}
 			}
 		}
-		helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.DATA)), "centre is painted");
+		helper.assertTrue(isPaint(helper.getBlockState(new BlockPos(2, 2, 2)), PaintColor.DATA), "centre is painted");
 		for (BlockPos edge : new BlockPos[] {new BlockPos(3, 2, 2), new BlockPos(2, 2, 1), new BlockPos(2, 2, 3)}) {
 			BlockState cell = helper.getBlockState(edge);
-			helper.assertTrue(cell.is(PaintBlocks.of(PaintColor.DATA)), Component.literal("edge " + edge + " should be DATA paint, got " + cell));
-			helper.assertTrue(cell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "edge " + edge + " has its down face set");
+			helper.assertTrue(isPaint(cell, PaintColor.DATA), Component.literal("edge " + edge + " should be DATA paint, got " + cell));
+			helper.assertTrue(hasFace(cell, PaintColor.DATA, Direction.DOWN), "edge " + edge + " has its down face set");
 		}
 		helper.assertTrue(helper.getBlockState(new BlockPos(1, 2, 2)).isAir(), "edge over the hole stays air");
 		helper.succeed();
 	}
 
-	/** A hit in another colour recolours the whole cell and keeps its faces. */
+	/** Spec §4: a hit in another colour wipes the cell and leaves only the face that was just painted. */
 	@GameTest
-	public void otherColourRecoloursCellKeepingFaces(GameTestHelper helper) {
+	public void otherColourOverpaintsCellToOneFace(GameTestHelper helper) {
 		helper.setBlock(new BlockPos(2, 1, 2), Blocks.STONE); // floor under the cell
 		helper.setBlock(new BlockPos(2, 2, 1), Blocks.STONE); // wall north of the cell
 		BlockPos cell = new BlockPos(2, 2, 2);
-		helper.setBlock(cell, PaintBlocks.of(PaintColor.DATA).defaultBlockState()
+		helper.setBlock(cell, PaintBlocks.splat(PaintColor.DATA).defaultBlockState()
 				.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true)
 				.setValue(MultifaceBlock.getFaceProperty(Direction.NORTH), true));
 		boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(2, 1, 2)), Direction.UP, PaintColor.IT);
 		helper.assertTrue(painted, "the cell counts as newly painted");
 		BlockState after = helper.getBlockState(cell);
-		helper.assertTrue(after.is(PaintBlocks.of(PaintColor.IT)), Component.literal("cell is IT now, got " + after));
-		helper.assertTrue(after.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "down face kept");
-		helper.assertTrue(after.getValue(MultifaceBlock.getFaceProperty(Direction.NORTH)), "north face kept");
-		helper.assertValueEqual(faces(after), 2, "face count");
+		helper.assertTrue(isPaint(after, PaintColor.IT), Component.literal("cell is IT now, got " + after));
+		helper.assertTrue(hasFace(after, PaintColor.IT, Direction.DOWN), "the painted face is the down one");
+		helper.assertValueEqual(faces(after), 1, "face count");
+		helper.assertTrue(after.getBlock() instanceof ConnectedPaintBlock, "one face is a connected cell");
 		helper.succeed();
 	}
 
@@ -243,10 +261,10 @@ public final class RivalsGameTests {
 		helper.setBlock(new BlockPos(4, 1, 4), Blocks.STONE);
 		BlockPos dataCell = new BlockPos(2, 2, 2);
 		BlockPos itCell = new BlockPos(4, 2, 4);
-		helper.setBlock(dataCell, PaintBlocks.of(PaintColor.DATA).defaultBlockState()
+		helper.setBlock(dataCell, PaintBlocks.splat(PaintColor.DATA).defaultBlockState()
 				.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true)
 				.setValue(MultifaceBlock.getFaceProperty(Direction.NORTH), true));
-		helper.setBlock(itCell, PaintBlocks.of(PaintColor.IT).defaultBlockState()
+		helper.setBlock(itCell, PaintBlocks.splat(PaintColor.IT).defaultBlockState()
 				.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true));
 		// count() folds in the level's display quads, which belong to whatever else is running: take the
 		// baseline first and read every figure below as this test's own contribution on top of it.
@@ -423,9 +441,9 @@ public final class RivalsGameTests {
 		helper.runAfterDelay(10, () -> {
 			BlockPos cell = new BlockPos(2, 2, 2);
 			BlockState state = helper.getBlockState(cell);
-			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.DATA)),
+			helper.assertTrue(isPaint(state, PaintColor.DATA),
 					Component.literal("the cell where the ball landed should be DATA paint, got " + state));
-			helper.assertTrue(state.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
+			helper.assertTrue(hasFace(state, PaintColor.DATA, Direction.DOWN), "paint sits on its down face");
 			// A default ball carries the shooter's bounces, so ten ticks on it is still in the air on its
 			// way back up from the floor it just painted (along with the droplets that bounce threw off);
 			// what the hit must have spent is one of those bounces.
@@ -461,9 +479,9 @@ public final class RivalsGameTests {
 		helper.getLevel().addFreshEntity(ball);
 		helper.runAfterDelay(10, () -> {
 			BlockState state = helper.getBlockState(new BlockPos(2, 2, 2));
-			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.DATA)),
+			helper.assertTrue(isPaint(state, PaintColor.DATA),
 					Component.literal("the floor under the player should be DATA paint, got " + state));
-			helper.assertTrue(state.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
+			helper.assertTrue(hasFace(state, PaintColor.DATA, Direction.DOWN), "paint sits on its down face");
 			helper.assertTrue(target.getHealth() == health,
 					"the player took no damage, health " + target.getHealth() + " was " + health);
 			target.discard();
@@ -482,10 +500,9 @@ public final class RivalsGameTests {
 				helper.getLevel().getRandom(), null);
 		helper.assertTrue(changed >= 5, "blob plus rays painted at least five cells, got " + changed);
 		BlockState floorCell = helper.getBlockState(new BlockPos(3, 2, 2));
-		helper.assertTrue(floorCell.is(PaintBlocks.of(PaintColor.DATA)) && floorCell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)),
-				"floor cell painted");
+		helper.assertTrue(hasFace(floorCell, PaintColor.DATA, Direction.DOWN), "floor cell painted");
 		BlockState wallCell = helper.getBlockState(new BlockPos(3, 2, 2)); // same cell holds the wall's west face
-		helper.assertTrue(wallCell.getValue(MultifaceBlock.getFaceProperty(Direction.EAST)),
+		helper.assertTrue(hasFace(wallCell, PaintColor.DATA, Direction.EAST),
 				Component.literal("the wall face east of the hit is painted, got " + wallCell));
 		helper.succeed();
 	}
@@ -853,7 +870,7 @@ public final class RivalsGameTests {
 		Vec3 at = helper.absoluteVec(new Vec3(3.7, 2.0, 2.5));
 		player.setPos(at.x, at.y, at.z);
 		// Painted one cell up from the feet (head height): a full-cube wall face lands as a real
-		// PaintBlock in the cell in front of it — the feet cell itself if painted at feet height, which
+		// paint block in the cell in front of it — the feet cell itself if painted at feet height, which
 		// paintUnder would find directly and defeat the point of this test. Painting at head height
 		// instead keeps the feet cell (and its own paintUnder check) genuinely clean.
 		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 3, 2)), Direction.WEST, PaintColor.DATA);
@@ -993,7 +1010,7 @@ public final class RivalsGameTests {
 		helper.runAfterDelay(6, () -> {
 			helper.assertTrue(!ball.isRemoved(), "still flying after the first impact");
 			helper.assertValueEqual(ball.bouncesLeft(), Weapon.SHOOTER_BOUNCES - 1, "one of the two bounces used");
-			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.DATA)), "first impact painted");
+			helper.assertTrue(isPaint(helper.getBlockState(new BlockPos(2, 2, 2)), PaintColor.DATA), "first impact painted");
 			// Neither reading is the instant of the bounce — the ball was still accelerating when the last
 			// downward one was taken, and drag and gravity had already run when the upward one was — so
 			// the ratio lands near BOUNCE_RESTITUTION rather than on it.
@@ -1071,7 +1088,7 @@ public final class RivalsGameTests {
 		helper.getLevel().addFreshEntity(drop);
 		helper.runAfterDelay(16, () -> {
 			helper.assertTrue(drop.isRemoved(), "droplet expired");
-			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.DATA)), "floor under the droplet painted");
+			helper.assertTrue(isPaint(helper.getBlockState(new BlockPos(2, 2, 2)), PaintColor.DATA), "floor under the droplet painted");
 			helper.succeed();
 		});
 	}
@@ -1189,10 +1206,10 @@ public final class RivalsGameTests {
 		helper.assertTrue(fired, "full charge fires");
 		int painted = 0;
 		for (int x = 1; x <= 5; x++) {
-			if (helper.getBlockState(new BlockPos(x, 2, 3)).is(PaintBlocks.of(PaintColor.DATA))) painted++;
+			if (isPaint(helper.getBlockState(new BlockPos(x, 2, 3)), PaintColor.DATA)) painted++;
 		}
 		helper.assertTrue(painted >= 3, "floor painted along the line, got " + painted);
-		helper.assertTrue(helper.getBlockState(new BlockPos(5, 2, 3)).getValue(MultifaceBlock.getFaceProperty(Direction.EAST)), "end wall splatted");
+		helper.assertTrue(hasFace(helper.getBlockState(new BlockPos(5, 2, 3)), PaintColor.DATA, Direction.EAST), "end wall splatted");
 		helper.assertValueEqual(Ink.get(charger), Ink.MAX - 12, "full charge costs 12");
 		helper.succeed();
 	}
@@ -1221,9 +1238,9 @@ public final class RivalsGameTests {
 		helper.getLevel().addFreshEntity(target);
 		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - Weapon.CHARGE_FULL_TICKS);
 		helper.assertTrue(fired, "full charge fires");
-		helper.assertTrue(helper.getBlockState(new BlockPos(3, 2, 3)).is(PaintBlocks.of(PaintColor.DATA)),
+		helper.assertTrue(isPaint(helper.getBlockState(new BlockPos(3, 2, 3)), PaintColor.DATA),
 				"the floor under the player in the way is painted");
-		helper.assertTrue(!helper.getBlockState(new BlockPos(5, 2, 3)).is(PaintBlocks.of(PaintColor.DATA)),
+		helper.assertTrue(!isPaint(helper.getBlockState(new BlockPos(5, 2, 3)), PaintColor.DATA),
 				"the line stopped at the player: the wall behind them is clean");
 		target.discard();
 		helper.succeed();
@@ -1261,6 +1278,47 @@ public final class RivalsGameTests {
 		// The same request always gives the same state, and popcount-1 splat masks fold into connected.
 		helper.assertValueEqual(PaintStates.connected(PaintColor.DATA, Direction.UP, 5), PaintStates.connected(PaintColor.DATA, Direction.UP, 5), "deterministic");
 		helper.assertValueEqual(PaintStates.splat(PaintColor.IT, 1 << Direction.NORTH.ordinal()), PaintStates.connected(PaintColor.IT, Direction.NORTH, 0), "single-face mask is a connected state");
+		helper.succeed();
+	}
+
+	/** Spec §4: floor then wall in the same air cell → the multiface fallback with both faces. */
+	@GameTest
+	public void cornerCellFallsBackToSplat(GameTestHelper helper) {
+		BlockPos floor = new BlockPos(2, 1, 2);
+		BlockPos wall = new BlockPos(2, 2, 1);
+		helper.setBlock(floor, Blocks.STONE);
+		helper.setBlock(wall, Blocks.STONE);
+		BlockPos cell = new BlockPos(2, 2, 2);
+		ServerLevel level = helper.getLevel();
+		helper.assertTrue(Painter.paintFace(level, helper.absolutePos(floor), Direction.UP, PaintColor.DATA), "floor painted");
+		BlockState single = level.getBlockState(helper.absolutePos(cell));
+		helper.assertTrue(single.getBlock() instanceof ConnectedPaintBlock, "one face is a connected cell");
+		helper.assertValueEqual(single.getValue(ConnectedPaintBlock.FACE), Direction.DOWN, "floor paint attaches down");
+		helper.assertTrue(Painter.paintFace(level, helper.absolutePos(wall), Direction.SOUTH, PaintColor.DATA), "wall painted");
+		BlockState corner = level.getBlockState(helper.absolutePos(cell));
+		helper.assertTrue(corner.getBlock() instanceof PaintBlock, "two faces fall back to the multiface block");
+		helper.assertTrue(corner.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "keeps the floor face");
+		helper.assertTrue(corner.getValue(MultifaceBlock.getFaceProperty(Direction.NORTH)), "gains the wall face");
+		helper.assertFalse(Painter.paintFace(level, helper.absolutePos(wall), Direction.SOUTH, PaintColor.DATA), "same face again is a no-op");
+		helper.assertTrue(Painter.paintFace(level, helper.absolutePos(wall), Direction.SOUTH, PaintColor.IT), "the other colour repaints");
+		BlockState over = level.getBlockState(helper.absolutePos(cell));
+		helper.assertTrue(over.getBlock() instanceof ConnectedPaintBlock && ((Paint) over.getBlock()).color() == PaintColor.IT, "overpaint wipes the cell to one IT face");
+		helper.succeed();
+	}
+
+	/** One face per connected cell, popcount per splat cell. */
+	@GameTest
+	public void tallyCountsConnectedAndSplat(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		PaintTally tally = new PaintTally();
+		Map<PaintColor, Integer> before = tally.count(level);
+		for (int x = 1; x <= 3; x++) helper.setBlock(new BlockPos(x, 1, 2), Blocks.STONE);
+		helper.setBlock(new BlockPos(2, 2, 1), Blocks.STONE);
+		for (int x = 1; x <= 3; x++) Painter.paintFace(level, helper.absolutePos(new BlockPos(x, 1, 2)), Direction.UP, PaintColor.DATA);
+		Painter.paintFace(level, helper.absolutePos(new BlockPos(2, 2, 1)), Direction.SOUTH, PaintColor.DATA);
+		for (int x = 1; x <= 3; x++) tally.track(helper.absolutePos(new BlockPos(x, 2, 2)));
+		Map<PaintColor, Integer> after = tally.count(level);
+		helper.assertValueEqual(after.get(PaintColor.DATA) - before.get(PaintColor.DATA), 4, "three floor faces plus one wall face");
 		helper.succeed();
 	}
 }

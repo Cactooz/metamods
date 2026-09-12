@@ -18,13 +18,12 @@ import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import nu.metacraft.rivals.gun.Ink;
 import nu.metacraft.rivals.gun.PaintWeapon;
-import nu.metacraft.rivals.paint.PaintBlock;
+import nu.metacraft.rivals.paint.Paint;
 import nu.metacraft.rivals.paint.PaintDisplays;
 import nu.metacraft.rivals.paint.Painter;
 import org.jspecify.annotations.Nullable;
@@ -111,12 +110,16 @@ public final class PlayerTick {
 	 * <p>That fallback only applies when the block at the feet cell is not a full cube. A player
 	 * standing on a full block has their feet in the cell above it, and the cell above <em>that</em> is
 	 * head height: paint on the wall beside a player's head is not paint they are standing in.
+	 *
+	 * <p>Paint under the feet means the cell's down face, the one lying on the floor the player stands
+	 * on. A cell whose only paint is on a wall face is paint beside them, not under them — that is
+	 * {@link #paintedWallBeside}'s business, and it is what holds squid form on during a wall climb.
 	 */
 	public static @Nullable PaintColor paintUnder(Player player) {
 		if (!(player.level() instanceof ServerLevel level)) return null;
 		BlockPos feet = player.blockPosition();
 		BlockState state = level.getBlockState(feet);
-		if (state.getBlock() instanceof PaintBlock paint) return paint.color;
+		if (state.getBlock() instanceof Paint paint && (paint.faceMask(state) & 1 << Direction.DOWN.ordinal()) != 0) return paint.color();
 		PaintColor quads = PaintDisplays.of(level).colorAt(feet);
 		if (quads != null) return quads;
 		if (state.isCollisionShapeFullBlock(level, feet)) return null;
@@ -326,7 +329,7 @@ public final class PlayerTick {
 
 	/** Is {@code cell} a paint block of {@code own} carrying a face that looks towards {@code side}? */
 	private static boolean facing(BlockState cell, Direction side, PaintColor own) {
-		return cell.getBlock() instanceof PaintBlock paint && paint.color == own
-				&& cell.getValue(MultifaceBlock.getFaceProperty(side));
+		return cell.getBlock() instanceof Paint paint && paint.color() == own
+				&& (paint.faceMask(cell) & 1 << side.ordinal()) != 0;
 	}
 }
