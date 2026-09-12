@@ -1,10 +1,13 @@
 package metacraft.ovvar.gametest;
 
+import metacraft.ovvar.Motd;
 import metacraft.ovvar.OvvarConfig;
+import metacraft.ovvar.ServerConfig;
 import metacraft.ovvar.content.Chapter;
 import metacraft.ovvar.content.Looks;
 import metacraft.ovvar.content.ModContent;
 import metacraft.ovvar.content.OvveItem;
+import metacraft.ovvar.content.Ownership;
 import metacraft.ovvar.content.Patches;
 import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
@@ -21,6 +24,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.item.ItemStack;
 
 import java.io.IOException;
@@ -37,7 +41,8 @@ import java.util.concurrent.atomic.AtomicReference;
  * The wardrobe store: both backends refuse a write that names the wrong version, the cache in
  * front of them turns a lost race into a refetch, a patch moves between the stash and the design
  * and never multiplies, two ovves of one owner are one design, and an unpick hands the patch out
- * once no matter how many ovves show it. The tests that swap the server's backend for a temporary
+ * once no matter how many ovves show it; and the ownership rules: somebody else's ovve is not worn,
+ * sewn on or unpicked, the owner's own is, and the MOTD says which server this is. The tests that swap the server's backend for a temporary
  * one take turns ({@link #BUSY}: game tests in a batch run together) and put the configured one back.
  */
 public final class WardrobeTests {
@@ -225,7 +230,7 @@ public final class WardrobeTests {
 					OvveItem.refresh(b);
 					if (!BEER.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("b does not show the beer");
 					// Into the hand (a survival server): the store lets go of it first, and only once.
-					OwnedSewing.unpick(a, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
+					OwnedSewing.unpick(null, a, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
 				})
 				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 1, "first unpick not answered"))
 				.thenExecute(() -> {
@@ -233,7 +238,7 @@ public final class WardrobeTests {
 					if (Wardrobes.current(owner).count(BEER_PATCH) != 0) helper.fail("an unpick into the hand also left one in the stash");
 					// b still carries the old copy; the unpick asks the store, not the item.
 					if (!BEER.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("b was refreshed before being asked");
-					OwnedSewing.unpick(b, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
+					OwnedSewing.unpick(null, b, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
 				})
 				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 2, "second unpick not answered"))
 				.thenExecute(() -> {
@@ -241,6 +246,194 @@ public final class WardrobeTests {
 					release(server);
 				})
 				.thenSucceed();
+	}
+
+	// ---- ownership: whose ovve this is
+
+	/** Somebody else's ovve does not go on, and one forced into the slot comes off on the next tick. */
+	@GameTest
+	public void foreignOvveCannotBeWorn(GameTestHelper helper) {
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		ItemStack ovve = new ItemStack(ModContent.ovve(CHAPTER));
+		OvveItem.setOwner(ovve, UUID.randomUUID());
+		if (player.isEquippableInSlot(ovve, EquipmentSlot.LEGS)) helper.fail("the armour slot took a foreign ovve");
+		if (player.canEquipWithDispenser(ovve)) helper.fail("a dispenser could put a foreign ovve on");
+		if (Ownership.wearRefusal(player, ovve) == null) helper.fail("no refusal to read for a foreign ovve");
+		// Forced in (/item replace, another mod): the wearer's tick takes it off, into their inventory.
+		player.setItemSlot(EquipmentSlot.LEGS, ovve);
+		ovve.inventoryTick(player.level(), player, EquipmentSlot.LEGS);
+		if (!player.getItemBySlot(EquipmentSlot.LEGS).isEmpty()) helper.fail("the tick left a foreign ovve on");
+		if (!player.getInventory().contains(stack -> stack.getItem() instanceof OvveItem)) helper.fail("the evicted ovve went nowhere");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void ownerCanWearTheirOvve(GameTestHelper helper) {
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		ItemStack ovve = new ItemStack(ModContent.ovve(CHAPTER));
+		OvveItem.setOwner(ovve, player.getUUID());
+		if (!player.isEquippableInSlot(ovve, EquipmentSlot.LEGS)) helper.fail("the owner could not put their own ovve on");
+		if (Ownership.wearRefusal(player, ovve) != null) helper.fail("refused the owner: " + Ownership.wearRefusal(player, ovve));
+		player.setItemSlot(EquipmentSlot.LEGS, ovve);
+		ovve.inventoryTick(player.level(), player, EquipmentSlot.LEGS);
+		if (player.getItemBySlot(EquipmentSlot.LEGS).isEmpty()) helper.fail("the tick took the owner's own ovve off");
+		helper.succeed();
+	}
+
+	@GameTest
+	public void unownedOvveBindsToTheFirstWearer(GameTestHelper helper) {
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		ItemStack ovve = new ItemStack(ModContent.ovve(CHAPTER));
+		if (!player.isEquippableInSlot(ovve, EquipmentSlot.LEGS)) helper.fail("an unowned ovve would not go on");
+		player.setItemSlot(EquipmentSlot.LEGS, ovve);
+		ovve.inventoryTick(player.level(), player, EquipmentSlot.LEGS);
+		if (!player.getUUID().equals(OvveItem.owner(ovve))) helper.fail("an unowned ovve did not bind to its wearer");
+		if (player.getItemBySlot(EquipmentSlot.LEGS).isEmpty()) helper.fail("the ovve it just bound to came off again");
+		helper.succeed();
+	}
+
+	/** rebind: a given ovve becomes the holder's. allow: anyone wears it, still showing its owner's design. */
+	@GameTest
+	public void othersOvveRebindAndAllowStillWork(GameTestHelper helper) {
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		DesignStoreConfig designs = OvvarConfig.get().designs();
+		try {
+			ItemStack ovve = new ItemStack(ModContent.ovve(CHAPTER));
+			UUID someoneElse = UUID.randomUUID();
+			OvveItem.setOwner(ovve, someoneElse);
+			OvvarConfig.modify(config -> config.designs(designs.othersOvve(DesignStoreConfig.OthersOvve.ALLOW)));
+			if (!player.isEquippableInSlot(ovve, EquipmentSlot.LEGS)) helper.fail("allow: a foreign ovve still would not go on");
+			if (Ownership.wearRefusal(player, ovve) != null) helper.fail("allow: still refused");
+			OvveItem.syncDesign(player, ovve);
+			if (!someoneElse.equals(OvveItem.owner(ovve))) helper.fail("allow: the ovve changed hands");
+
+			OvvarConfig.modify(config -> config.designs(designs.othersOvve(DesignStoreConfig.OthersOvve.REBIND)));
+			OvveItem.syncDesign(player, ovve);
+			if (!player.getUUID().equals(OvveItem.owner(ovve))) helper.fail("rebind: the ovve did not become the holder's");
+			if (!player.isEquippableInSlot(ovve, EquipmentSlot.LEGS)) helper.fail("rebind: the rebound ovve would not go on");
+		} finally {
+			OvvarConfig.modify(config -> config.designs(designs));
+		}
+		helper.succeed();
+	}
+
+	/** Shears on somebody else's ovve change nothing: not the store, not the stash, not the ovve. */
+	@GameTest(maxTicks = 1200)
+	public void foreignOvveCannotBeUnpicked(GameTestHelper helper) throws IOException {
+		MinecraftServer server = helper.getLevel().getServer();
+		Path dir = Files.createTempDirectory("ovvar-wardrobes");
+		ServerPlayer stranger = helper.makeMockServerPlayerInLevel();
+		UUID owner = UUID.randomUUID();
+		ItemStack ovve = new ItemStack(ModContent.ovve(CHAPTER));
+		OvveItem.setOwner(ovve, owner);
+		List<OwnedSewing.Unpicked> given = new ArrayList<>();
+		List<String> refused = new ArrayList<>();
+		AtomicReference<Wardrobes.Outcome> outcome = new AtomicReference<>();
+		helper.startSequence()
+				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
+				.thenExecute(() -> {
+					Wardrobes.use(server, new FileBackend(dir));
+					Wardrobes.fetch(owner);
+				})
+				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
+				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElse(null), outcome::set))
+				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "sew outcome " + outcome.get()))
+				.thenExecute(() -> {
+					OvveItem.refresh(ovve);
+					OwnedSewing.unpick(stranger, ovve, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
+				})
+				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 1, "the unpick was not answered"))
+				.thenExecute(() -> {
+					if (!given.isEmpty()) helper.fail("a stranger unpicked a patch: " + given);
+					if (!refused.get(0).contains("belongs to")) helper.fail("refusal text: " + refused.get(0));
+					Wardrobe now = Wardrobes.current(owner);
+					if (now.version() != 1) helper.fail("the store moved on a refused unpick: version " + now.version());
+					if (now.count(BEER_PATCH) != 0) helper.fail("the stash changed on a refused unpick");
+					if (!BEER.equals(Looks.at(ovve, Spot.FRONT_TOP_LEFT))) helper.fail("the ovve lost its patch anyway");
+					release(server);
+				})
+				.thenSucceed();
+	}
+
+	/** Nor may a stranger sew on it, even holding the patch. */
+	@GameTest(maxTicks = 1200)
+	public void foreignOvveCannotBeSewn(GameTestHelper helper) throws IOException {
+		MinecraftServer server = helper.getLevel().getServer();
+		Path dir = Files.createTempDirectory("ovvar-wardrobes");
+		ServerPlayer stranger = helper.makeMockServerPlayerInLevel();
+		UUID owner = UUID.randomUUID();
+		ItemStack ovve = new ItemStack(ModContent.ovve(CHAPTER));
+		OvveItem.setOwner(ovve, owner);
+		List<String> sewn = new ArrayList<>();
+		List<String> refused = new ArrayList<>();
+		helper.startSequence()
+				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
+				.thenExecute(() -> {
+					Wardrobes.use(server, new FileBackend(dir));
+					Wardrobes.fetch(owner);
+				})
+				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
+				.thenExecute(() -> OwnedSewing.sew(stranger, ovve, HEART, true, () -> sewn.add("sewn"), refused::add))
+				.thenWaitUntil(() -> assertThat(sewn.size() + refused.size() == 1, "the sew was not answered"))
+				.thenExecute(() -> {
+					if (!sewn.isEmpty()) helper.fail("a stranger sewed on somebody else's ovve");
+					if (!refused.get(0).contains("belongs to")) helper.fail("refusal text: " + refused.get(0));
+					if (Wardrobes.current(owner).version() != 0) helper.fail("the store moved on a refused sew");
+					release(server);
+				})
+				.thenSucceed();
+	}
+
+	/** The owner themselves sews and unpicks as before. */
+	@GameTest(maxTicks = 1200)
+	public void ownerCanUnpickAndSew(GameTestHelper helper) throws IOException {
+		MinecraftServer server = helper.getLevel().getServer();
+		Path dir = Files.createTempDirectory("ovvar-wardrobes");
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		UUID owner = player.getUUID();
+		ItemStack ovve = new ItemStack(ModContent.ovve(CHAPTER));
+		OvveItem.setOwner(ovve, owner);
+		List<String> sewn = new ArrayList<>();
+		List<OwnedSewing.Unpicked> given = new ArrayList<>();
+		List<String> refused = new ArrayList<>();
+		helper.startSequence()
+				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
+				.thenExecute(() -> {
+					Wardrobes.use(server, new FileBackend(dir));
+					Wardrobes.fetch(owner);
+				})
+				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
+				.thenExecute(() -> OwnedSewing.sew(player, ovve, BEER, true, () -> sewn.add("sewn"), refused::add))
+				.thenWaitUntil(() -> assertThat(sewn.size() + refused.size() == 1, "the sew was not answered"))
+				.thenExecute(() -> {
+					if (sewn.isEmpty()) helper.fail("the owner could not sew on their own ovve: " + refused);
+					if (!BEER.equals(Looks.at(ovve, Spot.FRONT_TOP_LEFT))) helper.fail("the sew did not reach the ovve");
+					OwnedSewing.unpick(player, ovve, Spot.FRONT_TOP_LEFT, true, given::add, refused::add);
+				})
+				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 1, "the unpick was not answered"))
+				.thenExecute(() -> {
+					if (given.isEmpty()) helper.fail("the owner could not unpick from their own ovve: " + refused);
+					if (Wardrobes.current(owner).count(BEER_PATCH) != 1) helper.fail("the unpicked patch is not in the stash");
+					release(server);
+				})
+				.thenSucceed();
+	}
+
+	// ---- the MOTD
+
+	@GameTest
+	public void motdNamesTheServerMode(GameTestHelper helper) {
+		String survival = Motd.text("Testcraft", false);
+		String minigame = Motd.text("Testcraft", true);
+		if (!survival.startsWith("Testcraft ") || !minigame.startsWith("Testcraft ")) helper.fail("the MOTD does not name the server: " + survival + " / " + minigame);
+		if (!survival.contains("Survival") || !survival.contains("sewing")) helper.fail("survival MOTD: " + survival);
+		if (!minigame.contains("Minigame") || minigame.contains("sewing on stands")) helper.fail("minigame MOTD: " + minigame);
+		if (!Motd.text("", false).startsWith(ServerConfig.DEFAULT.name())) helper.fail("a nameless server does not fall back on a name");
+		OvvarConfig config = OvvarConfig.get();
+		if (!Motd.text(config).equals(Motd.text(config.server().name(), config.stash().minigameServer()))) {
+			helper.fail("this server's MOTD is not its config's: " + Motd.text(config));
+		}
+		helper.succeed();
 	}
 
 	/** The configured store back, and the next test may go. */

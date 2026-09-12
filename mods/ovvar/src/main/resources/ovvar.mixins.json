@@ -5,6 +5,7 @@
 	"mixins": [
 		"CompanionCursorMixin",
 		"CustomClickMixin",
+		"ForeignOvveMixin",
 		"ResourcePackResponseMixin"
 	],
 	"injectors": {

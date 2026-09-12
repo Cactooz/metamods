@@ -14,6 +14,13 @@ import net.minecraft.util.StringRepresentable;
  * @param fileDirectory		  for the file backend: an absolute directory, or "" for {@code <world>/ovvar/wardrobes}
  * @param jdbc				   the JDBC settings; only read when the backend is {@code jdbc}
  * @param bindOnPickup		   an ovve with no owner becomes owned by the first player whose inventory ticks it
+ * @param othersOvve			 what happens with an ovve owned by somebody else: {@code block} (the default:
+ *							   it cannot be worn — the armour slot refuses it and a forced one is taken off
+ *							   again — and nothing may be sewn on or off it), {@code rebind} (it becomes the
+ *							   holder's, showing their design) or {@code allow} (anyone may wear it and it
+ *							   keeps showing its owner's design, how it was before)
+ * @param editRequiresOwner	  only an owned ovve's owner may sew on it or unpick from it (the default);
+ *							   false lets anyone with shears change somebody else's design
  * @param sewWhenUnreachable	 with the store down, a sew still goes on the ovve and the write is queued
  *							   (retried every {@link #retrySeconds}); false refuses and keeps the patch in hand
  * @param unpickWhenUnreachable  with the store down, an unpick still hands the patch back and the write
@@ -22,9 +29,27 @@ import net.minecraft.util.StringRepresentable;
  * @param logQueries			 log every load and store at INFO (debugging)
  */
 public record DesignStoreConfig(
-		Backend backend, String fileDirectory, Jdbc jdbc, boolean bindOnPickup,
-		boolean sewWhenUnreachable, boolean unpickWhenUnreachable, int retrySeconds, boolean logQueries
+		Backend backend, String fileDirectory, Jdbc jdbc, boolean bindOnPickup, OthersOvve othersOvve,
+		boolean editRequiresOwner, boolean sewWhenUnreachable, boolean unpickWhenUnreachable, int retrySeconds,
+		boolean logQueries
 ) {
+	/** What somebody else's ovve is to this player: unwearable (the default), theirs to take over, or free to wear. */
+	public enum OthersOvve implements StringRepresentable {
+		BLOCK("block"), REBIND("rebind"), ALLOW("allow");
+
+		public static final Codec<OthersOvve> CODEC = StringRepresentable.fromEnum(OthersOvve::values);
+		private final String name;
+
+		OthersOvve(String name) {
+			this.name = name;
+		}
+
+		@Override
+		public String getSerializedName() {
+			return name;
+		}
+	}
+
 	public enum Backend implements StringRepresentable {
 		FILE("file"), JDBC("jdbc");
 
@@ -78,13 +103,28 @@ public record DesignStoreConfig(
 		}
 	}
 
-	public static final DesignStoreConfig DEFAULT = new DesignStoreConfig(Backend.FILE, "", Jdbc.DEFAULT, true, false, false, 15, false);
+	public static final DesignStoreConfig DEFAULT = new DesignStoreConfig(Backend.FILE, "", Jdbc.DEFAULT, true,
+			OthersOvve.BLOCK, true, false, false, 15, false);
+
+	/** The same settings with another {@code others_ovve} (a test, a command). */
+	public DesignStoreConfig othersOvve(OthersOvve value) {
+		return new DesignStoreConfig(backend, fileDirectory, jdbc, bindOnPickup, value, editRequiresOwner,
+				sewWhenUnreachable, unpickWhenUnreachable, retrySeconds, logQueries);
+	}
+
+	/** The same settings with another {@code edit_requires_owner}. */
+	public DesignStoreConfig editRequiresOwner(boolean value) {
+		return new DesignStoreConfig(backend, fileDirectory, jdbc, bindOnPickup, othersOvve, value,
+				sewWhenUnreachable, unpickWhenUnreachable, retrySeconds, logQueries);
+	}
 
 	public static final MapCodec<DesignStoreConfig> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
 			Backend.CODEC.optionalFieldOf("backend", DEFAULT.backend).forGetter(DesignStoreConfig::backend),
 			Codec.STRING.optionalFieldOf("file_directory", DEFAULT.fileDirectory).forGetter(DesignStoreConfig::fileDirectory),
 			Jdbc.CODEC.optionalFieldOf("jdbc", DEFAULT.jdbc).forGetter(DesignStoreConfig::jdbc),
 			Codec.BOOL.optionalFieldOf("bind_on_pickup", DEFAULT.bindOnPickup).forGetter(DesignStoreConfig::bindOnPickup),
+			OthersOvve.CODEC.optionalFieldOf("others_ovve", DEFAULT.othersOvve).forGetter(DesignStoreConfig::othersOvve),
+			Codec.BOOL.optionalFieldOf("edit_requires_owner", DEFAULT.editRequiresOwner).forGetter(DesignStoreConfig::editRequiresOwner),
 			Codec.BOOL.optionalFieldOf("sew_when_unreachable", DEFAULT.sewWhenUnreachable).forGetter(DesignStoreConfig::sewWhenUnreachable),
 			Codec.BOOL.optionalFieldOf("unpick_when_unreachable", DEFAULT.unpickWhenUnreachable).forGetter(DesignStoreConfig::unpickWhenUnreachable),
 			Codec.intRange(1, 3600).optionalFieldOf("retry_seconds", DEFAULT.retrySeconds).forGetter(DesignStoreConfig::retrySeconds),
