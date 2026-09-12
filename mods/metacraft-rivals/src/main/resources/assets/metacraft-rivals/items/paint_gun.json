@@ -1,4 +1,5 @@
 {
+	"hand_animation_on_swap": false,
 	"model": {
 		"type": "minecraft:model",
 		"model": "metacraft-rivals:item/paint_gun",

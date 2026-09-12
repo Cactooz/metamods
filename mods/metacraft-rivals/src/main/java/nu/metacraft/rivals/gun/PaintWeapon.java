@@ -1,5 +1,6 @@
 package nu.metacraft.rivals.gun;
 
+import com.mojang.authlib.GameProfile;
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
@@ -31,6 +32,7 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.DyedItemColor;
@@ -537,12 +539,39 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		Ink.finishIfDue(stack, level.getServer().getTickCount());
 		if (!(entity instanceof LivingEntity holder)) return; // a dropped weapon keeps the dye it had
 		// The ink-on-screen meter rides the weapon's data LED, and this is the one place it is written, so a
-		// weapon stowed with a full screen cannot come back out still carrying a live number.
-		if (holder instanceof Player carrier) InkOnScreen.put(stack, InkOnScreen.ledFor(carrier));
+		// weapon stowed with a full screen cannot come back out still carrying a live number. The holder is
+		// noted with it: only their own client is ever told the value.
+		if (holder instanceof Player carrier) {
+			InkOnScreen.put(stack, InkOnScreen.ledFor(carrier));
+			InkOnScreen.owner(stack, carrier.getUUID());
+		}
 		PlayerTeam team = holder.getTeam();
 		DyedItemColor wanted = PaintColor.byTeam(team).map(color -> new DyedItemColor(color.rgb)).orElse(null);
 		if (Objects.equals(stack.get(DataComponents.DYED_COLOR), wanted)) return;
 		withTankColor(stack, team);
+	}
+
+	/**
+	 * The LED value this stack may show to {@code viewer}: the real one for the player whose meter it is,
+	 * {@link InkOnScreen#IDLE} for everybody else. A lit LED on someone else's gun would be a tell — and
+	 * worse, the ink post effect hunts the whole lower half of the frame for that signature, so another
+	 * player's third-person weapon walking past would splatter the finder's own screen.
+	 */
+	public static int ledForViewer(ItemStack stack, @Nullable UUID viewer) {
+		UUID owner = InkOnScreen.ownerOf(stack);
+		return viewer != null && viewer.equals(owner) ? InkOnScreen.ledOf(stack) : InkOnScreen.IDLE;
+	}
+
+	/**
+	 * The client's copy of a weapon: Polymer's own (the mapped item, the dye, the model) with the data LED
+	 * masked to whoever is being sent it. {@link PacketContext#GAME_PROFILE} is the receiving player.
+	 */
+	@Override
+	public ItemStack getPolymerItemStack(ItemStack stack, TooltipFlag flag, PacketContext context, HolderLookup.Provider lookup) {
+		ItemStack out = PolymerItem.super.getPolymerItemStack(stack, flag, context, lookup);
+		GameProfile viewer = context.get(PacketContext.GAME_PROFILE);
+		InkOnScreen.put(out, ledForViewer(stack, viewer == null ? null : viewer.id()));
+		return out;
 	}
 
 	@Override

@@ -237,10 +237,16 @@ dedicated Rivals server wants.
   cannot come back out still carrying a live number. With no ink the value is a dark grey that fails the
   signature on both counts, and the pip reads as an indicator that is simply off.
 
-  The chain's first pass renders to a **one-by-one** target, so the hunt for the LED — the bottom 55% of
-  the screen, whichever hand the item is in, stepped at half the LED's own width and requiring two
-  samples in a row so a red pixel in the world is never mistaken for it — runs once a frame rather than
-  once a pixel. It then walks outwards until the signature stops, and hands the amount, the team and the
+  The value only ever goes to the holder's own client: Polymer's per-viewer item hook hands every other
+  player the idle colour, because a lit LED on someone else's gun is both a tell and a false reading — the
+  probe would find it on their third-person weapon and splatter the finder's screen. The item definitions
+  also turn `hand_animation_on_swap` off: a component change is a stack change, and without that the client
+  replays the equip animation every time the meter (or the tank's dye) moves.
+
+  The chain's first pass renders to a **one-by-one** target, so the hunt for the LED — the bottom 40% of
+  the screen, whichever hand the item is in, stepped at 1% of the screen height (about 8 000 samples for
+  the whole frame at 1080p) and confirmed by a second sample a short hop away so a red pixel in the world
+  is never mistaken for it — runs once a frame rather than once a pixel. It then walks outwards until the signature stops, and hands the amount, the team and the
   LED's centre and half extent to the ink pass, which paints ink over exactly that patch so the player
   never sees the number they are being told. Known limits: no weapon in view means no ink, so third
   person and an empty hand show a clean screen however full the meter is (the meter keeps running, and

@@ -23,10 +23,17 @@ layout(location = 0) out vec4 fragColor;
 // This pass renders to a 1x1 target, so everything below runs once per frame for the whole screen rather
 // than once per pixel.
 
-/** The band the first-person item lands in: the bottom 55% of the screen, either hand's side. */
-const float BAND = 0.55;
-/** Sampling step as a share of the screen height: half the ~1.5% of height one model pixel covers. */
-const float STEP_SHARE = 0.005;
+/** The band the first-person item lands in: the bottom 40% of the screen, either hand's side. */
+const float BAND = 0.40;
+/**
+ * Sampling step as a share of the screen height. The LED is one model pixel of an item held at about a
+ * quarter of the screen's height, so it covers some 1.7% of the height — a step of 1% cannot step over
+ * it, and at 1920x1080 it puts the whole search at 192 x 43 = 8256 samples for the frame (one fetch
+ * each; the confirmation fetch and the footprint walk only happen once something matches).
+ */
+const float STEP_SHARE = 0.01;
+/** The confirmation sample's distance, a share of the height: well inside the LED, whatever the step is. */
+const float CONFIRM_SHARE = 0.004;
 /** How far the footprint measurement walks, in steps. */
 const int REACH = 24;
 
@@ -53,20 +60,22 @@ float reach(vec2 at, vec2 stride) {
 }
 
 void main() {
-    float stride = max(3.0, floor(InSize.y * STEP_SHARE));
+    float stride = max(4.0, floor(InSize.y * STEP_SHARE));
+    // The second sample is a fixed short hop, not a whole step: the step may be wider than the LED.
+    float confirm = max(2.0, floor(InSize.y * CONFIRM_SHARE));
     for (float y = stride * 0.5; y < InSize.y * BAND; y += stride) {
         for (float x = stride * 0.5; x < InSize.x; x += stride) {
             vec2 at = vec2(x, y);
             vec3 here, right;
             if (!marker(at, here)) continue;
-            // Two samples a step apart, carrying the same amount: a lone red pixel in the world (a
+            // Two samples a short hop apart, carrying the same amount: a lone red pixel in the world (a
             // redstone block, a lava fleck, someone's red skin) is not a flat run of them.
-            if (!marker(at + vec2(stride, 0.0), right)) continue;
+            if (!marker(at + vec2(confirm, 0.0), right)) continue;
             if (abs(right.b - here.b) > 0.002) continue;
             // Measure the LED's footprint by walking out until the signature stops, so the ink pass can
             // cover exactly as much as it has to and no more.
-            // Walked at half the search step, so the reach scales with the screen the LED does.
-            float walk = max(1.0, floor(stride * 0.5));
+            // Walked at the confirmation distance, so the reach scales with the screen the LED does.
+            float walk = confirm;
             float left = reach(at, vec2(-walk, 0.0));
             float east = reach(at, vec2(walk, 0.0));
             float down = reach(at, vec2(0.0, -walk));

@@ -6,6 +6,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.CustomModelData;
 import nu.metacraft.rivals.PaintColor;
 import org.jspecify.annotations.Nullable;
@@ -45,6 +46,10 @@ import java.util.UUID;
  * changes when the meter changes and at most every {@link #SEND_EVERY} ticks, because every change is an
  * item-slot sync to the client; {@link PaintWeapon#inventoryTick} is the one place it reaches the stacks.
  *
+ * <p>The value only ever goes to the holder's own client: {@link PaintWeapon#ledForViewer} hands every
+ * other viewer {@link #IDLE}, because a lit LED on someone else's gun is both a tell and a false reading —
+ * the probe would find it on their third-person weapon and splatter the finder's screen.
+ *
  * <p>Consequences worth knowing: in third person, with an empty hand, or with the weapon in the off-hand
  * out of view, there is no LED on the frame and therefore no ink, however full the meter is. The meter
  * itself keeps running, so the ink comes back the moment the weapon is in view again.
@@ -58,26 +63,33 @@ public final class InkOnScreen {
 	public static final int STANDING_GAIN = 2;
 	/** Ink that runs off on a tick nothing added any. */
 	public static final int DECAY = 4;
-	/** The fewest ticks between two changes of the published LED value for the same player. */
+	/**
+	 * The fewest ticks between two changes of the published LED value for the same player. Counted down
+	 * rather than compared against a clock: the meter is fed from several places and the two clocks a
+	 * server has — the level's game time and the server's tick count — are not the same number, so a
+	 * timestamp written by one and tested against the other blocked the LED forever on any world that had
+	 * been played before.
+	 */
 	public static final int SEND_EVERY = 2;
 	/** The signature the shader looks for: red at full. */
 	public static final int SIGNATURE_RED = 0xFF;
 	/** The LED with nothing to say: a dark grey, which fails the red test and the green test both. */
 	public static final int IDLE = 0x303030;
+	/** The stack-data key holding whose meter the LED is showing, beside the tank's own keys. */
+	static final String OWNER = "rivals_led_owner";
 
 	/** One player's meter. {@code written} is the value the weapons are told to carry, {@link #IDLE} for none. */
 	private static final class Meter {
 		private int amount;
 		private PaintColor color;
 		private int written = IDLE;
-		private long writtenAt;
+		/** Ticks still to wait before the published value may change again. */
+		private int hold;
 		/** Whether anything added ink this tick; set by {@link #add}, cleared by {@link #tick}. */
 		private boolean topped;
 
-		private Meter(PaintColor color, long now) {
+		private Meter(PaintColor color) {
 			this.color = color;
-			// Far enough back that the first tick with ink on it writes at once, without underflowing.
-			this.writtenAt = now - SEND_EVERY;
 		}
 	}
 
@@ -120,8 +132,7 @@ public final class InkOnScreen {
 
 	private static void add(Player player, PaintColor color, int ink) {
 		if (ink <= 0) return;
-		long now = player.level().getGameTime();
-		Meter meter = METERS.computeIfAbsent(player.getUUID(), key -> new Meter(color, now));
+		Meter meter = METERS.computeIfAbsent(player.getUUID(), key -> new Meter(color));
 		// The newest ink is the ink you see: a DATA hit on a screen full of IT turns it red.
 		meter.color = color;
 		meter.amount = Math.min(MAX, meter.amount + ink);
@@ -133,9 +144,10 @@ public final class InkOnScreen {
 	 * the one the weapons are carrying is out of date. Called from {@link nu.metacraft.rivals.PlayerTick}
 	 * last, once the tick has had its chance to add ink.
 	 */
-	public static void tick(Player player, long now) {
+	public static void tick(Player player) {
 		Meter meter = METERS.get(player.getUUID());
 		if (meter == null) return;
+		if (meter.hold > 0) meter.hold--;
 		// Not in a match, not alive, not playing: no meter, and the LED goes dark.
 		if (player.isSpectator() || !player.isAlive() || PaintColor.byTeam(player.getTeam()).isEmpty()) {
 			clear(player);
@@ -149,9 +161,9 @@ public final class InkOnScreen {
 		}
 		int value = led(meter.color, meter.amount);
 		// Every change is an item-slot sync to the client, so the value is held still for a tick or two.
-		if (value == meter.written || now < meter.writtenAt + SEND_EVERY) return;
+		if (value == meter.written || meter.hold > 0) return;
 		meter.written = value;
-		meter.writtenAt = now;
+		meter.hold = SEND_EVERY;
 	}
 
 	/**
@@ -180,6 +192,27 @@ public final class InkOnScreen {
 		stack.set(DataComponents.CUSTOM_MODEL_DATA,
 				new CustomModelData(List.of(), List.of(), List.of(), List.of(value)));
 		return true;
+	}
+
+	/**
+	 * Note whose meter a stack's LED is showing. The value itself is on the stack for the server's own
+	 * bookkeeping, but only this player's client may be told it: see
+	 * {@link PaintWeapon#ledForViewer}.
+	 */
+	public static void owner(ItemStack stack, UUID owner) {
+		if (owner.equals(ownerOf(stack))) return;
+		CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.putString(OWNER, owner.toString()));
+	}
+
+	/** Whose LED a stack is carrying, or null if nobody's. */
+	public static @Nullable UUID ownerOf(ItemStack stack) {
+		String id = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag().getStringOr(OWNER, "");
+		if (id.isEmpty()) return null;
+		try {
+			return UUID.fromString(id);
+		} catch (IllegalArgumentException e) {
+			return null;
+		}
 	}
 
 	/** The value a weapon is carrying, or {@link #IDLE} when it carries none. */

@@ -336,7 +336,7 @@ public final class PlayerTick {
 		}
 		// Last, because the ink this tick added has to be in before the decay and the packet: the meter
 		// runs down every tick nothing put anything on it.
-		InkOnScreen.tick(player, now);
+		InkOnScreen.tick(player);
 	}
 
 	/**

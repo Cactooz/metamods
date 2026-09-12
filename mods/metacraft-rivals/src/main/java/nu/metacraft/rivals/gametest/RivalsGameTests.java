@@ -93,6 +93,7 @@ import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -972,30 +973,30 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(InkOnScreen.amount(player), 5 * InkOnScreen.PER_DAMAGE, "and one more point on top");
 		helper.assertTrue(InkOnScreen.color(player) == PaintColor.DATA, "the newest ink is the ink you see");
 		int full = InkOnScreen.amount(player);
-		InkOnScreen.tick(player, 100);
+		InkOnScreen.tick(player);
 		helper.assertValueEqual(InkOnScreen.amount(player), full, "the tick a hit lands on does not also drain");
-		InkOnScreen.tick(player, 101);
+		InkOnScreen.tick(player);
 		helper.assertValueEqual(InkOnScreen.amount(player), full - InkOnScreen.DECAY, "it runs off on the ticks after");
 		// The decay is skipped on a tick something added ink, so wading through enemy paint gains ground
 		// rather than fighting the drain.
 		int standing = InkOnScreen.amount(player);
 		InkOnScreen.standing(player, PaintColor.IT);
-		InkOnScreen.tick(player, 102);
+		InkOnScreen.tick(player);
 		helper.assertValueEqual(InkOnScreen.amount(player), standing + InkOnScreen.STANDING_GAIN,
 				"standing in enemy ink raises the meter");
 		helper.assertTrue(InkOnScreen.color(player) == PaintColor.IT, "in the ink it is standing in");
-		InkOnScreen.tick(player, 104);
+		InkOnScreen.tick(player);
 		helper.assertValueEqual(InkOnScreen.amount(player), standing + InkOnScreen.STANDING_GAIN - InkOnScreen.DECAY,
 				"and the tick after, with nothing adding, it runs off again");
 		InkOnScreen.hit(player, PaintColor.IT, 100.0f);
 		helper.assertValueEqual(InkOnScreen.amount(player), InkOnScreen.MAX, "never more than the amount byte holds");
-		for (int i = 0; i < InkOnScreen.MAX / InkOnScreen.DECAY + 2; i++) InkOnScreen.tick(player, 200 + i * 2L);
+		for (int i = 0; i < InkOnScreen.MAX / InkOnScreen.DECAY + 2; i++) InkOnScreen.tick(player);
 		helper.assertValueEqual(InkOnScreen.amount(player), 0, "and it clears itself with nothing adding to it");
 		helper.assertTrue(InkOnScreen.color(player) == null, "with no colour left behind");
 		// Not in a match: the meter goes, and with it the title the shader reads.
 		InkOnScreen.hit(player, PaintColor.IT, 2.0f);
 		helper.getLevel().getScoreboard().removePlayerFromTeam(player.getScoreboardName(), data);
-		InkOnScreen.tick(player, 400);
+		InkOnScreen.tick(player);
 		helper.assertValueEqual(InkOnScreen.amount(player), 0, "no team, no ink on the screen");
 		// A hit on something that is not a player, and a hit that did nothing, are both no ink.
 		InkOnScreen.hit(player, PaintColor.IT, 0.0f);
@@ -1036,22 +1037,52 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(InkOnScreen.ledOf(gun), InkOnScreen.IDLE, "a clean screen leaves the LED dark");
 		long now = helper.getLevel().getGameTime();
 		InkOnScreen.hit(player, PaintColor.IT, 4.0f);
-		InkOnScreen.tick(player, now);
+		InkOnScreen.tick(player);
 		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
 		int lit = InkOnScreen.led(PaintColor.IT, 4 * InkOnScreen.PER_DAMAGE);
 		helper.assertValueEqual(InkOnScreen.ledOf(gun), lit, "the first tick with ink lights the LED");
 		// Every change is an item-slot sync, so the value is held still for a tick or two.
 		InkOnScreen.hit(player, PaintColor.IT, 1.0f);
-		InkOnScreen.tick(player, now + 1);
+		InkOnScreen.tick(player);
 		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
 		helper.assertValueEqual(InkOnScreen.ledOf(gun), lit, "and not again within the send window");
-		InkOnScreen.tick(player, now + InkOnScreen.SEND_EVERY);
+		InkOnScreen.tick(player);
 		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
 		helper.assertTrue(InkOnScreen.ledOf(gun) != lit, "but the tick after the window it catches up");
 		// A weapon stowed with a full screen must not come back out still carrying a live number.
 		InkOnScreen.clear(player);
 		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
 		helper.assertValueEqual(InkOnScreen.ledOf(gun), InkOnScreen.IDLE, "a cleared meter darkens the LED again");
+		helper.succeed();
+	}
+
+	/**
+	 * The LED value only ever reaches the player whose meter it is. Everyone else is handed the idle
+	 * colour, because a lit LED on someone else's gun is both a tell and a false reading: the ink pass
+	 * hunts the lower half of the frame for that signature, so another player's third-person weapon
+	 * walking past would splatter the finder's own screen.
+	 */
+	@GameTest
+	public void ledIsHiddenFromOtherViewers(GameTestHelper helper) {
+		ItemStack gun = new ItemStack(PaintWeapon.of(Weapon.SHOOTER));
+		UUID holder = UUID.randomUUID();
+		UUID other = UUID.randomUUID();
+		int lit = InkOnScreen.led(PaintColor.IT, 200);
+		InkOnScreen.put(gun, lit);
+		InkOnScreen.owner(gun, holder);
+		helper.assertValueEqual(InkOnScreen.ledOf(gun), lit, "the server's own stack carries the value");
+		helper.assertTrue(holder.equals(InkOnScreen.ownerOf(gun)), "and knows whose it is");
+		helper.assertValueEqual(PaintWeapon.ledForViewer(gun, holder), lit, "the holder's client is told it");
+		helper.assertValueEqual(PaintWeapon.ledForViewer(gun, other), InkOnScreen.IDLE, "nobody else is");
+		helper.assertValueEqual(PaintWeapon.ledForViewer(gun, null), InkOnScreen.IDLE, "and neither is a viewer with no profile");
+		// A weapon that changes hands must not go on lighting up for whoever held it before.
+		InkOnScreen.owner(gun, other);
+		helper.assertValueEqual(PaintWeapon.ledForViewer(gun, holder), InkOnScreen.IDLE, "the old holder loses it");
+		helper.assertValueEqual(PaintWeapon.ledForViewer(gun, other), lit, "and the new one gains it");
+		// A stack nobody owns (a dropped weapon, a /give) shows nothing to anyone.
+		ItemStack loose = new ItemStack(PaintWeapon.of(Weapon.SLOSHER));
+		InkOnScreen.put(loose, lit);
+		helper.assertValueEqual(PaintWeapon.ledForViewer(loose, holder), InkOnScreen.IDLE, "an unowned weapon is dark");
 		helper.succeed();
 	}
 
@@ -1131,6 +1162,13 @@ public final class RivalsGameTests {
 				helper.assertValueEqual(tint.get("type").getAsString(), "minecraft:custom_model_data", id + ": LED tint source");
 				helper.assertValueEqual(tint.get("index").getAsInt(), 0, id + ": colour 0");
 				helper.assertValueEqual(tint.get("default").getAsInt(), InkOnScreen.IDLE, id + ": dark until the server says otherwise");
+			}
+			try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/items/" + id + ".json")) {
+				JsonObject definition = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+				// The LED's value changes every couple of ticks; without this the client replays the equip
+				// animation each time and the gun dips in and out of view (the tank's dye did the same).
+				helper.assertTrue(definition.has("hand_animation_on_swap") && !definition.get("hand_animation_on_swap").getAsBoolean(),
+						id + ": a component change must not replay the equip animation");
 			}
 			try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/models/item/" + id + ".json")) {
 				JsonObject model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
