@@ -40,65 +40,86 @@ public final class WeaponTuning {
 	 * The tunable numbers. The id is what a player types and what the json is keyed by; the rest of the
 	 * code uses the constant. Not every parameter applies to every weapon — the charger fires no ball
 	 * and the other three take no charge — so {@link #applies} decides which of these a weapon shows.
+	 *
+	 * <p>Each carries the range it is allowed, because several of them are loops and spawns: a
+	 * {@code splat_radius} of 500 is a million block writes in one splat, and a {@code count} of 5000
+	 * is five thousand entities on one click. The bounds are wide enough that anything worth trying is
+	 * inside them and narrow enough that nothing inside them can wedge the server; a value outside is
+	 * refused by the command and clamped, with a warning, on the way in from the file.
 	 */
 	public enum Param {
 		/** Launch speed, blocks per tick, into {@code shootFromRotation}. */
-		VELOCITY("velocity"),
+		VELOCITY("velocity", 0.0, 10.0),
 		/** Random inaccuracy cone, in degrees-ish; vanilla's {@code inaccuracy}. */
-		SPREAD("spread"),
-		/** Fall rate per tick. A vanilla snowball is 0.03. */
-		GRAVITY("gravity"),
+		SPREAD("spread", 0.0, 90.0),
+		/** Fall rate per tick. A vanilla snowball is 0.03; negative floats. */
+		GRAVITY("gravity", -1.0, 1.0),
 		/** How many block hits reflect the ball instead of ending it. Rounded. */
-		BOUNCES("bounces"),
-		/** How much speed a bounce keeps. */
-		RESTITUTION("restitution"),
+		BOUNCES("bounces", 0.0, 8.0),
+		/** How much speed a bounce keeps. Over 1 would be a ball that gains energy off a wall. */
+		RESTITUTION("restitution", 0.0, 1.0),
 		/** Ticks before an unhit ball splashes the floor under itself; 0 for no limit. Rounded. */
-		LIFETIME("lifetime"),
+		LIFETIME("lifetime", 0.0, 400.0),
 		/** How far the impact splat reaches: 0 a single face, 1 a 3x3, 2 a 5x5. Rounded. */
-		SPLAT_RADIUS("splat_radius"),
+		SPLAT_RADIUS("splat_radius", 0.0, 4.0),
 		/** Ink one shot costs, and the tank a shot needs before it is allowed. Rounded. */
-		INK("ink"),
+		INK("ink", 0.0, 100.0),
 		/** Ticks of item cooldown after a shot — the fire rate. Rounded. */
-		COOLDOWN("cooldown"),
+		COOLDOWN("cooldown", 0.0, 200.0),
 		/** Camera kick, in pitch degrees; negative is up. */
-		KICK("kick"),
+		KICK("kick", -45.0, 45.0),
 		/** Hearts off a direct hit on someone from another team, per projectile. */
-		DAMAGE("damage"),
+		DAMAGE("damage", 0.0, 40.0),
 		/** Balls thrown per shot. Rounded. */
-		COUNT("count"),
+		COUNT("count", 1.0, 16.0),
 		/** Degrees of yaw between neighbouring balls of a multi-ball shot; the fan is centred on the view. */
-		FAN_YAW("fan_yaw"),
+		FAN_YAW("fan_yaw", 0.0, 90.0),
 		/** Degrees of pitch added to the view before the throw; negative aims above the crosshair. */
-		FAN_PITCH("fan_pitch"),
+		FAN_PITCH("fan_pitch", -89.0, 89.0),
 		/** Droplets one bounce throws off. Rounded. */
-		SPATTER_COUNT("spatter_count"),
+		SPATTER_COUNT("spatter_count", 0.0, 8.0),
 		/** Ticks one of those droplets lives. Rounded. */
-		SPATTER_LIFETIME("spatter_lifetime"),
+		SPATTER_LIFETIME("spatter_lifetime", 0.0, 400.0),
 		/** The fraction of the reflected speed a droplet leaves at. */
-		SPATTER_SPEED("spatter_speed"),
+		SPATTER_SPEED("spatter_speed", 0.0, 4.0),
 		/** How far a droplet is nudged off that line. */
-		SPATTER_SCATTER("spatter_scatter"),
+		SPATTER_SCATTER("spatter_scatter", 0.0, 2.0),
 		/** Hearts off a droplet hit — a graze, not a shot. */
-		SPATTER_DAMAGE("spatter_damage"),
+		SPATTER_DAMAGE("spatter_damage", 0.0, 40.0),
 		/** Charger: ticks held below which the release is a tap, not a shot. Rounded. */
-		CHARGE_MIN("charge_min"),
-		/** Charger: ticks held for a full charge; holding longer adds nothing. Rounded. */
-		CHARGE_FULL("charge_full"),
+		CHARGE_MIN("charge_min", 1.0, 200.0),
+		/** Charger: ticks held for a full charge; holding longer adds nothing. Rounded, never 0. */
+		CHARGE_FULL("charge_full", 1.0, 200.0),
 		/** Charger: hitscan reach in blocks at no charge, and at a full one. */
-		RANGE_MIN("range_min"),
-		RANGE_FULL("range_full"),
+		RANGE_MIN("range_min", 0.0, 128.0),
+		RANGE_FULL("range_full", 0.0, 128.0),
 		/** Charger: ink a release costs at no charge, and at a full one. Rounded. */
-		CHARGE_INK_MIN("charge_ink_min"),
-		CHARGE_INK_FULL("charge_ink_full"),
+		CHARGE_INK_MIN("charge_ink_min", 0.0, 100.0),
+		CHARGE_INK_FULL("charge_ink_full", 0.0, 100.0),
 		/** Charger: hearts off whoever stops the line, at no charge and at a full one. */
-		CHARGE_DAMAGE_MIN("charge_damage_min"),
-		CHARGE_DAMAGE_FULL("charge_damage_full");
+		CHARGE_DAMAGE_MIN("charge_damage_min", 0.0, 40.0),
+		CHARGE_DAMAGE_FULL("charge_damage_full", 0.0, 40.0);
 
 		/** What a player types and what the json is keyed by. */
 		public final String id;
+		/** The range this parameter is allowed, inclusive. */
+		public final double min;
+		public final double max;
 
-		Param(String id) {
+		Param(String id, double min, double max) {
 			this.id = id;
+			this.min = min;
+			this.max = max;
+		}
+
+		/** Whether a value is one this parameter will take at all. */
+		public boolean holds(double value) {
+			return Double.isFinite(value) && value >= min && value <= max;
+		}
+
+		/** The allowed range, as a command message says it. */
+		public String range() {
+			return number(min) + " to " + number(max);
 		}
 
 		public static Optional<Param> byId(String id) {
@@ -271,8 +292,15 @@ public final class WeaponTuning {
 		return changed;
 	}
 
-	/** Returns what the parameter was, so the caller can report old → new. */
+	/**
+	 * Returns what the parameter was, so the caller can report old → new. The value has to be one the
+	 * parameter {@link Param#holds}: callers that take it from a player check first and say so, and a
+	 * caller that has not checked is a bug, not a reason to let a {@code splat_radius} of 500 through.
+	 */
 	public double set(Param param, double value) {
+		if (!param.holds(value)) {
+			throw new IllegalArgumentException(param.id + " must be " + param.range() + ", not " + value);
+		}
 		double was = value(param);
 		values.put(param, value);
 		return was;
@@ -294,6 +322,15 @@ public final class WeaponTuning {
 			if (!get(weapon).changed().isEmpty()) return false;
 		}
 		return true;
+	}
+
+	/**
+	 * A tuning number as a message wants to read it: whole numbers without the {@code .0} that would
+	 * make {@code bounces} look like a fraction, everything else to three decimals.
+	 */
+	public static String number(double value) {
+		if (value == Math.rint(value) && Math.abs(value) < 1.0e9) return String.valueOf((long) value);
+		return String.valueOf(Math.round(value * 1000.0) / 1000.0);
 	}
 
 	private static final Gson GSON = new GsonBuilder().setPrettyPrinting().create();
@@ -364,19 +401,42 @@ public final class WeaponTuning {
 			}
 			WeaponTuning tuning = get(weapon.get());
 			for (Map.Entry<String, JsonElement> field : entry.getValue().getAsJsonObject().entrySet()) {
-				Optional<Param> param = Param.byId(field.getKey());
-				if (param.isEmpty() || !field.getValue().isJsonPrimitive()) {
+				Optional<Param> found = Param.byId(field.getKey());
+				if (found.isEmpty() || !field.getValue().isJsonPrimitive()) {
 					Rivals.LOGGER.warn("[{}] {}: {} has no parameter called \"{}\", ignored",
 							Rivals.MOD_ID, path, entry.getKey(), field.getKey());
 					continue;
 				}
+				Param param = found.get();
+				// A parameter the weapon does not read would be dropped again by the next save, so it is
+				// worth a word now rather than a value that silently disappears.
+				if (!applies(weapon.get(), param)) {
+					Rivals.LOGGER.warn("[{}] {}: {} does not read {}, ignored", Rivals.MOD_ID, path, entry.getKey(), param.id);
+					continue;
+				}
+				double value;
 				try {
-					tuning.set(param.get(), field.getValue().getAsDouble());
-					taken++;
+					value = field.getValue().getAsDouble();
 				} catch (RuntimeException notANumber) {
 					Rivals.LOGGER.warn("[{}] {}: {}.{} is not a number, ignored",
-							Rivals.MOD_ID, path, entry.getKey(), field.getKey());
+							Rivals.MOD_ID, path, entry.getKey(), param.id);
+					continue;
 				}
+				// Gson parses leniently, so NaN and Infinity are both things a hand-edited file can say;
+				// either one in a velocity is a ball at no position at all.
+				if (!Double.isFinite(value)) {
+					Rivals.LOGGER.warn("[{}] {}: {}.{} is {}, not a number to fly by; ignored",
+							Rivals.MOD_ID, path, entry.getKey(), param.id, value);
+					continue;
+				}
+				if (!param.holds(value)) {
+					double clamped = Math.clamp(value, param.min, param.max);
+					Rivals.LOGGER.warn("[{}] {}: {}.{} is {}, outside {}; clamped to {}",
+							Rivals.MOD_ID, path, entry.getKey(), param.id, number(value), param.range(), number(clamped));
+					value = clamped;
+				}
+				tuning.set(param, value);
+				taken++;
 			}
 		}
 		if (taken > 0) Rivals.LOGGER.info("[{}] weapon tuning: {} values from {}", Rivals.MOD_ID, taken, path);

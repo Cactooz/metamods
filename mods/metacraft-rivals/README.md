@@ -234,6 +234,12 @@ throws no ball, takes `ink`, `cooldown` and `kick` plus its own `charge_min`, `c
 `charge_damage_full` — the `*_min` at no charge, the `*_full` at a full one, with everything between
 interpolated.
 
+Every parameter has a range, which `/rivals tune <weapon>` prints beside it and a refusal states:
+several of them are loop bounds and spawn counts, so a `splat_radius` of 500 (a million block writes
+in one splat) or a `count` of 5000 is refused rather than clamped. A value out of range in the file is
+clamped with a warning, and `NaN`/`Infinity` — which a hand edit can get past the json parser — is
+ignored with one.
+
 The tuning lives in `config/metacraft-rivals/weapons.json` and is written after every change. Only
 what differs from the defaults is kept, so a fresh file is `{}` and a default changed in the code
 still reaches everyone who never touched it. The defaults themselves are the constants in

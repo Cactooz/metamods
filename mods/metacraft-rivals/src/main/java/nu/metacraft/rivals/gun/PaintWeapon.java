@@ -179,13 +179,15 @@ public final class PaintWeapon extends Item implements PolymerItem {
 
 	/**
 	 * The charger's shot, fired when the hold ends. How long the button was down is the whole weapon:
-	 * under {@link Weapon#MIN_CHARGE_TICKS} it was a tap and nothing happens (no ink, no cooldown — a
-	 * mis-click must not cost anything), and from there to {@link Weapon#CHARGE_FULL_TICKS} the charge scales
-	 * range, ink and kick together. The shot itself is hitscan: one clip along the view, a line of paint
-	 * on the floor under it, and a splash where it stops — under the feet of whoever was standing in the
-	 * way, if anyone was, and otherwise on the block face it ran into. Whoever stopped it also takes
-	 * {@link Weapon#CHARGE_BASE_DAMAGE} plus {@link Weapon#CHARGE_EXTRA_DAMAGE} of the charge, unless
-	 * they are on the shooter's own team.
+	 * under {@code charge_min} ticks it was a tap and nothing happens (no ink, no cooldown — a mis-click
+	 * must not cost anything), and from there to {@code charge_full} the charge scales range, ink,
+	 * damage and kick together, each of them from its {@code *_min} at no charge to its {@code *_full}
+	 * at a full one. The shot itself is hitscan: one clip along the view, a line of paint on the floor
+	 * under it, and a splash where it stops — under the feet of whoever was standing in the way, if
+	 * anyone was, and otherwise on the block face it ran into. Whoever stopped it also takes the
+	 * charge's share of {@code charge_damage_min}..{@code charge_damage_full}, unless they are on the
+	 * shooter's own team. Every one of those numbers is read off {@link WeaponTuning} here, at the
+	 * release, so {@code /rivals tune} lands on the next charge.
 	 */
 	@Override
 	public boolean releaseUsing(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {

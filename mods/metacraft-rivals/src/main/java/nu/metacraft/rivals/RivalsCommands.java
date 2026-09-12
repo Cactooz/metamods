@@ -175,7 +175,7 @@ public final class RivalsCommands {
 			if (params.isEmpty()) continue;
 			changed += params.size();
 			String line = weapon.commandId() + ": " + params.stream()
-					.map(param -> param.id + " " + num(tuning.value(param)) + " [" + num(tuning.defaultValue(param)) + "]")
+					.map(param -> param.id + " " + WeaponTuning.number(tuning.value(param)) + " [" + WeaponTuning.number(tuning.defaultValue(param)) + "]")
 					.collect(Collectors.joining(", "));
 			source.sendSuccess(() -> Component.literal(line), false);
 		}
@@ -206,8 +206,9 @@ public final class RivalsCommands {
 				.withStyle(ChatFormatting.AQUA), false);
 		for (Param param : params) {
 			boolean untouched = tuning.isDefault(param);
-			String line = "  " + param.id + ": " + num(tuning.value(param))
-					+ (untouched ? "" : " [" + num(tuning.defaultValue(param)) + "]");
+			String line = "  " + param.id + ": " + WeaponTuning.number(tuning.value(param))
+					+ (untouched ? "" : " [" + WeaponTuning.number(tuning.defaultValue(param)) + "]")
+					+ "  (" + param.range() + ")";
 			source.sendSuccess(() -> Component.literal(line).withStyle(untouched ? ChatFormatting.GRAY : ChatFormatting.WHITE), false);
 		}
 		return params.size();
@@ -230,8 +231,9 @@ public final class RivalsCommands {
 		Optional<Param> wanted = paramOr(source, weapon, paramId);
 		if (wanted.isEmpty()) return 0;
 		Param param = wanted.get();
-		String line = weapon.commandId() + " " + param.id + ": " + num(tuning.value(param))
-				+ (tuning.isDefault(param) ? " (default)" : " [default " + num(tuning.defaultValue(param)) + "]");
+		String line = weapon.commandId() + " " + param.id + ": " + WeaponTuning.number(tuning.value(param))
+				+ (tuning.isDefault(param) ? " (default)" : " [default " + WeaponTuning.number(tuning.defaultValue(param)) + "]")
+				+ ", " + param.range();
 		source.sendSuccess(() -> Component.literal(line), false);
 		return 1;
 	}
@@ -247,12 +249,19 @@ public final class RivalsCommands {
 		Optional<Param> wanted = paramOr(source, weapon, paramId);
 		if (wanted.isEmpty()) return 0;
 		Param param = wanted.get();
+		// Several of these are loop bounds and spawn counts, so a number outside the range is refused
+		// rather than clamped: silently getting a 4 for the 500 you typed is worse than being told no.
+		if (!param.holds(value)) {
+			source.sendFailure(Component.literal(param.id + " must be " + param.range() + ", not "
+					+ WeaponTuning.number(value)).withStyle(ChatFormatting.RED));
+			return 0;
+		}
 		WeaponTuning tuning = WeaponTuning.get(weapon);
 		double was = tuning.set(param, value);
 		WeaponTuning.save();
 		source.sendSuccess(() -> Component.literal(weapon.commandId() + " " + param.id + ": "
-				+ num(was) + " → " + num(value)
-				+ (tuning.isDefault(param) ? " (the default)" : " [default " + num(tuning.defaultValue(param)) + "]")), true);
+				+ WeaponTuning.number(was) + " → " + WeaponTuning.number(value)
+				+ (tuning.isDefault(param) ? " (the default)" : " [default " + WeaponTuning.number(tuning.defaultValue(param)) + "]")), true);
 		return 1;
 	}
 
@@ -280,12 +289,4 @@ public final class RivalsCommands {
 		return param;
 	}
 
-	/**
-	 * A tuning number as a player wants to read it: whole numbers without the {@code .0} that would
-	 * make {@code bounces} look like a fraction, everything else to three decimals.
-	 */
-	private static String num(double value) {
-		if (value == Math.rint(value) && Math.abs(value) < 1.0e9) return String.valueOf((long) value);
-		return String.valueOf(Math.round(value * 1000.0) / 1000.0);
-	}
 }
