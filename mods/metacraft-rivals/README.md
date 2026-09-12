@@ -274,7 +274,22 @@ dedicated Rivals server wants.
   frame at 1080p, and each match is confirmed by a second sample a short hop to either side, so a red
   pixel in the world is never mistaken for it and a scan column landing near the LED's edge never loses
   it. The pass hands on the amount and the team, and nothing else: there is no longer anything for the
-  ink pass to paint over, because the hotbar does it. Known limits: no weapon in view means no ink, so third
+  ink pass to paint over, because the hotbar does it.
+
+  **The ink itself is four textures**, not a field of procedural blobs — two flat tones and a signed
+  distance function had no depth and did not read as pixel art. `textures/post/ink_1.png` …
+  `ink_4.png` are 320×180 RGBA overlays, one per quarter of the meter, bound to the ink pass as
+  `PostChainConfig` texture inputs with `bilinear: false`. **Alpha is coverage** and is only ever 0 or
+  255; **RGB is a greyscale shading map**, which the shader steps into four tones of the *team's*
+  colour (under 0.30 → the colour at 55%, under 0.60 → the colour, under 0.85 → a quarter toward
+  white, above → 60% toward white), so one drawing serves both teams. Sampled at texel centres with no
+  filtering, so a texel is a fat block of screen pixels — the texture *is* the pixel grid. State 1 is a
+  little ink around the edges, state 4 is nearly covered with the middle still clear, and ink always
+  creeps in from the sides. They are ordinary resources: an artist paints over them and nothing else
+  changes. The format is written out in `textures/post/README.md`, and `tools/ink_overlays.py` (Pillow)
+  drew the placeholders that are checked in.
+
+  Known limits: no weapon in view means no ink, so third
   person and an empty hand show a clean screen however full the meter is (the meter keeps running, and
   the ink comes back with the weapon); the pass runs every frame whether there is ink or not (two
   full-screen passes' worth of work); and a shader pack that replaces the post chain loses the effect,

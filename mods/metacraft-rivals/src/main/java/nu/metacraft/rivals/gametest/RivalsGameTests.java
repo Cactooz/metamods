@@ -1280,6 +1280,9 @@ public final class RivalsGameTests {
 		List<String> samplers = new ArrayList<>();
 		for (JsonElement input : inkPass.getAsJsonArray("inputs")) {
 			JsonObject json = input.getAsJsonObject();
+			// The overlays are texture inputs and name a location rather than a target; they are checked
+			// on their own below.
+			if (!json.has("target")) continue;
 			samplers.add(json.get("sampler_name").getAsString() + "=" + json.get("target").getAsString());
 		}
 		helper.assertTrue(samplers.contains("In=minecraft:main") && samplers.contains("Probe=rivals_ink_data"),
@@ -1304,7 +1307,32 @@ public final class RivalsGameTests {
 		helper.assertTrue(!ink.contains("probe.b") && !ink.contains("probe.a"),
 				"the ink pass no longer reads the LED's position: the hotbar covers it");
 		helper.assertTrue(probe.contains("vec4(here.b, here.g, 0.0, 1.0)"), "and the probe no longer sends one");
-		helper.assertTrue(ink.contains("ProbeSampler") && ink.contains("GameTime"), "the ink reads the data pixel and the clock");
+		// The ink is drawn from four overlays an artist can replace, bound as texture inputs on the ink
+		// pass with no filtering — the texture is the pixel grid, so a bilinear sampler would blur it.
+		List<String> overlays = new ArrayList<>();
+		for (JsonElement input : inkPass.getAsJsonArray("inputs")) {
+			JsonObject json = input.getAsJsonObject();
+			if (!json.has("location")) continue;
+			overlays.add(json.get("sampler_name").getAsString());
+			helper.assertValueEqual(json.get("width").getAsInt(), InkArt.OVERLAY_WIDTH, "overlay width");
+			helper.assertValueEqual(json.get("height").getAsInt(), InkArt.OVERLAY_HEIGHT, "overlay height");
+			helper.assertTrue(json.has("bilinear") && !json.get("bilinear").getAsBoolean(),
+					json.get("sampler_name").getAsString() + " is sampled with no filtering");
+		}
+		helper.assertValueEqual(overlays.size(), InkArt.INK_STATES, "one overlay per quarter of the meter: " + overlays);
+		String chainText = new String(files.get(chainPath), StandardCharsets.UTF_8);
+		for (int state = 1; state <= InkArt.INK_STATES; state++) {
+			helper.assertTrue(chainText.contains(Rivals.MOD_ID + ":" + InkArt.overlay(state)),
+					"the chain binds " + InkArt.overlay(state));
+			helper.assertTrue(ink.contains("Ink" + state + "Sampler"), "and the shader reads Ink" + state + "Sampler");
+		}
+		// The four tones the overlay's greyscale is mapped onto, and the four states it picks between.
+		helper.assertTrue(ink.contains("TONE_SHADOW = 0.3") && ink.contains("TONE_BASE = 0.6")
+						&& ink.contains("TONE_LIGHT = 0.85"),
+				"the shader steps the overlay's luminance into four tones of the team colour");
+		helper.assertTrue(ink.contains("floor(amount * 255.0 / 64.0)"), "and picks the state in quarters");
+		helper.assertTrue(!ink.contains("GRID"), "with no grid snapping of its own: the texture is the grid");
+		helper.assertTrue(ink.contains("ProbeSampler"), "the ink reads the data pixel");
 		for (PaintColor team : PaintColor.values()) {
 			// Both team inks are hard-coded in the shader, so they have to be the colours the teams wear.
 			String red = String.format(Locale.ROOT, "%.4f", (team.rgb >> 16 & 0xFF) / 255.0);
@@ -1379,6 +1407,65 @@ public final class RivalsGameTests {
 			}
 		}
 		helper.succeed();
+	}
+
+	/**
+	 * The overlays themselves, which are ordinary resources an artist is meant to paint over. The format
+	 * is the contract in {@code textures/post/README.md}, and it is the shader's contract too: 320×180,
+	 * alpha as hard coverage rather than a soft edge, more ink as the state climbs, ink against every
+	 * edge because that is where a faceful lands, and the middle of the screen left clear in every one of
+	 * them, because that is where the player is aiming.
+	 */
+	@GameTest
+	public void theInkOverlaysAreDrawnToTheArtistsFormat(GameTestHelper helper) throws IOException {
+		int[] covered = new int[InkArt.INK_STATES + 1];
+		for (int state = 1; state <= InkArt.INK_STATES; state++) {
+			String path = "/assets/" + Rivals.MOD_ID + "/" + InkArt.overlay(state);
+			BufferedImage image;
+			try (InputStream in = Rivals.class.getResourceAsStream(path)) {
+				helper.assertTrue(in != null, "overlay present: " + path);
+				image = ImageIO.read(in);
+			}
+			helper.assertValueEqual(image.getWidth(), InkArt.OVERLAY_WIDTH, "overlay " + state + " width");
+			helper.assertValueEqual(image.getHeight(), InkArt.OVERLAY_HEIGHT, "overlay " + state + " height");
+			helper.assertTrue(image.getColorModel().hasAlpha(), "overlay " + state + " carries alpha");
+			int wet = 0;
+			for (int y = 0; y < image.getHeight(); y++) {
+				for (int x = 0; x < image.getWidth(); x++) {
+					int alpha = image.getRGB(x, y) >>> 24;
+					// Hard coverage: the shader draws a blocky edge, and a soft alpha makes it ragged
+					// rather than soft.
+					helper.assertTrue(alpha == 0 || alpha == 255,
+							"overlay " + state + " alpha at " + x + "," + y + " is " + alpha + ", not 0 or 255");
+					if (alpha == 255) wet++;
+				}
+			}
+			covered[state] = wet;
+			helper.assertValueEqual(image.getRGB(image.getWidth() / 2, image.getHeight() / 2) >>> 24, 0,
+					"overlay " + state + " leaves the middle of the screen clear");
+			helper.assertTrue(edgeInk(image), "overlay " + state + " has ink against all four edges");
+		}
+		for (int state = 2; state <= InkArt.INK_STATES; state++) {
+			helper.assertTrue(covered[state] > covered[state - 1],
+					"state " + state + " covers more than " + (state - 1) + ": " + covered[state] + " vs " + covered[state - 1]);
+		}
+		helper.assertTrue(covered[InkArt.INK_STATES] > 2 * covered[1],
+				"and a faceful is far more than a graze: " + covered[InkArt.INK_STATES] + " vs " + covered[1]);
+		helper.succeed();
+	}
+
+	/** Is there ink touching all four edges of this overlay? Ink that creeps in has to start somewhere. */
+	private static boolean edgeInk(BufferedImage image) {
+		boolean left = false, right = false, top = false, bottom = false;
+		for (int y = 0; y < image.getHeight(); y++) {
+			if ((image.getRGB(0, y) >>> 24) == 255) left = true;
+			if ((image.getRGB(image.getWidth() - 1, y) >>> 24) == 255) right = true;
+		}
+		for (int x = 0; x < image.getWidth(); x++) {
+			if ((image.getRGB(x, 0) >>> 24) == 255) top = true;
+			if ((image.getRGB(x, image.getHeight() - 1) >>> 24) == 255) bottom = true;
+		}
+		return left && right && top && bottom;
 	}
 
 	/**

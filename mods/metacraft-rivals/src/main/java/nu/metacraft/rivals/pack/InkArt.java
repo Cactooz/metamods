@@ -43,10 +43,24 @@ public final class InkArt {
 	/** The two fragment shaders the chain runs: the LED search, then the ink itself. */
 	public static final String PROBE_SHADER = "ink_probe";
 	public static final String INK_SHADER = "ink";
+	/**
+	 * How many overlay textures the ink is drawn from — one per quarter of the meter — and how big they
+	 * are. They are ordinary resources under {@code textures/post/}, drawn by
+	 * {@code tools/ink_overlays.py} and meant to be painted over: see that directory's own README for
+	 * the format an artist has to keep.
+	 */
+	public static final int INK_STATES = 4;
+	public static final int OVERLAY_WIDTH = 320;
+	public static final int OVERLAY_HEIGHT = 180;
 
 	private InkArt() {}
 
-	/** Every file the ink needs: the chain, its two shaders and the LED's texture. */
+	/** The resource path of one overlay, as the post chain's {@code location} names it. */
+	public static String overlay(int state) {
+		return "textures/post/ink_" + state + ".png";
+	}
+
+	/** Every file the ink needs: the chain, its two shaders, the LED's texture and the four overlays. */
 	public static Map<String, byte[]> packFiles() {
 		Map<String, byte[]> files = new LinkedHashMap<>();
 		files.put("assets/minecraft/post_effect/" + POST_EFFECT + ".json", resource(POST_EFFECT + ".json"));
@@ -54,6 +68,8 @@ public final class InkArt {
 			files.put("assets/" + Rivals.MOD_ID + "/shaders/post/" + shader + ".fsh", resource(shader + ".fsh"));
 		}
 		files.put("assets/" + Rivals.MOD_ID + "/textures/item/" + LED_TEXTURE + ".png", led());
+		// The overlays ride in Polymer's copy of the mod's own assets already (addModAssets), so they are
+		// not added again here; naming them is what the pack test checks them through.
 		return files;
 	}
 

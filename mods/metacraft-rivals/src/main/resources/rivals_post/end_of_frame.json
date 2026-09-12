@@ -29,6 +29,34 @@
                 {
                     "sampler_name": "Probe",
                     "target": "rivals_ink_data"
+                },
+                {
+                    "sampler_name": "Ink1",
+                    "location": "metacraft-rivals:textures/post/ink_1.png",
+                    "width": 320,
+                    "height": 180,
+                    "bilinear": false
+                },
+                {
+                    "sampler_name": "Ink2",
+                    "location": "metacraft-rivals:textures/post/ink_2.png",
+                    "width": 320,
+                    "height": 180,
+                    "bilinear": false
+                },
+                {
+                    "sampler_name": "Ink3",
+                    "location": "metacraft-rivals:textures/post/ink_3.png",
+                    "width": 320,
+                    "height": 180,
+                    "bilinear": false
+                },
+                {
+                    "sampler_name": "Ink4",
+                    "location": "metacraft-rivals:textures/post/ink_4.png",
+                    "width": 320,
+                    "height": 180,
+                    "bilinear": false
                 }
             ],
             "output": "swap"
