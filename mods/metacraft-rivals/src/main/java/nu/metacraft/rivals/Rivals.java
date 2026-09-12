@@ -35,6 +35,7 @@ public class Rivals implements ModInitializer {
 		ScoreBars.init();
 		Recoil.init();
 		InkHud.init();
+		PlayerTick.init();
 		LOGGER.info("[{}] ready", MOD_ID);
 	}
 }

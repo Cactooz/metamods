@@ -30,6 +30,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import nu.metacraft.rivals.PaintColor;
+import nu.metacraft.rivals.PlayerTick;
 import nu.metacraft.rivals.Rivals;
 import org.jspecify.annotations.Nullable;
 
@@ -96,9 +97,9 @@ public final class PaintGun extends Item implements PolymerItem {
 		if (player instanceof ServerPlayer serverPlayer && serverPlayer.connection != null) serverPlayer.sendSystemMessage(text, true);
 	}
 
-	/** Task 8 turns this into the squid-form check; until then nobody is a squid. */
+	/** Squid form (sneaking on own paint) can't shoot. */
 	public static boolean isSquid(Player player) {
-		return false;
+		return PlayerTick.isSquid(player);
 	}
 
 	/** Throw one paint ball from the shooter's eyes along their view. */

@@ -14,6 +14,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
@@ -29,6 +30,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.PaintColor;
+import nu.metacraft.rivals.PlayerTick;
 import nu.metacraft.rivals.Rivals;
 import nu.metacraft.rivals.RivalsCommands;
 import nu.metacraft.rivals.gun.PaintBall;
@@ -519,6 +521,29 @@ public final class RivalsGameTests {
 		helper.assertTrue(half.chars().filter(c -> c == '\u2588').count() == 5 && half.chars().filter(c -> c == '\u2591').count() == 5, "half bar: " + half);
 		helper.assertTrue(InkHud.bar(PaintColor.LIME, 0, true, false).getString().contains("REFILLING"), "refilling text");
 		helper.assertTrue(InkHud.bar(PaintColor.LIME, 5, false, true).getString().contains("SQUID"), "squid tag");
+		helper.succeed();
+	}
+
+	/** Sneaking on own paint is squid form (invisible, fast, no shooting); standing on enemy paint slows. */
+	@GameTest
+	public void squidFormAndEnemySlowness(GameTestHelper helper) {
+		helper.setBlock(new BlockPos(4, 2, 4), Blocks.STONE);
+		Player player = gunner(helper); // stands at relative (4, 3, 4), i.e. in the cell above that stone
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.MAGENTA);
+		helper.assertTrue(PlayerTick.paintUnder(player) == PaintColor.MAGENTA, "own paint under the player");
+		player.setShiftKeyDown(true);
+		PlayerTick.tick(player, 0);
+		helper.assertTrue(PlayerTick.isSquid(player), "squid form on");
+		helper.assertTrue(player.hasEffect(MobEffects.INVISIBILITY) && player.hasEffect(MobEffects.SPEED), "invisible and fast");
+		InteractionResult shot = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(shot == InteractionResult.FAIL, "no shooting as a squid");
+		player.setShiftKeyDown(false);
+		PlayerTick.tick(player, 1);
+		helper.assertTrue(!PlayerTick.isSquid(player), "squid form off when not sneaking");
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.LIME);
+		PlayerTick.tick(player, 2);
+		helper.assertTrue(player.hasEffect(MobEffects.SLOWNESS), "enemy paint slows");
 		helper.succeed();
 	}
 }
