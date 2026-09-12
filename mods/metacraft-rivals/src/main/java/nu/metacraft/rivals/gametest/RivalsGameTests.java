@@ -1455,10 +1455,16 @@ public final class RivalsGameTests {
 	 * alpha as hard coverage rather than a soft edge, more ink as the state climbs, ink against every
 	 * edge because that is where a faceful lands, and the middle of the screen left clear in every one of
 	 * them, because that is where the player is aiming.
+	 *
+	 * <p>And the states are cumulative: every texel of state N−1 is ink in state N as well. The states
+	 * are quarters of the health the player has lost, so they are walked up and down as the fight goes,
+	 * and ink that vanished from a corner on the way up would read as the screen being wiped clean at the
+	 * exact moment the player is being hurt.
 	 */
 	@GameTest
 	public void theInkOverlaysAreDrawnToTheArtistsFormat(GameTestHelper helper) throws IOException {
 		int[] covered = new int[InkArt.INK_STATES + 1];
+		boolean[] before = null;
 		for (int state = 1; state <= InkArt.INK_STATES; state++) {
 			String path = "/assets/" + Rivals.MOD_ID + "/" + InkArt.overlay(state);
 			BufferedImage image;
@@ -1470,6 +1476,7 @@ public final class RivalsGameTests {
 			helper.assertValueEqual(image.getHeight(), InkArt.OVERLAY_HEIGHT, "overlay " + state + " height");
 			helper.assertTrue(image.getColorModel().hasAlpha(), "overlay " + state + " carries alpha");
 			int wet = 0;
+			boolean[] ink = new boolean[image.getWidth() * image.getHeight()];
 			for (int y = 0; y < image.getHeight(); y++) {
 				for (int x = 0; x < image.getWidth(); x++) {
 					int alpha = image.getRGB(x, y) >>> 24;
@@ -1477,9 +1484,21 @@ public final class RivalsGameTests {
 					// rather than soft.
 					helper.assertTrue(alpha == 0 || alpha == 255,
 							"overlay " + state + " alpha at " + x + "," + y + " is " + alpha + ", not 0 or 255");
-					if (alpha == 255) wet++;
+					if (alpha != 255) continue;
+					wet++;
+					ink[y * image.getWidth() + x] = true;
 				}
 			}
+			if (before != null) {
+				for (int y = 0; y < image.getHeight(); y++) {
+					for (int x = 0; x < image.getWidth(); x++) {
+						int at = y * image.getWidth() + x;
+						helper.assertTrue(ink[at] || !before[at], "overlay " + state + " lost the texel at " + x + ","
+								+ y + " that overlay " + (state - 1) + " had: the states build up, they are not redrawn");
+					}
+				}
+			}
+			before = ink;
 			covered[state] = wet;
 			helper.assertValueEqual(image.getRGB(image.getWidth() / 2, image.getHeight() / 2) >>> 24, 0,
 					"overlay " + state + " leaves the middle of the screen clear");

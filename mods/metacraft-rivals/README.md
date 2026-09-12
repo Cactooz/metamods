@@ -332,6 +332,15 @@ dedicated Rivals server wants.
   changes. The format is written out in `textures/effect/README.md`, and `tools/ink_overlays.py` (Pillow)
   drew the placeholders that are checked in.
 
+  The drawing is **blobs, not a frame**: seventeen round splats, each a body disc with lobes thrown onto
+  its rim and drips hanging off its lowest edge, fused with a metaball threshold so a splat reads as one
+  fat drop rather than a cluster of circles, and every body centred on or past the border so the ink
+  reads as thrown at the glass. The states are **cumulative** — five splats in state 1, four more in each
+  of 2, 3 and 4, and every splat already on screen grows by a quarter per later state — so state N
+  contains every texel of state N−1 and ink never flickers off a corner while the player is being hurt.
+  A game test asserts that, and it is a requirement for a hand-drawn replacement too. Coverage runs about
+  16% / 35% / 52% / 69%.
+
   Known limits: no weapon in view means no ink, so third
   person and an empty hand show a clean screen however full the meter is (the meter keeps running, and
   the ink comes back with the weapon); the pass runs every frame whether there is ink or not (two
