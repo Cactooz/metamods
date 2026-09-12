@@ -49,8 +49,8 @@ Rivals server wants.
   vanilla element model by `tools/obj2mc.py` (stdlib + Pillow): voxelise the mesh, greedy-merge
   same-colour voxels into boxes, quantise colours to a palette texture. Rerun it after touching
   the source mesh; pass `--flip` if the muzzle ends up pointing backwards. The model's in-hand
-  `display` transforms (first and third person) were tuned against in-game screenshots on
-  2026-09-12. Re-render the design sheet after editing the model — it reads its colours straight
+  `display` transforms (first and third person) were checked against in-game screenshots on
+  2026-09-12; the converter's neutral values are the ones that look right. Re-render the design sheet after editing the model — it reads its colours straight
   from the palette PNG the model references, so it never drifts from the JSON:
   `python3 mods/metacraft-rivals/tools/gun_sheet.py <model.json> <out.svg>`.
 - Ink: the gun holds 40 shots, tracked in the stack's own data so it survives item moves. Each

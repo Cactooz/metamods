@@ -31,8 +31,9 @@ Units are 1/16 block. v2's frame has Y up, the barrel running along -Z, and the 
 centred on (8, 8, 8); it comes out of `tools/obj2mc.py`'s voxelisation of the Kenney mesh,
 rather than from copying a vanilla item's frame.
 
-The in-hand `display` transforms were tuned by eye against in-game screenshots rather than
-copied from vanilla: yaw 90 degrees about Y, first-person scale 0.45, third-person scale 0.55.
+The in-hand `display` transforms were checked against in-game screenshots: the converter's
+neutral values (no rotation, scale 0.6, first person translated by 1, 2, 1 and third person by
+0, 3, 1) turned out right in both views, so they stay.
 
 The table below documents v1's handheld-sword frame, kept here for history:
 
