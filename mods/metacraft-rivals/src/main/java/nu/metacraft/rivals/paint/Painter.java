@@ -2,7 +2,8 @@ package nu.metacraft.rivals.paint;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.particles.DustParticleOptions;
+import net.minecraft.core.particles.BlockParticleOption;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
@@ -19,6 +20,9 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
 import nu.metacraft.rivals.PaintColor;
 import org.jspecify.annotations.Nullable;
+
+import java.util.EnumMap;
+import java.util.Map;
 
 /**
  * Where a hit puts paint. The struck block is the surface; a full face takes a paint block in the cell
@@ -129,20 +133,41 @@ public final class Painter {
 	public static final double LINE_STEP = 0.5;
 	public static final double LINE_DROP = 6.0;
 	/**
-	 * How far along the shot the trail's dust starts. The line is drawn from the shooter's eyes, so dust
-	 * from the first blocks of it lands inside their own camera and greys out the shot they are aiming.
-	 * The paint under the line still starts at the eyes; only the dust is held back.
+	 * How far along the shot the trail's crumbs start. The line is drawn from the shooter's eyes, so ink
+	 * from the first blocks of it lands inside their own camera and hides the shot they are aiming.
+	 * The paint under the line still starts at the eyes; only the crumbs are held back.
 	 */
 	public static final double LINE_DUST_START = 1.5;
 
+	/** One crumb option per colour: the state never changes, so neither does the option. */
+	private static final Map<PaintColor, BlockParticleOption> CRUMBS = new EnumMap<>(PaintColor.class);
+
 	/**
-	 * The charger's trail: dust along the segment, and under every whole block position it passes
+	 * The particle every ink burst in the module is made of: vanilla's block-break crumb, carrying one
+	 * of our own paint client states. Redstone dust reads as dust — a fine grey-red haze that drifts —
+	 * and never looked like ink; a block crumb is a chunky lump that arcs and falls, which is what a
+	 * thrown liquid does.
+	 *
+	 * <p>The state is the down-plus-up splat mask, which is always a multiface donor (sculk vein for
+	 * DATA, resin clump for IT). That matters: the client resolves the crumb's sprite from the state's
+	 * model {@code particle} texture, which the pack points at that colour's {@code paint_<id>_15}
+	 * tile, so the crumbs come out in the team colour. A redstone-wire-backed state would have gone
+	 * through vanilla's {@code BlockColors} provider instead and come out tinted dark red whatever the
+	 * texture said.
+	 */
+	public static BlockParticleOption crumbs(PaintColor color) {
+		return CRUMBS.computeIfAbsent(color, c -> new BlockParticleOption(ParticleTypes.BLOCK,
+				PaintStates.splat(c, 1 << Direction.DOWN.ordinal() | 1 << Direction.UP.ordinal())));
+	}
+
+	/**
+	 * The charger's trail: crumbs along the segment, and under every whole block position it passes
 	 * through a look straight down for up to {@link #LINE_DROP} blocks, painting the face it lands on.
 	 * That is what makes a charger shot read as a line drawn on the floor rather than as a single splat
 	 * at the far end. Returns how many cells changed.
 	 */
 	public static int line(ServerLevel level, Vec3 from, Vec3 to, PaintColor color, @Nullable Entity source) {
-		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.2f);
+		BlockParticleOption dust = crumbs(color);
 		double length = from.distanceTo(to);
 		int steps = (int) Math.ceil(length / LINE_STEP);
 		int changed = 0;
@@ -210,11 +235,13 @@ public final class Painter {
 		// throw the same twenty-four grains as a slosher's bucketful, which up close is a wall of dust
 		// in front of the shooter; a single face now gets four small ones and no ray dust at all.
 		int weight = Math.max(0, Math.min(2, radius));
-		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.0f + 0.2f * weight);
+		BlockParticleOption dust = crumbs(color);
+		// Half what the dust counts were: a crumb is a great deal bigger than a grain of dust, and the
+		// old numbers in crumbs are a wall of ink in front of the shooter.
 		int perRay = switch (weight) {
 			case 0 -> 0;
-			case 1 -> 2;
-			default -> 3;
+			case 1 -> 1;
+			default -> 2;
 		};
 		for (Vec3 ray : RAY_DIRECTIONS) {
 			if (ray.dot(normal) < 0) continue;
@@ -226,7 +253,7 @@ public final class Painter {
 			Vec3 at = hit.getLocation();
 			level.sendParticles(dust, at.x, at.y, at.z, perRay, 0.1, 0.1, 0.1, 0.01);
 		}
-		int burst = 4 + 6 * weight;
+		int burst = 3 + 3 * weight;
 		double spread = 0.15 + 0.1 * weight;
 		level.sendParticles(dust, impact.x, impact.y, impact.z, burst, spread, spread, spread, 0.02);
 		level.playSound(null, impact.x, impact.y, impact.z, SoundEvents.SLIME_BLOCK_HIT, SoundSource.BLOCKS, 0.8f, 1.3f);

@@ -4,11 +4,11 @@ import eu.pb4.polymer.core.api.item.PolymerItem;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.BlockParticleOption;
 import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
-import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -300,14 +300,14 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		Vec3 look = shooter.getLookAngle();
 		shooter.push(-look.x * 0.06, 0, -look.z * 0.06);
 		shooter.hurtMarked = true;
-		// The full burst is for everyone else. Ten grains of dust at the shooter's own eyes hang in front
-		// of their camera for the whole of a held trigger and clog the first-person view, so the shooter
-		// gets three small ones at the barrel tip instead — off the centre of the screen, where a muzzle is.
+		// The full burst is for everyone else. Ink crumbs at the shooter's own eyes hang in front of their
+		// camera for the whole of a held trigger and clog the first-person view, so the shooter gets a
+		// couple at the barrel tip instead — off the centre of the screen, where a muzzle is.
 		Vec3 muzzle = shooter.getEyePosition().add(look.scale(MUZZLE_REACH));
-		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.2f);
+		BlockParticleOption dust = Painter.crumbs(color);
 		for (ServerPlayer viewer : level.players()) {
 			if (viewer == shooter || viewer.position().distanceToSqr(muzzle) > MUZZLE_RANGE * MUZZLE_RANGE) continue;
-			level.sendParticles(viewer, dust, false, false, muzzle.x, muzzle.y, muzzle.z, 10, 0.1, 0.1, 0.1, 0.02);
+			level.sendParticles(viewer, dust, false, false, muzzle.x, muzzle.y, muzzle.z, 5, 0.1, 0.1, 0.1, 0.02);
 		}
 		if (shooter instanceof ServerPlayer self) {
 			Vec3 across = look.cross(UP);
@@ -316,8 +316,8 @@ public final class PaintWeapon extends Item implements PolymerItem {
 					.add(look.scale(BARREL_REACH))
 					.add(right.scale(BARREL_RIGHT))
 					.subtract(UP.scale(BARREL_DROP));
-			level.sendParticles(self, new DustParticleOptions(color.rgb, 0.8f), false, false,
-					barrel.x, barrel.y, barrel.z, 3, 0.05, 0.05, 0.05, 0.0);
+			level.sendParticles(self, dust, false, false,
+					barrel.x, barrel.y, barrel.z, 2, 0.05, 0.05, 0.05, 0.0);
 		}
 		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SNOWBALL_THROW, SoundSource.PLAYERS, 0.7f, 0.7f);
 		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SLIME_BLOCK_PLACE, SoundSource.PLAYERS, 0.5f, 1.4f);

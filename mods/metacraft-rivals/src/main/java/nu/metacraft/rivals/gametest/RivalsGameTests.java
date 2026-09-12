@@ -10,6 +10,8 @@ import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.ChatFormatting;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.particles.BlockParticleOption;
+import net.minecraft.core.particles.ParticleTypes;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
@@ -857,8 +859,8 @@ public final class RivalsGameTests {
 	public void squidSwimLeavesRipples(GameTestHelper helper) {
 		Player player = gunner(helper);
 		ServerLevel level = helper.getLevel();
-		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.2, 0, 0)), 3, "swimming east leaves a wake");
-		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.IT, new Vec3(0, 0, -0.2)), 3, "swimming north too");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.2, 0, 0)), 2, "swimming east leaves a wake");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.IT, new Vec3(0, 0, -0.2)), 2, "swimming north too");
 		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, Vec3.ZERO), 0, "a still squid leaves nothing");
 		// Only horizontal movement counts: falling is not swimming, and a crawl under the threshold is
 		// the squid holding position rather than moving.
@@ -1472,6 +1474,29 @@ public final class RivalsGameTests {
 	/** The box the client would draw round a targeted cell holding this client state. */
 	private static AABB outline(BlockState client) {
 		return client.getShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO).bounds();
+	}
+
+	/**
+	 * Every ink burst in the module is made of block crumbs carrying a paint client state, so the client
+	 * pulls the sprite off that state's model {@code particle} texture and the crumbs come out in the
+	 * team colour. The state has to be one of ours and it has to be multiface: a redstone-wire-backed
+	 * state would go through vanilla's colour provider and come out dark red instead.
+	 */
+	@GameTest
+	public void inkCrumbsWearTheTeamColour(GameTestHelper helper) {
+		Set<BlockState> paintStates = new HashSet<>(PaintStates.all());
+		Set<BlockState> seen = new HashSet<>();
+		for (PaintColor color : PaintColor.values()) {
+			BlockParticleOption crumbs = Painter.crumbs(color);
+			helper.assertValueEqual(crumbs.getType(), ParticleTypes.BLOCK, "a block-break crumb for " + color);
+			BlockState state = crumbs.getState();
+			helper.assertTrue(paintStates.contains(state), color + " crumbs carry one of our client states, not " + state);
+			helper.assertTrue(state.getBlock() instanceof MultifaceBlock, color + " crumbs carry an untinted multiface state, not " + state);
+			helper.assertValueEqual(PaintStates.entry(state).color(), color, "and it is that colour's own state");
+			helper.assertTrue(seen.add(state), "each colour has its own crumb state");
+			helper.assertValueEqual(Painter.crumbs(color), crumbs, "cached per colour");
+		}
+		helper.succeed();
 	}
 
 	/** Spec §4: floor then wall in the same air cell → the multiface fallback with both faces. */

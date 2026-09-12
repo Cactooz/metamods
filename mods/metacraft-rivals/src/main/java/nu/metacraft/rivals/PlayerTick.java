@@ -6,7 +6,6 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
-import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -75,8 +74,8 @@ public final class PlayerTick {
 
 	/** Below this many blocks per tick of horizontal movement a squid is holding still, not swimming. */
 	private static final double RIPPLE_SPEED = 0.05;
-	/** Ink specks per swimming tick. */
-	private static final int RIPPLE_PARTICLES = 3;
+	/** Ink crumbs per swimming tick. */
+	private static final int RIPPLE_PARTICLES = 2;
 	/** Ticks between two swim notes. */
 	private static final int SWIM_SOUND_EVERY = 6;
 	/** Specks thrown in a ring on the dive, and how far out they land. */
@@ -260,8 +259,9 @@ public final class PlayerTick {
 	 */
 	public static int ripples(ServerLevel level, Player player, PaintColor color, Vec3 velocity) {
 		if (velocity.horizontalDistance() <= RIPPLE_SPEED) return 0;
-		level.sendParticles(new DustParticleOptions(color.rgb, 1.0f), player.getX(), player.getY() + 0.05,
-				player.getZ(), RIPPLE_PARTICLES, 0.35, 0.02, 0.35, 0.0);
+		// A little upward speed so the crumbs hop out of the ink and fall back rather than sitting on it.
+		level.sendParticles(Painter.crumbs(color), player.getX(), player.getY() + 0.05,
+				player.getZ(), RIPPLE_PARTICLES, 0.35, 0.02, 0.35, 0.05);
 		return RIPPLE_PARTICLES;
 	}
 
@@ -283,7 +283,7 @@ public final class PlayerTick {
 			PaintColor.byTeam(player.getTeam()).ifPresent(color -> {
 				for (int i = 0; i < DIVE_RING_PARTICLES; i++) {
 					double angle = i * 2.0 * Math.PI / DIVE_RING_PARTICLES;
-					level.sendParticles(new DustParticleOptions(color.rgb, 1.0f),
+					level.sendParticles(Painter.crumbs(color),
 							player.getX() + Math.cos(angle) * DIVE_RING_RADIUS, player.getY() + 0.05,
 							player.getZ() + Math.sin(angle) * DIVE_RING_RADIUS, 1, 0.0, 0.0, 0.0, 0.0);
 				}

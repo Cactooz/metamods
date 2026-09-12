@@ -48,7 +48,15 @@ dedicated Rivals server wants.
   state that has a face, which would make paint glow. The v1 caveat still applies, now for four
   blocks instead of one: real sculk veins, resin clumps, tripwire and redstone dust a player places
   in an arena render as paint too.
-- A swimming squid leaves a wake: a few specks of its own ink at its feet on every tick it is
+- Every ink burst — muzzle flash, impact splash, the rays off it, the charger's trail, a squid's wake
+  — is made of vanilla's block-break crumbs carrying one of the paint client states, not redstone
+  dust. Dust reads as a drifting grey-red haze; a crumb is a lump that arcs and falls, which is what
+  thrown liquid does. The state is always a multiface one (sculk vein for DATA, resin clump for IT):
+  the client takes the sprite from that state's model `particle` texture, which the pack points at the
+  team's paint tile, and a redstone-wire-backed state would have been tinted dark red by vanilla's own
+  colour provider instead. Crumbs are much bigger than grains, so every burst count is about half what
+  the dust counts were.
+- A swimming squid leaves a wake: a few crumbs of its own ink at its feet on every tick it is
   actually moving (measured between ticks, because a real player's server-side delta is zero most
   ticks), a soft swim note every sixth such tick, and a ring of specks thrown outwards on the dive. A
   squid holding still leaves nothing, so the trail reads as movement rather than as a marker saying
