@@ -1173,7 +1173,9 @@ public final class RivalsGameTests {
 		player.setDeltaMovement(0.0, -0.05, 0.0);
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(PlayerTick.isSquid(player), "squid form holds beside a wall with no floor paint");
-		helper.assertTrue(player.getDeltaMovement().y >= 0.0, "clings instead of sliding down, dy=" + player.getDeltaMovement().y);
+		// The cling is gravity switched off, not a velocity packet: nothing touches the player's motion.
+		assertClinging(helper, player, "beside the wall");
+		helper.assertValueEqual(player.getDeltaMovement().y, -0.05, "the cling leaves the player's own motion alone");
 		// A squid's box is half as wide, so hugging the same wall puts its centre closer to it.
 		Vec3 hug = helper.absoluteVec(new Vec3(3.85, 2.0, 2.5));
 		player.setPos(hug.x, hug.y, hug.z);
@@ -1183,6 +1185,50 @@ public final class RivalsGameTests {
 		helper.assertTrue(PlayerTick.isSquid(player), "still squid while pushing into the wall");
 		double dy = player.getDeltaMovement().y;
 		helper.assertTrue(dy > 0.35 && dy < 0.5, "climbs the wall at the wall-swim speed, dy=" + dy);
+		helper.assertTrue(!player.getAttribute(Attributes.GRAVITY).hasModifier(SquidState.CLING_ID),
+				"a climbing squid is not clinging");
+		helper.succeed();
+	}
+
+	/** A squid held on a wall by gravity alone: the modifier is on and the attribute is exactly zero. */
+	private static void assertClinging(GameTestHelper helper, Player player, String what) {
+		AttributeInstance gravity = player.getAttribute(Attributes.GRAVITY);
+		helper.assertTrue(gravity != null && gravity.hasModifier(SquidState.CLING_ID), what + ": clinging by gravity");
+		helper.assertValueEqual(gravity.getValue(), 0.0, what + ": gravity is off");
+	}
+
+	/**
+	 * A squid that jumps off an inked wall keeps its momentum. The cling used to be a velocity packet
+	 * built from the server's own delta, sent every tick a wall was beside the squid, which overwrote
+	 * the client's real motion — the jump impulse included. Now: no packet at all while the measured
+	 * movement is already a jump, and no cling modifier to hold the arc down either.
+	 */
+	@GameTest
+	public void squidJumpKeepsMomentum(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.STONE);
+		ServerPlayer player = wallSquid(helper, PaintColor.DATA);
+		Vec3 at = helper.absoluteVec(new Vec3(3.7, 2.0, 2.5));
+		player.setPos(at.x, at.y, at.z);
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 2)), Direction.WEST, PaintColor.DATA);
+		player.setShiftKeyDown(true);
+		player.setYRot(-90f); // forward is +X, into the wall
+		player.setLastClientInput(PUSHING);
+		PlayerTick.tick(player, 0); // squid, and the tick that records where the player is
+		helper.assertTrue(PlayerTick.isSquid(player), "squid beside the inked wall");
+		// A jump: 0.3 blocks along the wall and 0.75 up since the last tick — a squid's own hop, which is
+		// what the client actually did and what the server can only see by measuring.
+		Vec3 jumped = at.add(0.0, 0.75, 0.3);
+		player.setPos(jumped.x, jumped.y, jumped.z);
+		player.setDeltaMovement(Vec3.ZERO);
+		player.syncVelocity = false;
+		int syncs = PlayerTick.velocitySyncs();
+		PlayerTick.tick(player, 1);
+		helper.assertValueEqual(PlayerTick.velocitySyncs(), syncs, "a jumping squid gets no velocity packet");
+		helper.assertTrue(!player.syncVelocity, "nothing queued a velocity sync this tick");
+		helper.assertValueEqual(player.getDeltaMovement(), Vec3.ZERO, "and the player's own motion is untouched");
+		helper.assertTrue(!player.getAttribute(Attributes.GRAVITY).hasModifier(SquidState.CLING_ID),
+				"no cling while the squid is on its way up");
 		helper.succeed();
 	}
 
@@ -1217,24 +1263,30 @@ public final class RivalsGameTests {
 		// A squid's box is half as wide, so hugging the wall puts its centre closer to it.
 		Vec3 higher = helper.absoluteVec(new Vec3(2.5, 3.0, 2.15));
 		player.setPos(higher.x, higher.y, higher.z);
-		player.setDeltaMovement(0, -0.08, 0);
+		// Teleporting the player a whole block up reads, quite correctly, as a jump: the climb never
+		// sends a packet over someone already rising faster than it would push them. One tick lets the
+		// measurement settle at the new spot, and the tick after that is the climb this is about.
 		PlayerTick.tick(player, 1);
+		player.setDeltaMovement(0, -0.08, 0);
+		PlayerTick.tick(player, 2);
 		double second = player.getDeltaMovement().y;
 		helper.assertTrue(second > 0.35 && second < 0.5, "still lifted a block higher up the wall, dy=" + second);
 		// Off the keys: the squid clings where it is rather than climbing on by itself.
 		player.setLastClientInput(Input.EMPTY);
 		player.setDeltaMovement(0, -0.08, 0);
-		PlayerTick.tick(player, 2);
+		int syncs = PlayerTick.velocitySyncs();
+		PlayerTick.tick(player, 3);
 		helper.assertTrue(PlayerTick.isSquid(player), "squid form holds while clinging");
-		double clinging = player.getDeltaMovement().y;
-		helper.assertTrue(clinging >= 0.0 && clinging < 0.35, "clings without climbing, dy=" + clinging);
+		assertClinging(helper, player, "off the keys");
+		helper.assertValueEqual(PlayerTick.velocitySyncs(), syncs, "a cling sends no velocity packet");
+		helper.assertValueEqual(player.getDeltaMovement().y, -0.08, "and leaves the player's own motion alone");
 		// Facing away from the wall is not a climb either, however hard the player pushes.
 		player.setYRot(0f); // forward is +Z, away from the wall
 		player.setLastClientInput(PUSHING);
 		player.setDeltaMovement(0, -0.08, 0);
-		PlayerTick.tick(player, 3);
-		double away = player.getDeltaMovement().y;
-		helper.assertTrue(away >= 0.0 && away < 0.35, "pushing away from the wall does not climb it, dy=" + away);
+		PlayerTick.tick(player, 4);
+		assertClinging(helper, player, "pushing away from the wall");
+		helper.assertValueEqual(PlayerTick.velocitySyncs(), syncs, "still no velocity packet");
 		helper.succeed();
 	}
 

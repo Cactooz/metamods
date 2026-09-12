@@ -43,6 +43,9 @@ import java.util.UUID;
  * shoot. Squid form also holds — it does not require paint under the feet — while the player is
  * beside a wall inked in their own colour: pushing into that wall climbs it, and easing off clings
  * to it instead of sliding back down, so a climb off the floor paint never drops the player mid-wall.
+ * The cling is gravity switched off by attribute rather than a velocity packet, and the climb's packet
+ * carries the movement the player was measured making, so a squid that jumps keeps its momentum
+ * instead of having it overwritten by the server's stale idea of where it was going.
  * The size and speed come from {@link SquidState}'s attribute modifiers rather than potion effects,
  * so they are exact and do not show up in the client's effect list; only invisibility is still a
  * potion effect, because there is no attribute for it. Entering squid form from a stand is a dive: a
@@ -68,6 +71,14 @@ public final class PlayerTick {
 	private static final double WALL_SWIM_SPEED = 0.42;
 	/** How far the player's box may sit off a wall's plane and still count as pressed against it. */
 	private static final double WALL_REACH = 0.15;
+	/**
+	 * How much faster than the climb a rise has to be before it is read as the player's own jump rather
+	 * than as the climb the server itself asked for. A steady climb measures almost exactly
+	 * {@link #WALL_SWIM_SPEED} every tick — with the odd floating-point crumb either side of it — so a
+	 * bare {@code >=} would drop every other climb packet; a squid's jump leaves the ground at about
+	 * 0.75, which clears this comfortably.
+	 */
+	private static final double JUMP_MARGIN = 0.1;
 	/** Horizontal nudge over the lip on the tick the climbed wall runs out above the player's head. */
 	private static final double LEDGE_HOP = 0.25;
 	/** Horizontal push, along the look direction, on the tick squid form is entered. */
@@ -92,6 +103,18 @@ public final class PlayerTick {
 	private static final Map<UUID, Long> LAST_DIVE = new HashMap<>();
 	/** Where each squid was last tick, because a real player's server-side delta is not its speed. */
 	private static final Map<UUID, Vec3> LAST_POS = new HashMap<>();
+
+	/**
+	 * How many velocity packets the squid loop has asked for, ever. Only a test reads it: a packet is
+	 * queued by setting {@code syncVelocity} and sent by vanilla later in the tick, so there is nothing
+	 * else a server-side test can count.
+	 */
+	private static int velocitySyncs = 0;
+
+	/** How many velocity packets the squid loop has asked for. Read by the tests; see the field. */
+	public static int velocitySyncs() {
+		return velocitySyncs;
+	}
 
 	private PlayerTick() {}
 
@@ -197,24 +220,26 @@ public final class PlayerTick {
 			SquidState.enter(player);
 			if (!wasSquid) diveSurge(player, now);
 			keep(player, MobEffects.INVISIBILITY, 0);
-			wake(player, own.get(), now);
-			// Swimming up a wall is a shove, not an attribute: set the velocity directly and mark the
-			// movement dirty so the server tells the client about it this tick. Pushing into the wall
-			// climbs it; otherwise the squid clings rather than sliding back down.
+			// How far the player actually moved since last tick. Measured, not read off
+			// getDeltaMovement(): for a real player the server's delta is not the client's motion, and
+			// both the wake and the climb packet are built from this.
+			Vec3 moved = measure(player);
+			wake(player, own.get(), moved, now);
 			if (wallBeside) {
-				Vec3 velocity = player.getDeltaMovement();
 				Direction climbing = paintedWallToward(player, own.get(), moveIntent(player));
 				if (climbing != null) {
-					// Nothing left to press into above the head means the wall has run out: a small push
-					// over the lip, or the squid hangs at the top of the climb instead of topping out.
-					double lip = topsOut(player, climbing) ? LEDGE_HOP : 0.0;
-					player.setDeltaMovement(velocity.x + climbing.getStepX() * lip, WALL_SWIM_SPEED,
-							velocity.z + climbing.getStepZ() * lip);
+					SquidState.clearCling(player);
+					climb(player, climbing, moved);
+				} else if (moved.y > 0.0) {
+					// On the way up — a jump off the wall. Clinging here would switch gravity off at the
+					// top of the impulse and leave the squid rising forever; let the arc finish.
+					SquidState.clearCling(player);
 				} else {
-					player.setDeltaMovement(velocity.x, Math.max(velocity.y, 0.0), velocity.z);
+					SquidState.applyCling(player);
 				}
-				player.syncVelocity = true;
 				player.resetFallDistance();
+			} else {
+				SquidState.clearCling(player);
 			}
 		} else {
 			SquidState.exit(player);
@@ -266,17 +291,47 @@ public final class PlayerTick {
 	}
 
 	/**
-	 * The swimming squid's wake, once a tick. The speed is measured between this tick's position and
-	 * last tick's rather than read off {@code getDeltaMovement()}: for a real player the server's delta
-	 * comes from the move packets and is zero most ticks, so a squid that is plainly moving would leave
-	 * nothing. The first tick of a swim has no previous position and so leaves nothing either, which is
-	 * a tick, not a problem.
+	 * How far the player moved since the last tick, and remember where they are now.
+	 *
+	 * <p>The one honest number a server-side tick has about a real player's motion: the server's own
+	 * {@code getDeltaMovement()} is a guess reconstructed from move packets, while two consecutive
+	 * positions are what the client did. The first tick of a swim has no previous position and so
+	 * measures nothing, which is a tick, not a problem.
 	 */
-	private static void wake(Player player, PaintColor own, long now) {
-		if (!(player.level() instanceof ServerLevel level)) return;
+	private static Vec3 measure(Player player) {
 		Vec3 at = player.position();
 		Vec3 last = LAST_POS.put(player.getUUID(), at);
-		Vec3 moved = last == null ? Vec3.ZERO : at.subtract(last);
+		return last == null ? Vec3.ZERO : at.subtract(last);
+	}
+
+	/**
+	 * One tick of a wall climb: up at {@link #WALL_SWIM_SPEED}, keeping the horizontal momentum the
+	 * player already had.
+	 *
+	 * <p>This is the module's only velocity packet in the squid loop, and the horizontal part of it is
+	 * the <em>measured</em> movement rather than {@code getDeltaMovement()}: a packet built from the
+	 * server's stale guess overwrites whatever the client was really doing, which is how a jump used to
+	 * lose all its momentum. A player whose measured rise already matches the climb has jumped, and gets
+	 * no packet at all ({@link #JUMP_MARGIN}) — their own impulse is faster than anything this would
+	 * send them.
+	 */
+	private static void climb(Player player, Direction climbing, Vec3 moved) {
+		if (moved.y > WALL_SWIM_SPEED + JUMP_MARGIN) return;
+		// Nothing left to press into above the head means the wall has run out: a small push over the
+		// lip, or the squid hangs at the top of the climb instead of topping out.
+		double lip = topsOut(player, climbing) ? LEDGE_HOP : 0.0;
+		player.setDeltaMovement(moved.x + climbing.getStepX() * lip, WALL_SWIM_SPEED,
+				moved.z + climbing.getStepZ() * lip);
+		player.syncVelocity = true;
+		velocitySyncs++;
+	}
+
+	/**
+	 * The swimming squid's wake, once a tick, from the movement {@link #measure} took this tick.
+	 */
+	private static void wake(Player player, PaintColor own, Vec3 moved, long now) {
+		if (!(player.level() instanceof ServerLevel level)) return;
+		Vec3 at = player.position();
 		if (ripples(level, player, own, moved) > 0 && now % SWIM_SOUND_EVERY == 0) {
 			level.playSound(null, at.x, at.y, at.z, SoundEvents.PLAYER_SWIM, SoundSource.PLAYERS, 0.25f, 1.6f);
 		}
@@ -310,6 +365,7 @@ public final class PlayerTick {
 		Vec3 look = player.getLookAngle();
 		player.push(look.x * DIVE_SURGE_SPEED, 0, look.z * DIVE_SURGE_SPEED);
 		player.syncVelocity = true;
+		velocitySyncs++;
 		if (player.level() instanceof ServerLevel level) {
 			level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_SPLASH, SoundSource.PLAYERS, 0.4f, 1.5f);
 			// A ring of ink thrown outwards, so the dive lands with a splat rather than a shove.

@@ -49,6 +49,7 @@ public final class SquidState {
 	public static final Identifier SNEAK_ID = Rivals.id("squid/sneak");
 	public static final Identifier SAFE_FALL_ID = Rivals.id("squid/safe_fall");
 	public static final Identifier GRAVITY_ID = Rivals.id("squid/gravity");
+	public static final Identifier CLING_ID = Rivals.id("squid/cling");
 	public static final Identifier NO_JUMP_ID = Rivals.id("ink/no_jump");
 
 	private static final Set<UUID> SQUIDS = new HashSet<>();
@@ -101,6 +102,7 @@ public final class SquidState {
 		remove(player, Attributes.SNEAKING_SPEED, SNEAK_ID);
 		remove(player, Attributes.SAFE_FALL_DISTANCE, SAFE_FALL_ID);
 		remove(player, Attributes.GRAVITY, GRAVITY_ID);
+		remove(player, Attributes.GRAVITY, CLING_ID);
 	}
 
 	/** Every slot a squid shows other players: none of them, whatever it is really carrying. */
@@ -125,6 +127,28 @@ public final class SquidState {
 	private static void broadcast(Player player, List<Pair<EquipmentSlot, ItemStack>> slots) {
 		if (!(player.level() instanceof ServerLevel level)) return;
 		level.getChunkSource().sendToTrackingPlayers(player, new ClientboundSetEquipmentPacket(player.getId(), slots));
+	}
+
+	/**
+	 * Hang on the wall: gravity off, by attribute rather than by a velocity packet.
+	 *
+	 * <p>A clinging squid used to be held up by {@code setDeltaMovement} + a velocity packet every tick.
+	 * For a real player that is a lie the client has to swallow: the client owns its own motion, the
+	 * server's {@code getDeltaMovement()} is whatever the last move packets implied, and a packet built
+	 * from it every tick overwrote whatever the player was actually doing — including the jump impulse,
+	 * which is the bug that made a jump out of a wall cling lose all its momentum. Gravity is an
+	 * attribute the client honours for its own physics, so a −1.0 multiplier is a cling that needs no
+	 * packet at all: the squid stops falling and keeps every bit of speed it had.
+	 *
+	 * <p>Stacked on top of {@link #GRAVITY_ID}'s −0.15 float, and multiplicative, so the pair is exactly
+	 * zero gravity however they are ordered.
+	 */
+	public static void applyCling(Player player) {
+		modifier(player, Attributes.GRAVITY, CLING_ID, -1.0, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
+	}
+
+	public static void clearCling(Player player) {
+		remove(player, Attributes.GRAVITY, CLING_ID);
 	}
 
 	/** Standing in someone else's ink: no jumping out of it. */
