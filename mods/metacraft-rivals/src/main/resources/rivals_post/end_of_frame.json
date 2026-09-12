@@ -32,28 +32,28 @@
                 },
                 {
                     "sampler_name": "Ink1",
-                    "location": "metacraft-rivals:textures/post/ink_1.png",
+                    "location": "metacraft-rivals:ink_1",
                     "width": 320,
                     "height": 180,
                     "bilinear": false
                 },
                 {
                     "sampler_name": "Ink2",
-                    "location": "metacraft-rivals:textures/post/ink_2.png",
+                    "location": "metacraft-rivals:ink_2",
                     "width": 320,
                     "height": 180,
                     "bilinear": false
                 },
                 {
                     "sampler_name": "Ink3",
-                    "location": "metacraft-rivals:textures/post/ink_3.png",
+                    "location": "metacraft-rivals:ink_3",
                     "width": 320,
                     "height": 180,
                     "bilinear": false
                 },
                 {
                     "sampler_name": "Ink4",
-                    "location": "metacraft-rivals:textures/post/ink_4.png",
+                    "location": "metacraft-rivals:ink_4",
                     "width": 320,
                     "height": 180,
                     "bilinear": false

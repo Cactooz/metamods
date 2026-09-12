@@ -45,9 +45,16 @@ public final class InkArt {
 	public static final String INK_SHADER = "ink";
 	/**
 	 * How many overlay textures the ink is drawn from — one per quarter of the meter — and how big they
-	 * are. They are ordinary resources under {@code textures/post/}, drawn by
+	 * are. They are ordinary resources under {@code textures/effect/}, drawn by
 	 * {@code tools/ink_overlays.py} and meant to be painted over: see that directory's own README for
 	 * the format an artist has to keep.
+	 *
+	 * <p>{@code textures/effect/} is not a choice. A post chain's texture input carries a bare
+	 * {@code location}, and 26.3's {@code PostChain} resolves it as
+	 * {@code textures/effect/<path>.png} — so the JSON names the overlays {@code metacraft-rivals:ink_1},
+	 * with neither the directory nor the extension, and a {@code location} that spells either of them out
+	 * is looked for at {@code textures/effect/textures/post/ink_1.png.png} and quietly comes back as the
+	 * missing-texture checker.
 	 */
 	public static final int INK_STATES = 4;
 	public static final int OVERLAY_WIDTH = 320;
@@ -55,9 +62,17 @@ public final class InkArt {
 
 	private InkArt() {}
 
-	/** The resource path of one overlay, as the post chain's {@code location} names it. */
+	/** The resource path of one overlay inside the mod's assets, which is where the file has to sit. */
 	public static String overlay(int state) {
-		return "textures/post/ink_" + state + ".png";
+		return "textures/effect/ink_" + state + ".png";
+	}
+
+	/**
+	 * The same overlay as the post chain's {@code location} names it: no {@code textures/effect/} and no
+	 * {@code .png}, because {@code PostChain} puts both back on itself.
+	 */
+	public static String overlayLocation(int state) {
+		return Rivals.MOD_ID + ":ink_" + state;
 	}
 
 	/** Every file the ink needs: the chain, its two shaders, the LED's texture and the four overlays. */

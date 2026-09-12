@@ -3,6 +3,12 @@
 `ink_1.png` … `ink_4.png` are the ink that lands on a player's screen. They are ordinary textures:
 paint over them and the game uses what you painted. Nothing in the shader needs changing.
 
+They live in `textures/effect/` and nowhere else, and they keep these names. A post effect's texture
+input is written as a bare location — `end_of_frame.json` says `metacraft-rivals:ink_1` — and the
+client turns that into `textures/effect/ink_1.png` by itself. A file anywhere else, or a location that
+spells the directory out, is simply not found, and the screen fills with the magenta-and-black
+missing-texture checker instead.
+
 ## The format
 
 | | |

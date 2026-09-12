@@ -3,10 +3,13 @@
 
     python3 mods/metacraft-rivals/tools/ink_overlays.py
 
-Writes `src/main/resources/assets/metacraft-rivals/textures/post/ink_1.png` … `ink_4.png`.
+Writes `src/main/resources/assets/metacraft-rivals/textures/effect/ink_1.png` … `ink_4.png`.
+
+That directory is forced: a post chain's texture input names a bare location, and the client resolves
+it as `textures/effect/<path>.png`, so `end_of_frame.json` asks for `metacraft-rivals:ink_1`.
 
 These are PLACEHOLDERS, and they are checked in as ordinary resources so an artist can paint over
-them. The format they have to keep is in `textures/post/README.md`, and in short:
+them. The format they have to keep is in `textures/effect/README.md`, and in short:
 
     320 x 180 RGBA.  ALPHA is coverage and is 0 or 255, never anything between — the shader draws a
     hard pixel-art edge and a soft alpha would read as a blurred one.  RGB is a greyscale SHADING map,
@@ -32,7 +35,7 @@ import os
 from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-OUT = os.path.join(os.path.dirname(HERE), "src/main/resources/assets/metacraft-rivals/textures/post")
+OUT = os.path.join(os.path.dirname(HERE), "src/main/resources/assets/metacraft-rivals/textures/effect")
 
 WIDTH = 320
 HEIGHT = 180

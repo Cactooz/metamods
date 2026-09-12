@@ -1344,9 +1344,27 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(overlays.size(), InkArt.INK_STATES, "one overlay per quarter of the meter: " + overlays);
 		String chainText = new String(files.get(chainPath), StandardCharsets.UTF_8);
 		for (int state = 1; state <= InkArt.INK_STATES; state++) {
-			helper.assertTrue(chainText.contains(Rivals.MOD_ID + ":" + InkArt.overlay(state)),
-					"the chain binds " + InkArt.overlay(state));
+			// A texture input's location is bare: 26.3's PostChain resolves it as
+			// "textures/effect/" + path + ".png", so the chain names metacraft-rivals:ink_1 and the file
+			// sits at textures/effect/ink_1.png. A location with the directory or the extension in it asks
+			// for textures/effect/textures/post/ink_1.png.png, and a missing texture input is the
+			// magenta-and-black checker over the whole screen.
+			helper.assertTrue(chainText.contains(InkArt.overlayLocation(state)),
+					"the chain binds " + InkArt.overlayLocation(state));
+			String file = "/assets/" + Rivals.MOD_ID + "/" + InkArt.overlay(state);
+			try (InputStream in = Rivals.class.getResourceAsStream(file)) {
+				helper.assertTrue(in != null, "and the file the client will look for is there: " + file);
+			}
 			helper.assertTrue(ink.contains("Ink" + state + "Sampler"), "and the shader reads Ink" + state + "Sampler");
+		}
+		for (JsonElement input : inkPass.getAsJsonArray("inputs")) {
+			JsonObject json = input.getAsJsonObject();
+			if (!json.has("location")) continue;
+			String location = json.get("location").getAsString();
+			helper.assertTrue(!location.contains("textures/") && !location.endsWith(".png"),
+					"a texture input's location carries neither the directory nor the extension — PostChain "
+							+ "adds textures/effect/ and .png itself — but " + json.get("sampler_name").getAsString()
+							+ " asks for " + location);
 		}
 		// The four tones the overlay's greyscale is mapped onto, and the four states it picks between.
 		helper.assertTrue(ink.contains("TONE_SHADOW = 0.3") && ink.contains("TONE_BASE = 0.6")
@@ -1433,7 +1451,7 @@ public final class RivalsGameTests {
 
 	/**
 	 * The overlays themselves, which are ordinary resources an artist is meant to paint over. The format
-	 * is the contract in {@code textures/post/README.md}, and it is the shader's contract too: 320×180,
+	 * is the contract in {@code textures/effect/README.md}, and it is the shader's contract too: 320×180,
 	 * alpha as hard coverage rather than a soft edge, more ink as the state climbs, ink against every
 	 * edge because that is where a faceful lands, and the middle of the screen left clear in every one of
 	 * them, because that is where the player is aiming.
