@@ -18,7 +18,7 @@ layout(location = 0) out vec4 fragColor;
 // signed-distance blobs. Two flat tones and a procedural shape had no depth and did not read as pixel
 // art; a drawing does, and a drawing can be edited without touching a shader.
 //
-// The contract with the textures (see textures/post/README.md): 320x180 RGBA, alpha is coverage and is
+// The contract with the textures (see textures/effect/README.md): 320x180 RGBA, alpha is coverage and is
 // either 0 or 255, RGB is a greyscale SHADING map. This pass maps that luminance to four tones of the
 // team's colour with hard steps, so one drawing serves both teams, and samples at texel centres with no
 // filtering at all, so every texel comes out as a fat block of screen pixels — the texture is the pixel
