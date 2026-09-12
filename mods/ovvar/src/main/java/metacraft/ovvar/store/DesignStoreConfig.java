@@ -112,6 +112,12 @@ public record DesignStoreConfig(
 				sewWhenUnreachable, unpickWhenUnreachable, retrySeconds, logQueries);
 	}
 
+	/** The same settings with another {@code bind_on_pickup}. */
+	public DesignStoreConfig bindOnPickup(boolean value) {
+		return new DesignStoreConfig(backend, fileDirectory, jdbc, value, othersOvve, editRequiresOwner,
+				sewWhenUnreachable, unpickWhenUnreachable, retrySeconds, logQueries);
+	}
+
 	/** The same settings with another {@code edit_requires_owner}. */
 	public DesignStoreConfig editRequiresOwner(boolean value) {
 		return new DesignStoreConfig(backend, fileDirectory, jdbc, bindOnPickup, othersOvve, value,

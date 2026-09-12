@@ -462,6 +462,7 @@ public final class ModCommands {
 
 	private static int storeReconnect(CommandContext<CommandSourceStack> ctx) {
 		OvvarConfig.reload();
+		Motd.apply(ctx.getSource().getServer());   // server.name or the server's mode may have changed with it
 		Wardrobes.open(ctx.getSource().getServer(), OvvarConfig.get().designs());
 		for (ServerPlayer online : ctx.getSource().getServer().getPlayerList().getPlayers()) Wardrobes.fetch(online.getUUID());
 		ctx.getSource().sendSuccess(() -> Component.literal(Wardrobes.status()), true);

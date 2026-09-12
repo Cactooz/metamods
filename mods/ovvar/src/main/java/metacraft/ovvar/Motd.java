@@ -1,22 +1,32 @@
 package metacraft.ovvar;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.minecraft.server.MinecraftServer;
 
 /**
  * The MOTD every server announces itself with: which server this is and whether ovvar sewing works
- * here. Set once the server is up ({@link net.minecraft.server.MinecraftServer#setMotd}, which the
- * status answered to a ping is rebuilt from), so a player reads in the server list what they get
- * before joining — a survival server sews, a minigame server only shows the stash.
+ * here. Set once the server is up and again whenever the config is re-read ({@code /ovvar store
+ * reconnect}), so a player reads in the server list what they get before joining — a survival
+ * server sews, a minigame server only shows the stash.
  */
 public final class Motd {
 	private Motd() {}
 
 	public static void init() {
-		ServerLifecycleEvents.SERVER_STARTED.register(server -> {
-			String motd = text(OvvarConfig.get());
-			server.setMotd(motd);
-			Ovvar.LOGGER.info("[{}] motd: {}", Ovvar.MOD_ID, motd);
-		});
+		ServerLifecycleEvents.SERVER_STARTED.register(Motd::apply);
+	}
+
+	/**
+	 * This server's MOTD, from the config as it reads right now. The cached status a ping is answered
+	 * with is thrown away with it ({@link MinecraftServer#invalidateStatus}): it is only rebuilt when
+	 * it expires, so without that a ping in the first seconds would still serve
+	 * {@code server.properties}' MOTD.
+	 */
+	public static void apply(MinecraftServer server) {
+		String motd = text(OvvarConfig.get());
+		server.setMotd(motd);
+		server.invalidateStatus();
+		Ovvar.LOGGER.info("[{}] motd: {}", Ovvar.MOD_ID, motd);
 	}
 
 	/** The MOTD this config describes. Plain text: the vanilla MOTD here carries no formatting codes. */

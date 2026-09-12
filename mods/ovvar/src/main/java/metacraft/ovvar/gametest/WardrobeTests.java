@@ -317,6 +317,28 @@ public final class WardrobeTests {
 		helper.succeed();
 	}
 
+	/** rebind is a pickup too: with bind_on_pickup off nothing binds and nothing changes hands. */
+	@GameTest
+	public void rebindStillNeedsBindOnPickup(GameTestHelper helper) {
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		DesignStoreConfig designs = OvvarConfig.get().designs();
+		try {
+			OvvarConfig.modify(config -> config.designs(
+					designs.othersOvve(DesignStoreConfig.OthersOvve.REBIND).bindOnPickup(false)));
+			ItemStack theirs = new ItemStack(ModContent.ovve(CHAPTER));
+			UUID someoneElse = UUID.randomUUID();
+			OvveItem.setOwner(theirs, someoneElse);
+			OvveItem.syncDesign(player, theirs);
+			if (!someoneElse.equals(OvveItem.owner(theirs))) helper.fail("rebound an ovve with bind_on_pickup off");
+			ItemStack nobodys = new ItemStack(ModContent.ovve(CHAPTER));
+			OvveItem.syncDesign(player, nobodys);
+			if (OvveItem.owner(nobodys) != null) helper.fail("bound an unowned ovve with bind_on_pickup off");
+		} finally {
+			OvvarConfig.modify(config -> config.designs(designs));
+		}
+		helper.succeed();
+	}
+
 	/** Shears on somebody else's ovve change nothing: not the store, not the stash, not the ovve. */
 	@GameTest(maxTicks = 1200)
 	public void foreignOvveCannotBeUnpicked(GameTestHelper helper) throws IOException {

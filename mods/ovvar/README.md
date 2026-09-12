@@ -95,7 +95,9 @@ changed by its owner and by nobody else:
   has never seen.
 
 An ovve with no owner is still anybody's: they may wear it and sew on it, and it becomes theirs the
-first time a player's inventory ticks it (`bind_on_pickup`). Stands and mannequins wear and show
+first time a player's inventory ticks it (`bind_on_pickup`) — and with `bind_on_pickup` off nothing
+binds and `rebind` hands nothing over either. A gamemaster is outside all of this: `/ovvar give` and
+`/ovvar patches` write a player's design straight into their wardrobe, whoever runs them. Stands and mannequins wear and show
 anybody's ovve unchanged — that is what makes a sewing stand and a showcase work.
 
 A patch lives in exactly one place: as an item in the world, in a stash, or on a design. The

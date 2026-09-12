@@ -97,14 +97,16 @@ public final class OvveItem extends BundleItem implements PolymerItem {
 	/**
 	 * The store side of a player's inventory tick: bind an unowned ovve to this player, adopt the
 	 * patches on it as their first design if they have no wardrobe at all, and keep the copy on
-	 * the item in step with the design.
+	 * the item in step with the design. {@code bind_on_pickup} is what lets an ovve change hands at
+	 * all, so with it off nothing binds and nothing rebinds either, whatever {@code others_ovve} says.
 	 */
 	public static void syncDesign(ServerPlayer player, ItemStack stack) {
 		if (owner(stack) == null) {
 			if (!OvvarConfig.get().designs().bindOnPickup()) return;
 			setOwner(stack, player.getUUID());
 		} else if (!player.getUUID().equals(owner(stack))
-				&& OvvarConfig.get().designs().othersOvve() == DesignStoreConfig.OthersOvve.REBIND) {
+				&& OvvarConfig.get().designs().othersOvve() == DesignStoreConfig.OthersOvve.REBIND
+				&& OvvarConfig.get().designs().bindOnPickup()) {
 			// A given ovve becomes the new holder's: their design, not the giver's (designs.others_ovve).
 			setOwner(stack, player.getUUID());
 		}
