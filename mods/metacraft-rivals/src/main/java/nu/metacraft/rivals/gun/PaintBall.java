@@ -75,6 +75,8 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private PaintColor color = PaintColor.MAGENTA;
 	private int bounces = 1;
 	private int lifetime = 0;
+	private int splatRadius = Painter.RADIUS;
+	private double gravity = GRAVITY;
 	private int age = 0;
 	private @Nullable ElementHolder blob;
 	private @Nullable ItemDisplayElement blobElement;
@@ -109,6 +111,23 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 
 	public PaintColor color() {
 		return color;
+	}
+
+	/** How far the impact splat reaches on the struck face: 0 is a single face, 2 the slosher's 5x5. */
+	public int splatRadius() {
+		return splatRadius;
+	}
+
+	public void setSplatRadius(int radius) {
+		this.splatRadius = radius;
+	}
+
+	/**
+	 * Override the fall rate for this ball. Read through {@link #getDefaultGravity}, so it must be set
+	 * before the ball is added to the level — a heavier ball is a different arc, not a mid-flight change.
+	 */
+	public void setGravity(double gravity) {
+		this.gravity = gravity;
 	}
 
 	/** Bounces this ball has left; 0 means the next block hit ends it. */
@@ -150,7 +169,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 
 	@Override
 	protected double getDefaultGravity() {
-		return GRAVITY;
+		return gravity;
 	}
 
 	@Override
@@ -194,7 +213,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		Vec3 to = from.subtract(0, EXPIRE_RAY, 0);
 		BlockHitResult hit = level.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
 		if (hit.getType() == HitResult.Type.BLOCK) {
-			Painter.splash(level, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, this);
+			Painter.splash(level, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, splatRadius, this);
 		}
 		discard();
 	}
@@ -208,7 +227,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	@Override
 	protected void onHit(HitResult result) {
 		if (bounces > 0 && result instanceof BlockHitResult hit && level() instanceof ServerLevel serverLevel) {
-			Painter.splash(serverLevel, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, this);
+			Painter.splash(serverLevel, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, splatRadius, this);
 			bounces--;
 			Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getUnitVec3i());
 			Vec3 v = getDeltaMovement();
@@ -223,7 +242,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	protected void onHitBlock(BlockHitResult hit) {
 		super.onHitBlock(hit);
 		if (level() instanceof ServerLevel serverLevel) {
-			Painter.splash(serverLevel, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, this);
+			Painter.splash(serverLevel, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, splatRadius, this);
 		}
 	}
 
@@ -232,7 +251,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	protected void onHitEntity(EntityHitResult hit) {
 		if (level() instanceof ServerLevel serverLevel) {
 			BlockPos below = hit.getEntity().blockPosition().below();
-			Painter.splash(serverLevel, position(), below, Direction.UP, color, random, this);
+			Painter.splash(serverLevel, position(), below, Direction.UP, color, random, splatRadius, this);
 		}
 	}
 

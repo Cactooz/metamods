@@ -1,5 +1,6 @@
 package nu.metacraft.rivals;
 
+import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import me.lucko.fabric.api.permissions.v0.Permissions;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
@@ -14,15 +15,17 @@ import net.minecraft.server.permissions.PermissionLevel;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
-import nu.metacraft.rivals.gun.PaintGun;
+import nu.metacraft.rivals.gun.PaintWeapon;
+import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.paint.PaintTally;
 
 import java.util.Map;
 import java.util.Optional;
 
+import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
-/** {@code /rivals setup | gun | score | reset}, for game masters (permission {@code metacraft.rivals}). */
+/** {@code /rivals setup | gun [weapon] | kit | score | reset}, for game masters (permission {@code metacraft.rivals}). */
 public final class RivalsCommands {
 	private RivalsCommands() {}
 
@@ -36,7 +39,21 @@ public final class RivalsCommands {
 									+ ". Join with /team join <colour> @s"), true);
 							return touched;
 						}))
-						.then(literal("gun").executes(ctx -> gun(ctx.getSource())))
+						// A plain word rather than a registry or enum argument: the ids are the weapon's own, and an
+						// unknown one should say what is on offer instead of failing to parse.
+						.then(literal("gun")
+								.executes(ctx -> gun(ctx.getSource(), Weapon.SHOOTER))
+								.then(argument("weapon", StringArgumentType.word()).executes(ctx -> {
+									String id = StringArgumentType.getString(ctx, "weapon");
+									Optional<Weapon> weapon = Weapon.byId(id);
+									if (weapon.isEmpty()) {
+										ctx.getSource().sendFailure(Component.literal("No weapon called \"" + id + "\". Try one of: " + Weapon.idList())
+												.withStyle(ChatFormatting.RED));
+										return 0;
+									}
+									return gun(ctx.getSource(), weapon.get());
+								})))
+						.then(literal("kit").executes(ctx -> kit(ctx.getSource())))
 						.then(literal("score").executes(ctx -> score(ctx.getSource())))
 						.then(literal("reset").executes(ctx -> reset(ctx.getSource())))));
 	}
@@ -57,12 +74,19 @@ public final class RivalsCommands {
 		return touched;
 	}
 
-	private static int gun(CommandSourceStack source) throws CommandSyntaxException {
+	private static int gun(CommandSourceStack source, Weapon weapon) throws CommandSyntaxException {
 		ServerPlayer player = source.getPlayerOrException();
-		ItemStack gun = new ItemStack(PaintGun.ITEM);
+		ItemStack gun = new ItemStack(PaintWeapon.of(weapon));
 		if (!player.getInventory().add(gun)) player.drop(gun, false);
-		source.sendSuccess(() -> Component.literal("Here is a paint gun. Right-click to shoot; join a team for colour."), false);
+		source.sendSuccess(() -> Component.literal("Here is a " + weapon.displayName + ". Right-click to fire; join a team for colour."), false);
 		return 1;
+	}
+
+	private static int kit(CommandSourceStack source) throws CommandSyntaxException {
+		ServerPlayer player = source.getPlayerOrException();
+		int given = PaintWeapon.giveKit(player);
+		source.sendSuccess(() -> Component.literal("Here is the full kit: " + Weapon.idList()), false);
+		return given;
 	}
 
 	private static int score(CommandSourceStack source) {

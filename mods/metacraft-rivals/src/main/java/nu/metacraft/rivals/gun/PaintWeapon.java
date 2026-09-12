@@ -1,0 +1,270 @@
+package nu.metacraft.rivals.gun;
+
+import eu.pb4.polymer.core.api.item.PolymerItem;
+import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
+import net.minecraft.ChatFormatting;
+import net.minecraft.core.HolderLookup;
+import net.minecraft.core.Registry;
+import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.particles.DustParticleOptions;
+import net.minecraft.core.registries.BuiltInRegistries;
+import net.minecraft.core.registries.Registries;
+import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
+import net.minecraft.resources.ResourceKey;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.InteractionHand;
+import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
+import net.minecraft.world.entity.LivingEntity;
+import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.Item;
+import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemUseAnimation;
+import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.scores.PlayerTeam;
+import nu.metacraft.rivals.PaintColor;
+import nu.metacraft.rivals.PlayerTick;
+import nu.metacraft.rivals.Rivals;
+import org.jspecify.annotations.Nullable;
+
+import java.util.EnumMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Objects;
+import java.util.Optional;
+
+/**
+ * Every paint weapon, in one item class parameterised by a {@link Weapon}. Right-click throws paint in
+ * the colour of the holder's vanilla team; no team, no shot. Vanilla clients keep sending use packets
+ * while the button is held, so the item cooldown is the fire rate. Clients see a stand-in vanilla item
+ * wearing our 3D model; the model's tank is dye-tinted, and each inventory tick writes the holder's
+ * team colour into the server-side stack as that dye, so every viewer sees the weapon in its holder's
+ * colour.
+ *
+ * <p>Only the slosher swings the arm: it is a bucket, and the throw reads as one. The other three
+ * return {@link InteractionResult#CONSUME}, which takes the click without animating the hand — a
+ * four-tick swing loop on the shooter and sprayer looks like a stutter, not like firing.
+ */
+public final class PaintWeapon extends Item implements PolymerItem {
+	private static final Map<Weapon, PaintWeapon> ITEMS = new EnumMap<>(Weapon.class);
+
+	/** How many droplets one sprayer click throws, and how long each lives before it splashes the floor. */
+	public static final int SPRAYER_DROPLETS = 3;
+	public static final int SPRAYER_LIFETIME = 12;
+	/** Yaw offsets of the slosher's fan, degrees from the look direction. */
+	public static final float[] SLOSHER_FAN = {-15.0f, -5.0f, 5.0f, 15.0f};
+	/** The slosher lobs: it aims above the crosshair and falls harder than a shooter's ball. */
+	public static final float SLOSHER_PITCH = -20.0f;
+	public static final double SLOSHER_GRAVITY = 0.06;
+	/** 5x5 on impact. */
+	public static final int SLOSHER_SPLAT_RADIUS = 2;
+	/** The charger is held to charge; vanilla's cap for "as long as you like". */
+	public static final int CHARGE_MAX_TICKS = 72000;
+
+	private final Weapon weapon;
+
+	public PaintWeapon(Weapon weapon, Properties properties) {
+		super(properties);
+		this.weapon = weapon;
+	}
+
+	public static void register() {
+		for (Weapon weapon : Weapon.values()) {
+			Identifier id = Rivals.id(weapon.id);
+			ITEMS.put(weapon, Registry.register(BuiltInRegistries.ITEM, id,
+					new PaintWeapon(weapon, new Item.Properties().stacksTo(1).setId(ResourceKey.create(Registries.ITEM, id)))));
+		}
+	}
+
+	/** The registered item for a weapon; null until {@link #register()} has run. */
+	public static PaintWeapon of(Weapon weapon) {
+		return ITEMS.get(weapon);
+	}
+
+	public Weapon weapon() {
+		return weapon;
+	}
+
+	/**
+	 * One of every weapon, dropped at the player's feet if the inventory is full. Returns how many were
+	 * handed out (always one per weapon; the count is what the command reports).
+	 */
+	public static int giveKit(Player player) {
+		int given = 0;
+		for (Weapon weapon : Weapon.values()) {
+			ItemStack stack = new ItemStack(of(weapon));
+			if (!player.getInventory().add(stack)) player.drop(stack, false);
+			given++;
+		}
+		return given;
+	}
+
+	@Override
+	public InteractionResult use(Level level, Player player, InteractionHand hand) {
+		if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.PASS;
+		Optional<PaintColor> color = PaintColor.byTeam(player.getTeam());
+		if (color.isEmpty()) {
+			actionBar(player, Component.literal("Join a team first: /team join " + PaintColor.values()[0].id)
+					.withStyle(ChatFormatting.RED));
+			return InteractionResult.FAIL;
+		}
+		ItemStack gun = player.getItemInHand(hand);
+		long now = serverLevel.getServer().getTickCount();
+		Ink.finishIfDue(gun, now);
+		if (Ink.isRefilling(gun, now)) return InteractionResult.FAIL;
+		if (isSquid(player)) {
+			actionBar(player, Component.literal("Can't shoot in squid form").withStyle(ChatFormatting.RED));
+			return InteractionResult.FAIL;
+		}
+		if (Ink.get(gun) <= 0) {
+			Ink.startRefill(gun, now);
+			serverLevel.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BOTTLE_FILL, SoundSource.PLAYERS, 0.8f, 0.9f);
+			player.getCooldowns().addCooldown(gun, Ink.REFILL_TICKS);
+			if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
+			return InteractionResult.FAIL;
+		}
+		// The charger spends nothing on the press: the shot, its ink and its cooldown all wait for the
+		// release, which is what makes the hold a charge rather than a delayed trigger.
+		if (weapon == Weapon.CHARGER) {
+			player.startUsingItem(hand);
+			return InteractionResult.CONSUME;
+		}
+		fire(serverLevel, player, color.get());
+		feel(serverLevel, player, color.get());
+		Ink.add(gun, -weapon.inkPerShot);
+		player.getCooldowns().addCooldown(gun, weapon.cooldownTicks);
+		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
+		return weapon == Weapon.SLOSHER ? InteractionResult.SUCCESS_SERVER : InteractionResult.CONSUME;
+	}
+
+	/** Throw this weapon's paint from the shooter's eyes along their view. */
+	public void fire(ServerLevel level, Player player, PaintColor color) {
+		switch (weapon) {
+			case SHOOTER -> {
+				PaintBall ball = new PaintBall(level, player, color, 1, 0);
+				ball.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0f, weapon.velocity, weapon.inaccuracy);
+				level.addFreshEntity(ball);
+			}
+			// Three droplets down one barrel: the spread is what separates them, and each paints only the
+			// face it lands on, so a held trigger reads as a cone of mist rather than three fat blobs.
+			case SPRAYER -> {
+				for (int i = 0; i < SPRAYER_DROPLETS; i++) {
+					PaintBall drop = new PaintBall(level, player, color, 0, SPRAYER_LIFETIME);
+					drop.setSplatRadius(0);
+					drop.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0f, weapon.velocity, weapon.inaccuracy);
+					level.addFreshEntity(drop);
+				}
+			}
+			// A deliberate fan, not a spread: fixed yaw offsets so the four arcs land side by side every time.
+			case SLOSHER -> {
+				for (float offset : SLOSHER_FAN) {
+					PaintBall ball = new PaintBall(level, player, color, 0, 0);
+					ball.setSplatRadius(SLOSHER_SPLAT_RADIUS);
+					ball.setGravity(SLOSHER_GRAVITY);
+					ball.shootFromRotation(player, player.getXRot() + SLOSHER_PITCH, player.getYRot() + offset,
+							0.0f, weapon.velocity, weapon.inaccuracy);
+					level.addFreshEntity(ball);
+				}
+			}
+			case CHARGER -> {} // the charger fires on release; see releaseUsing
+		}
+	}
+
+	@Override
+	public int getUseDuration(ItemStack stack, LivingEntity entity) {
+		return weapon == Weapon.CHARGER ? CHARGE_MAX_TICKS : 0;
+	}
+
+	@Override
+	public ItemUseAnimation getUseAnimation(ItemStack stack) {
+		// The client item is a spyglass, so the spyglass animation is also the scope: holding zooms.
+		return weapon == Weapon.CHARGER ? ItemUseAnimation.SPYGLASS : ItemUseAnimation.NONE;
+	}
+
+	@Override
+	public boolean releaseUsing(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {
+		return false; // the charged line lands in the next task
+	}
+
+	static void actionBar(Player player, Component text) {
+		if (player instanceof ServerPlayer serverPlayer && serverPlayer.connection != null) serverPlayer.sendSystemMessage(text, true);
+	}
+
+	/** Squid form (sneaking on own paint) can't shoot. */
+	public static boolean isSquid(Player player) {
+		return PlayerTick.isSquid(player);
+	}
+
+	/** The chunk of a shot: camera kick, a nudge back, a muzzle burst in the team colour, layered sounds. */
+	void feel(ServerLevel level, Player shooter, PaintColor color) {
+		Recoil.kick(shooter, weapon.kickPitch);
+		Vec3 look = shooter.getLookAngle();
+		shooter.push(-look.x * 0.06, 0, -look.z * 0.06);
+		shooter.hurtMarked = true;
+		Vec3 muzzle = shooter.getEyePosition().add(look.scale(0.9));
+		level.sendParticles(new DustParticleOptions(color.rgb, 1.2f), muzzle.x, muzzle.y, muzzle.z, 10, 0.1, 0.1, 0.1, 0.02);
+		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SNOWBALL_THROW, SoundSource.PLAYERS, 0.7f, 0.7f);
+		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SLIME_BLOCK_PLACE, SoundSource.PLAYERS, 0.5f, 1.4f);
+		// A bucketful wants weight under the snowball throw; a low slime step is that weight.
+		if (weapon == Weapon.SLOSHER) {
+			level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SLIME_BLOCK_STEP, SoundSource.PLAYERS, 0.9f, 0.6f);
+		}
+	}
+
+	/**
+	 * The tank rule for a server-side weapon stack, in one place: dyed with the team's paint colour (the
+	 * model's tank reads that dye), undyed for no team or a team that is none of ours. Polymer copies
+	 * the dye onto the client stack, so every viewer sees the holder's colour.
+	 */
+	public static ItemStack withTankColor(ItemStack stack, @Nullable PlayerTeam team) {
+		Optional<PaintColor> color = PaintColor.byTeam(team);
+		if (color.isPresent()) {
+			stack.set(DataComponents.DYED_COLOR, new DyedItemColor(color.get().rgb));
+		} else {
+			stack.remove(DataComponents.DYED_COLOR);
+		}
+		return stack;
+	}
+
+	/**
+	 * Keep the tank dye in step with the holder's team. Compared before writing, because setting a
+	 * component re-syncs the stack to everyone who can see it and this runs every tick.
+	 */
+	@Override
+	public void inventoryTick(ItemStack stack, ServerLevel level, Entity entity, EquipmentSlot slot) {
+		Ink.finishIfDue(stack, level.getServer().getTickCount());
+		if (!(entity instanceof LivingEntity holder)) return; // a dropped weapon keeps the dye it had
+		PlayerTeam team = holder.getTeam();
+		DyedItemColor wanted = PaintColor.byTeam(team).map(color -> new DyedItemColor(color.rgb)).orElse(null);
+		if (Objects.equals(stack.get(DataComponents.DYED_COLOR), wanted)) return;
+		withTankColor(stack, team);
+	}
+
+	@Override
+	public Item getPolymerItem(ItemStack stack, PacketContext context) {
+		return weapon == Weapon.CHARGER ? Items.SPYGLASS : Items.WARPED_FUNGUS_ON_A_STICK;
+	}
+
+	@Override
+	public Identifier getPolymerItemModel(ItemStack stack, PacketContext context, HolderLookup.Provider lookup) {
+		return Rivals.id(weapon.id);
+	}
+
+	@Override
+	public void modifyClientTooltip(List<Component> tooltip, ItemStack stack, PacketContext context) {
+		tooltip.add(Component.literal(switch (weapon) {
+			case SHOOTER -> "Shoots paint in your team's colour";
+			case SPRAYER -> "Sprays a cone of droplets up close";
+			case CHARGER -> "Hold to charge, release for a long line of paint";
+			case SLOSHER -> "Throws a bucketful in a wide fan";
+		}).withStyle(ChatFormatting.GRAY));
+	}
+}

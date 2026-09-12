@@ -36,13 +36,13 @@ public final class InkHud {
 		if (gun == null) return;
 		PaintColor color = PaintColor.byTeam(player.getTeam()).orElse(null);
 		long now = player.level().getServer().getTickCount();
-		player.sendSystemMessage(bar(color, Ink.get(gun), Ink.isRefilling(gun, now), PaintGun.isSquid(player)), true);
+		player.sendSystemMessage(bar(color, Ink.get(gun), Ink.isRefilling(gun, now), PaintWeapon.isSquid(player)), true);
 	}
 
 	static ItemStack heldGun(ServerPlayer player) {
 		for (InteractionHand hand : InteractionHand.values()) {
 			ItemStack stack = player.getItemInHand(hand);
-			if (stack.getItem() instanceof PaintGun) return stack;
+			if (stack.getItem() instanceof PaintWeapon) return stack;
 		}
 		return null;
 	}

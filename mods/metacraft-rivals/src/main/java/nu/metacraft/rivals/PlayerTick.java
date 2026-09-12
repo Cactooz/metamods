@@ -17,7 +17,7 @@ import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.Vec3;
 import nu.metacraft.rivals.gun.Ink;
-import nu.metacraft.rivals.gun.PaintGun;
+import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.paint.PaintBlock;
 import nu.metacraft.rivals.paint.PaintDisplays;
 import nu.metacraft.rivals.paint.Painter;
@@ -138,7 +138,7 @@ public final class PlayerTick {
 		if (inOwn && now % TOPUP_EVERY == 0) {
 			for (InteractionHand hand : InteractionHand.values()) {
 				ItemStack stack = player.getItemInHand(hand);
-				if (stack.getItem() instanceof PaintGun) Ink.add(stack, squid ? 4 : 1);
+				if (stack.getItem() instanceof PaintWeapon) Ink.add(stack, squid ? 4 : 1);
 			}
 		}
 	}

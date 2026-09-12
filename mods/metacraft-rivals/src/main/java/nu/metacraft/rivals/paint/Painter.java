@@ -38,10 +38,19 @@ public final class Painter {
 	 * once however many faces it flips.
 	 */
 	public static int splat(ServerLevel level, BlockPos struck, Direction face, PaintColor color, RandomSource random) {
+		return splat(level, struck, face, color, random, RADIUS);
+	}
+
+	/**
+	 * The same, over a square of side {@code 2 * radius + 1}: radius 0 paints only the struck face (a
+	 * sprayer droplet), radius 2 the slosher's 5x5. The ragged corners are what keeps a blob from
+	 * reading as a square, so there are none to drop at radius 0.
+	 */
+	public static int splat(ServerLevel level, BlockPos struck, Direction face, PaintColor color, RandomSource random, int radius) {
 		int painted = 0;
-		for (int a = -RADIUS; a <= RADIUS; a++) {
-			for (int b = -RADIUS; b <= RADIUS; b++) {
-				boolean corner = Math.abs(a) == RADIUS && Math.abs(b) == RADIUS;
+		for (int a = -radius; a <= radius; a++) {
+			for (int b = -radius; b <= radius; b++) {
+				boolean corner = radius > 0 && Math.abs(a) == radius && Math.abs(b) == radius;
 				if (corner && random.nextBoolean()) continue;
 				if (paintFace(level, offsetInPlane(struck, face.getAxis(), a, b), face, color)) painted++;
 			}
@@ -130,7 +139,13 @@ public final class Painter {
 	 */
 	public static int splash(ServerLevel level, Vec3 impact, BlockPos struck, Direction face, PaintColor color,
 			RandomSource random, @Nullable Entity source) {
-		int changed = splat(level, struck, face, color, random);
+		return splash(level, impact, struck, face, color, random, RADIUS, source);
+	}
+
+	/** The same, with the blob's {@link #splat(ServerLevel, BlockPos, Direction, PaintColor, RandomSource, int) radius}. */
+	public static int splash(ServerLevel level, Vec3 impact, BlockPos struck, Direction face, PaintColor color,
+			RandomSource random, int radius, @Nullable Entity source) {
+		int changed = splat(level, struck, face, color, random, radius);
 		Vec3 normal = Vec3.atLowerCornerOf(face.getUnitVec3i());
 		Vec3 from = impact.add(normal.scale(0.05));
 		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.6f);

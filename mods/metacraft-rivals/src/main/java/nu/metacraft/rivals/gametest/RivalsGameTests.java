@@ -43,7 +43,8 @@ import nu.metacraft.rivals.Rivals;
 import nu.metacraft.rivals.SquidState;
 import nu.metacraft.rivals.RivalsCommands;
 import nu.metacraft.rivals.gun.PaintBall;
-import nu.metacraft.rivals.gun.PaintGun;
+import nu.metacraft.rivals.gun.PaintWeapon;
+import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.Recoil;
 import nu.metacraft.rivals.paint.PaintBlock;
 import nu.metacraft.rivals.paint.PaintBlocks;
@@ -59,6 +60,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -272,7 +274,7 @@ public final class RivalsGameTests {
 		}
 		Vec3 at = helper.absoluteVec(new Vec3(4, 3, 4));
 		player.setPos(at.x, at.y, at.z);
-		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintGun.ITEM));
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.SHOOTER)));
 		return player;
 	}
 
@@ -280,7 +282,7 @@ public final class RivalsGameTests {
 	@GameTest
 	public void gunWithoutTeamDoesNotShoot(GameTestHelper helper) {
 		Player player = gunner(helper);
-		InteractionResult result = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		InteractionResult result = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(result == InteractionResult.FAIL, "use fails without a team");
 		helper.assertTrue(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).isEmpty(), "no paint ball spawned");
 		helper.assertTrue(!player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)), "no cooldown");
@@ -292,8 +294,8 @@ public final class RivalsGameTests {
 	public void gunOnTeamThrowsColouredBall(GameTestHelper helper) {
 		Player player = gunner(helper);
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
-		InteractionResult result = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
-		helper.assertTrue(result == InteractionResult.SUCCESS, "use succeeds on a team");
+		InteractionResult result = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(result.consumesAction(), "use succeeds on a team");
 		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
 		helper.assertValueEqual(balls.size(), 1, "one paint ball");
 		PaintBall ball = balls.getFirst();
@@ -304,7 +306,7 @@ public final class RivalsGameTests {
 		helper.assertTrue(explosion != null && explosion.colors().contains(PaintColor.MAGENTA.rgb), "star is tinted magenta");
 		helper.assertTrue(player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)), "cooldown started");
 		ItemStack held = player.getItemInHand(InteractionHand.MAIN_HAND);
-		PaintGun.ITEM.inventoryTick(held, helper.getLevel(), player, EquipmentSlot.MAINHAND);
+		PaintWeapon.of(Weapon.SHOOTER).inventoryTick(held, helper.getLevel(), player, EquipmentSlot.MAINHAND);
 		DyedItemColor dye = held.get(DataComponents.DYED_COLOR);
 		helper.assertTrue(dye != null && dye.rgb() == PaintColor.MAGENTA.rgb, "the held gun's tank is dyed magenta");
 		balls.forEach(Entity::discard);
@@ -314,12 +316,12 @@ public final class RivalsGameTests {
 	/** The gun stack carries the team colour as a dye, nothing without a team, and loses a stale dye. */
 	@GameTest
 	public void gunTankTakesTeamColour(GameTestHelper helper) {
-		ItemStack onTeam = PaintGun.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), team(helper, PaintColor.LIME));
+		ItemStack onTeam = PaintWeapon.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), team(helper, PaintColor.LIME));
 		DyedItemColor dye = onTeam.get(DataComponents.DYED_COLOR);
 		helper.assertTrue(dye != null && dye.rgb() == PaintColor.LIME.rgb, "tank dyed lime");
-		ItemStack noTeam = PaintGun.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), null);
+		ItemStack noTeam = PaintWeapon.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), null);
 		helper.assertTrue(noTeam.get(DataComponents.DYED_COLOR) == null, "no dye without a team");
-		ItemStack left = PaintGun.withTankColor(onTeam, null);
+		ItemStack left = PaintWeapon.withTankColor(onTeam, null);
 		helper.assertTrue(left.get(DataComponents.DYED_COLOR) == null, "leaving a team strips the dye");
 		helper.succeed();
 	}
@@ -464,8 +466,8 @@ public final class RivalsGameTests {
 		Player player = gunner(helper);
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.LIME));
 		int before = Recoil.pending();
-		InteractionResult result = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
-		helper.assertTrue(result == InteractionResult.SUCCESS, "shot succeeds");
+		InteractionResult result = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(result.consumesAction(), "shot succeeds");
 		helper.assertValueEqual(Recoil.pending(), before, "no settle queued for a connectionless player");
 		helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).forEach(Entity::discard);
 		helper.succeed();
@@ -584,11 +586,11 @@ public final class RivalsGameTests {
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
 		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "fresh gun is full");
-		PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX - 1, "a shot costs one");
 		Ink.set(gun, 0);
 		long now = helper.getLevel().getServer().getTickCount();
-		InteractionResult empty = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		InteractionResult empty = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(empty == InteractionResult.FAIL && Ink.isRefilling(gun, now), "empty gun starts refilling");
 		Ink.finishIfDue(gun, now + Ink.REFILL_TICKS);
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "refilled after the delay");
@@ -653,7 +655,7 @@ public final class RivalsGameTests {
 		int secondDuration = player.getEffect(MobEffects.INVISIBILITY).getDuration();
 		helper.assertTrue(secondDuration == firstDuration - 1,
 				"effect ticks down instead of resetting to full: first=" + firstDuration + " second=" + secondDuration);
-		InteractionResult shot = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		InteractionResult shot = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(shot == InteractionResult.FAIL, "no shooting as a squid");
 		player.setShiftKeyDown(false);
 		PlayerTick.tick(player, 1);
@@ -798,5 +800,72 @@ public final class RivalsGameTests {
 			helper.assertTrue(ball.blobHolder() == null || ball.blobHolder().getAttachment() == null, "blob gone with the ball");
 			helper.succeed();
 		});
+	}
+
+	/** One click of the sprayer throws three short-lived droplets for one ink. */
+	@GameTest
+	public void sprayerThrowsThreeDroplets(GameTestHelper helper) {
+		Player player = gunner(helper);
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.SPRAYER)));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.LIME));
+		InteractionResult result = PaintWeapon.of(Weapon.SPRAYER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(result.consumesAction(), "sprays");
+		List<PaintBall> drops = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
+		helper.assertValueEqual(drops.size(), 3, "three droplets");
+		for (PaintBall drop : drops) {
+			helper.assertValueEqual(drop.bouncesLeft(), 0, "droplets do not bounce");
+			helper.assertValueEqual(drop.splatRadius(), 0, "droplets paint a single face");
+		}
+		helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)), Ink.MAX - Weapon.SPRAYER.inkPerShot, "ink cost");
+		drops.forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/**
+	 * One click of the slosher throws four balls in a fan: four distinct horizontal directions, a 5x5
+	 * splat radius each, and the slosher is the one weapon whose use swings the arm.
+	 */
+	@GameTest
+	public void slosherThrowsFourInAFan(GameTestHelper helper) {
+		Player player = gunner(helper);
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.SLOSHER)));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.CYAN));
+		InteractionResult result = PaintWeapon.of(Weapon.SLOSHER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(result.consumesAction(), "sloshes");
+		helper.assertTrue(result == InteractionResult.SUCCESS_SERVER, "the slosher swings the arm, got " + result);
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
+		helper.assertValueEqual(balls.size(), 4, "four balls");
+		List<Double> yaws = new ArrayList<>();
+		for (PaintBall ball : balls) {
+			helper.assertValueEqual(ball.splatRadius(), 2, "5x5 splat");
+			helper.assertValueEqual(ball.bouncesLeft(), 0, "no bounce");
+			Vec3 v = ball.getDeltaMovement();
+			yaws.add(Math.atan2(-v.x, v.z));
+		}
+		for (int i = 0; i < yaws.size(); i++) {
+			for (int j = i + 1; j < yaws.size(); j++) {
+				helper.assertTrue(Math.abs(yaws.get(i) - yaws.get(j)) > 1.0e-4,
+						"the four balls fan out: " + yaws.get(i) + " vs " + yaws.get(j));
+			}
+		}
+		helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)), Ink.MAX - Weapon.SLOSHER.inkPerShot, "ink cost");
+		balls.forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/** The kit hands out one of every weapon. */
+	@GameTest
+	public void kitGivesEveryWeapon(GameTestHelper helper) {
+		Player player = gunner(helper);
+		player.getInventory().clearContent();
+		int given = PaintWeapon.giveKit(player);
+		helper.assertValueEqual(given, Weapon.values().length, "one of each");
+		for (Weapon weapon : Weapon.values()) {
+			helper.assertTrue(player.getInventory().contains(new ItemStack(PaintWeapon.of(weapon))), "has " + weapon.id);
+			helper.assertTrue(Weapon.byId(weapon.id).orElse(null) == weapon, "byId round-trips " + weapon.id);
+		}
+		helper.assertTrue(Weapon.byId("nonesuch").isEmpty(), "an unknown id resolves to nothing");
+		player.getInventory().clearContent();
+		helper.succeed();
 	}
 }

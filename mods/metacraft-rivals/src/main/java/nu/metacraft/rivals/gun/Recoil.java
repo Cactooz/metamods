@@ -15,11 +15,12 @@ import java.util.List;
  */
 public final class Recoil {
 	public static final float KICK_PITCH = -2.5f;
-	public static final float SETTLE_PITCH = 1.8f;
+	/** The ease-back is a fraction of whatever went up, so a heavy kick settles from higher. */
+	public static final float SETTLE_FRACTION = 0.72f;
 	private static final int SETTLE_DELAY_TICKS = 2;
 	private static final List<Pending> SETTLE_QUEUE = new ArrayList<>();
 
-	private record Pending(ServerPlayer player, long dueTick) {}
+	private record Pending(ServerPlayer player, long dueTick, float settlePitch) {}
 
 	private Recoil() {}
 
@@ -35,7 +36,7 @@ public final class Recoil {
 			for (Pending pending : due) {
 				ServerPlayer player = pending.player();
 				if (player.connection != null && !player.isRemoved()) {
-					player.connection.send(new ClientboundPlayerRotationPacket(0f, true, SETTLE_PITCH, true));
+					player.connection.send(new ClientboundPlayerRotationPacket(0f, true, pending.settlePitch(), true));
 				}
 			}
 			SETTLE_QUEUE.removeAll(due);
@@ -46,11 +47,17 @@ public final class Recoil {
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> SETTLE_QUEUE.clear());
 	}
 
+	/** The default kick, for callers with no weapon of their own. */
 	public static void kick(Player shooter) {
+		kick(shooter, KICK_PITCH);
+	}
+
+	/** A kick of {@code pitch} degrees (negative is up), eased back two ticks later. */
+	public static void kick(Player shooter, float pitch) {
 		if (!(shooter instanceof ServerPlayer player) || player.connection == null) return;
-		player.connection.send(new ClientboundPlayerRotationPacket(0f, true, KICK_PITCH, true));
+		player.connection.send(new ClientboundPlayerRotationPacket(0f, true, pitch, true));
 		long currentTick = player.level().getServer().getTickCount();
-		SETTLE_QUEUE.add(new Pending(player, currentTick + SETTLE_DELAY_TICKS));
+		SETTLE_QUEUE.add(new Pending(player, currentTick + SETTLE_DELAY_TICKS, -pitch * SETTLE_FRACTION));
 	}
 
 	public static int pending() {
