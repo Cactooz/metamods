@@ -127,6 +127,10 @@ public final class StashSession {
 
 	/** Opens a session on this patch (or switches a running one to it). */
 	public static void start(ServerPlayer player, Patches.Patch patch, java.util.function.Consumer<String> refused) {
+		if (!config().sessions()) {
+			refused.accept("Private sewing sessions are off on this server");
+			return;
+		}
 		String refusal = OwnedSewing.editingRefusal(player);
 		if (refusal != null) {
 			refused.accept(refusal);

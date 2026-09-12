@@ -62,8 +62,8 @@ public final class StashGui extends SimpleGui {
 		}
 		Wardrobe wardrobe = Wardrobes.current(player.getUUID());
 		String refusal = OwnedSewing.editingRefusal(player);
-		boolean canSew = refusal == null, canTake = refusal == null && config().canWithdraw();
-		boolean leftTakes = config().stashClick() == StashConfig.StashClick.WITHDRAW;
+		boolean canSew = refusal == null && config().sessions(), canTake = refusal == null && config().canWithdraw();
+		boolean leftTakes = !config().sessions() || config().stashClick() == StashConfig.StashClick.WITHDRAW;
 
 		int slot = 0;
 		for (Patches.Patch patch : wardrobe.stashed()) {
@@ -76,7 +76,7 @@ public final class StashGui extends SimpleGui {
 			String take = "take one out (sew it on a stand, or trade it)", sew = "sew it on your ovve here";
 			if (canTake) element.addLoreLine(Component.literal((leftTakes ? "Left" : "Right") + "-click: " + take).withStyle(ChatFormatting.YELLOW));
 			if (canSew) element.addLoreLine(Component.literal((leftTakes ? "Right" : "Left") + "-click: " + sew).withStyle(ChatFormatting.YELLOW));
-			if (!canSew) element.addLoreLine(Component.literal(refusal).withStyle(ChatFormatting.RED));
+			if (refusal != null) element.addLoreLine(Component.literal(refusal).withStyle(ChatFormatting.RED));
 			element.setCallback((index, type, action, gui) -> {
 				boolean left = type == ClickType.MOUSE_LEFT, right = type == ClickType.MOUSE_RIGHT;
 				boolean wantsTake = leftTakes ? left : right, wantsSew = leftTakes ? right : left;
@@ -123,9 +123,9 @@ public final class StashGui extends SimpleGui {
 		if (config().minigameServer()) {
 			book.addLoreLine(Component.literal("Minigame server: look, but sew on a survival server").withStyle(ChatFormatting.RED));
 		} else {
-			boolean leftTakes = config().stashClick() == StashConfig.StashClick.WITHDRAW;
+			boolean leftTakes = !config().sessions() || config().stashClick() == StashConfig.StashClick.WITHDRAW;
 			if (config().canWithdraw()) book.addLoreLine(Component.literal((leftTakes ? "Left" : "Right") + "-click a patch to take it out as an item (trade it!)").withStyle(ChatFormatting.GRAY));
-			book.addLoreLine(Component.literal((leftTakes ? "Right" : "Left") + "-click to sew it on your ovve on a private stand").withStyle(ChatFormatting.GRAY));
+			if (config().sessions()) book.addLoreLine(Component.literal((leftTakes ? "Right" : "Left") + "-click to sew it on your ovve on a private stand").withStyle(ChatFormatting.GRAY));
 		}
 		book.addLoreLine(Component.literal("The stash and your ovvar follow you to every server").withStyle(ChatFormatting.DARK_GRAY));
 		for (Map.Entry<Chapter, SpotPlacements> entry : wardrobe.designs().entrySet()) {

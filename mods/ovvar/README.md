@@ -93,7 +93,8 @@ stands`, showcase) keep their patches on the item as before.
 - **left-click a patch** to take one out as an ordinary item: sew it on any armour stand wearing
   your ovve, the way it always worked, or trade it. The chest button puts every patch item you
   carry back in;
-- **right-click a patch** for a private sewing session instead (`stash_click` swaps the two):
+- **right-click a patch** for a private sewing session, only where `sessions` is on (off by
+  default; `stash_click` swaps the two buttons):
   an armour stand named after you appears two blocks ahead in a walking pose wearing your ovve;
   hotbar slot 9 gets the patch (as many as the stash holds) and slot 8 a pair of shears, both fake
   and pinned there (`ovvar:session`: no dropping, no moving, the hotbar selection is held to those
@@ -131,6 +132,7 @@ plays the totem-of-undying flourish with the patch's art and explains the stash 
     bank_in_creative         bank creative players' patch items too (default false)
     unpick_to_stash          unpicking on an ordinary stand sends the patch to the stash instead of the hand (default false)
     withdraw                 right-click in the stash takes a patch out as an item (default true; never on a minigame server)
+    sessions                 the private sewing flow exists (default false: the stash only hands patches out)
     stash_click              withdraw (default: left-click takes the patch out as an item, right-click opens a session) | session (the reverse)
     any_stand                sew and unpick on any armour stand wearing an owned ovve, not only a session stand (default true)
     session_reach            blocks a player may walk from their session stand (default 8)
