@@ -6,7 +6,6 @@ import metacraft.ovvar.OvvarConfig;
 import metacraft.ovvar.store.Design;
 import metacraft.ovvar.store.DesignKey;
 import metacraft.ovvar.store.Designs;
-import metacraft.ovvar.store.OwnedSewing;
 import org.jspecify.annotations.Nullable;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.ChatFormatting;
@@ -100,8 +99,8 @@ public final class OvveItem extends BundleItem implements PolymerItem {
 
 	/**
 	 * The store side of a player's inventory tick: bind an unowned ovve to this player, adopt the
-	 * patches on it as their first design if they have none, commit a smithing-table sew, and
-	 * keep the copy on the item in step with the design.
+	 * patches on it as their first design if they have none, and keep the copy on the item in
+	 * step with the design.
 	 */
 	public static void syncDesign(ServerPlayer player, ItemStack stack) {
 		if (owner(stack) == null) {
@@ -113,15 +112,6 @@ public final class OvveItem extends BundleItem implements PolymerItem {
 		if (!Designs.loaded(key.owner())) {
 			Designs.fetch(key.owner());
 			return;
-		}
-		Placement pending = stack.get(ModComponents.PENDING_SEW);
-		if (pending != null) {
-			stack.remove(ModComponents.PENDING_SEW);
-			OwnedSewing.sew(stack, pending, () -> {}, why -> {
-				OwnedSewing.give(player, pending.patch());
-				player.sendSystemMessage(Component.literal(why).withStyle(ChatFormatting.RED));
-			});
-			return;   // the outcome refreshes the item; until then its own copy stands
 		}
 		if (Designs.cached(key).isEmpty() && !key.owner().equals(player.getUUID())) return;   // someone else's, not yet designed: leave it
 		if (Designs.cached(key).isEmpty()) {

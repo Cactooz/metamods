@@ -298,8 +298,6 @@ public final class GeneratedAssets implements DataProvider {
 		JsonObject langJson = new JsonObject();
 		lang.forEach(langJson::addProperty);
 		json(assets.resolve("lang/en_us.json"), langJson);
-		// Sewing pinned patches at the smithing table (SewRecipe): the one recipe, nothing to configure.
-		json(data.resolve("recipe/sew.json"), obj("type", MOD + ":sew"));
 		return CompletableFuture.allOf(writes.toArray(CompletableFuture[]::new));
 	}
 

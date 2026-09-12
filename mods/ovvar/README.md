@@ -24,9 +24,8 @@ belt, the hands and the cuffs: 32 cells, plus the seat for the 8×4 chapter patc
 an armour stand, hold a patch, look at the stand — the patch shows washed out on the cell you aim
 at (a ghosted sprite, see below), the action bar
 names it, right-click sews it on; sneak to aim at the far face of the part you look at
-(the back of the body, the back of an arm). The aim follows the stand's pose. An empty hand on a sewn patch unpicks it. Seat
-patches also go on at the smithing table (ovve + patch, no template). No cap on the number of
-patches. While the ovve is on a stand its patches are flat item displays laid on their cells
+(the back of the body, the back of an arm). The aim follows the stand's pose. Shears on a sewn
+patch unpick it. No cap on the number of patches. While the ovve is on a stand its patches are flat item displays laid on their cells
 (`StandDisplays`, Polymer virtual entities following the stand's pose; the armour draws none of
 them there), so a sewing session needs no resource pack at all — the pack matters once the ovve
 is taken off and worn. A big patch lies flat on its cell's face, the overhang sticking out past
@@ -102,9 +101,7 @@ unpicked patch is handed out only after the store has let go of it. Ovves withou
     log_queries              log every load and store
 
 The file backend is fine for one server or a shared mount; a network of servers wants `jdbc`
-(MariaDB/MySQL and PostgreSQL drivers ship in the jar). Seat patches sewn at the smithing table
-are committed by the ovve's next inventory tick (`ovvar:pending_sew`), refunding the patch if the
-store refuses.
+(MariaDB/MySQL and PostgreSQL drivers ship in the jar).
 
 ## Debug commands (gamemasters)
 

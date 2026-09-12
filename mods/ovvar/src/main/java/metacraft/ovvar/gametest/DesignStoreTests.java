@@ -60,6 +60,21 @@ public final class DesignStoreTests {
 		storesWithVersions(helper, new JdbcBackend(h2()));
 	}
 
+	/**
+	 * The same against a real database when one is named: {@code -Dovvar.test.jdbc.url=jdbc:postgresql://host/db}
+	 * (plus {@code ovvar.test.jdbc.user} / {@code .password}); passes trivially otherwise.
+	 */
+	@GameTest
+	public void realDatabaseStoresWithVersions(GameTestHelper helper) throws IOException {
+		String url = System.getProperty("ovvar.test.jdbc.url");
+		if (url == null) {
+			helper.succeed();
+			return;
+		}
+		storesWithVersions(helper, new JdbcBackend(new DesignStoreConfig.Jdbc(url, System.getProperty("ovvar.test.jdbc.user", ""),
+				System.getProperty("ovvar.test.jdbc.password", ""), "", "ovve_designs_test_" + Long.toHexString(System.nanoTime()), "", 5, 5)));
+	}
+
 	private static DesignStoreConfig.Jdbc h2() {
 		return new DesignStoreConfig.Jdbc("jdbc:h2:mem:ovvar_" + UUID.randomUUID().toString().replace("-", "") + ";DB_CLOSE_DELAY=-1",
 				"sa", "", "", "ovve_designs", "org.h2.Driver", 5, 5);

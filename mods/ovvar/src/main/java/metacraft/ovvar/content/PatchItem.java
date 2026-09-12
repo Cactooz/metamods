@@ -40,7 +40,6 @@ public final class PatchItem extends Item implements PolymerItem {
 	public void modifyClientTooltip(List<Component> tooltip, ItemStack stack, PacketContext context) {
 		tooltip.add(Component.literal(patch.seat() ? "Goes across the seat" : "Goes anywhere on an ovve").withStyle(ChatFormatting.GRAY));
 		tooltip.add(Component.literal("Aim it at an armour stand wearing an ovve, right-click to sew").withStyle(ChatFormatting.DARK_GRAY));
-		if (patch.seat()) tooltip.add(Component.literal("Or: smithing table, ovve + patch").withStyle(ChatFormatting.DARK_GRAY));
 	}
 
 	@Override

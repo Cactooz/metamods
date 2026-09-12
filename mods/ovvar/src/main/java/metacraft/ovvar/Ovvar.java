@@ -6,7 +6,6 @@ import metacraft.ovvar.content.ModContent;
 import metacraft.ovvar.content.OvveFeet;
 import metacraft.ovvar.content.OvveTop;
 import metacraft.ovvar.content.Patches;
-import metacraft.ovvar.recipe.SewRecipe;
 import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.sewing.StandDisplays;
 import metacraft.ovvar.sewing.StandSewing;
@@ -28,7 +27,6 @@ public class Ovvar implements ModInitializer {
 	public void onInitialize() {
 		OvvarConfig.get();
 		ModContent.register();
-		SewRecipe.init();
 		OvveTop.init();
 		OvveFeet.init();
 		StandSewing.init();
