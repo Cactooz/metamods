@@ -9,9 +9,11 @@ Players need only the auto-served resource pack. Design: `docs/superpowers/specs
 paint, ink), `docs/superpowers/specs/2026-09-12-metacraft-rivals-v3-design.md` (v3: gloss that
 actually renders, real squid form, blobby bouncing shots, three more weapons) and
 `docs/superpowers/specs/2026-09-12-metacraft-rivals-v4-connected-paint-design.md` (v4: two teams,
-connected paint, the shader-drawn border); the gun's design sheet is next to the v1 spec. v6 added the
-two visual features described below: paint on non-full blocks as block displays of the real paint
-state, and ink on the screen from damage taken.
+connected paint, the shader-drawn border). v6 added the two visual features described below: paint on
+non-full blocks as block displays of the real paint state, and ink on the screen from damage taken.
+v7 is Julle's four weapon models, the roller that replaces the sprayer, held-use fire, Splatoon 1's
+own numbers on a hundred-unit tank, an ink LED nobody can see, and screen ink drawn from four textures
+an artist can paint over.
 
 **Standalone.** This module is not bundled into the `dist` jar (root `build.gradle`, `standaloneMods`):
 its pack retextures sculk vein, resin clump, tripwire and redstone wire as paint, which only a
@@ -71,34 +73,57 @@ dedicated Rivals server wants.
   to see its own gun — an equipment packet with empty hands and armour; the tick it stops being a
   squid sends the real one back.
 - Shots hurt. A direct hit on someone from another team takes hearts off them as well as painting the
-  ground under their feet: 3 from a shooter's ball, 1 from a sprayer droplet, 4 from a slosher ball, ½
-  from a bounce droplet, and 4 + 6 × charge from the charger's line, which makes a full charge the
-  hardest hit in the game. The multi-projectile weapons do not add up: vanilla's post-hit
-  invulnerability window means a fistful of droplets arriving together is worth one of them, so the
-  sprayer and the slosher pay for their spread in coverage rather than in damage. Teammates take the paint and nothing else, no
-  team at all counts as fair game, and a squid is an ordinary player here — squid form is cover, not
-  armour. Kills are attributed to the shooter.
+  ground under their feet, and since round 7 **every pellet lands its own damage**. Vanilla keeps a
+  twenty-tick window after a hit and, for the first ten of it, applies only the *excess* over the last
+  one — which is why a slosher's two pellets used to be worth one and a three-tick shooter lost two
+  shots in three. `PaintDamage` stands in front of every paint hit and takes the window off before and
+  after it (`LivingEntity.damageCooldownTime = 0`, which is also the branch that stops `lastHurt`
+  gating anything), so a bucketful is a bucketful. Knockback is deliberately left vanilla, so two
+  pellets do shove twice. Teammates take the paint and nothing else, no team at all counts as fair
+  game, and a squid is an ordinary player here — squid form is cover, not armour. Kills are attributed
+  to the shooter.
+- Damage is Splatoon's, and it falls off. A shot is worth its full damage for the first few ticks of
+  flight and then loses a slice a tick down to a floor, read at the hit rather than baked in at the
+  throw: a shooter's ball is 8 up close and 4 across a courtyard. A weapon that says nothing about
+  falloff — the slosher, the splat bomb — is flat.
 - One colour per cell: a hit in another colour wipes the cell and starts it over as a single
   connected face in the new colour, even if the old cell held paint on more than one face.
 - Four weapons, one item class (`PaintWeapon`) parameterised by a `Weapon` enum, given with
-  `/rivals gun <shooter|sprayer|charger|slosher>` (default shooter) or all at once with
-  `/rivals kit`:
+  `/rivals gun <shooter|charger|slosher|roller>` (default shooter) or all at once with
+  `/rivals kit`. **Every number is Splatoon 1's**, read off Splatcraft (MIT), whose
+  `data/splatcraft/weapon_settings/*.json` is that game's figures on the scale this module already
+  uses: 20 hit points, a hundred-unit ink tank, twenty ticks to the second. Each default in `Weapon`
+  names its source file beside it.
 
-  | Weapon | Ink/shot | Cooldown | Shot |
-  |---|---|---|---|
-  | shooter | 1 | 4 ticks | one ball, two bounces, 3×3 splat |
-  | sprayer | 1/click | 4 ticks | 3 short-lived droplets in a cone, single-face splat + rays, no bounce |
-  | charger | 4 + 8 × charge | 20 ticks | hold right click to aim (the spyglass scope; the charge builds for up to 20 ticks), left click to fire a hitscan line, stopped by the first block or player in it |
-  | slosher | 15 | 14 ticks | 4 balls in a fan, gravity-heavy lob, 5×5 splat, no bounce |
+  | Weapon | Ink | Cadence | Damage | Shot | Splatcraft |
+  |---|---|---|---|---|---|
+  | shooter | 1 | 3 ticks (held) | 8, −0.34/tick from tick 3, floor 4 | one ball at 2.0 straight for 8 blocks, then 0.5 falling at 0.075; one bounce; 3×3 splat; spread 6° on the ground, 12° in the air | `splattershot.json` |
+  | charger | 2 → 18 | 20 ticks | 8 → 32 by charge | hold right click to aim (the spyglass scope; a full charge is 20 ticks), left click to fire a hitscan line of 9 → 24 blocks, stopped by the first block or player in it | `splat_charger.json` |
+  | slosher | 7 | 12 ticks (click) | 7, flat | 2 pellets 8° apart, lobbed 15° up at 1.1 under gravity 0.06, 5×5 splat, no bounce | `slosher.json` |
+  | roller | 9 a flick, 1 per 16 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed and a head that runs over anyone in front once per 10 ticks; **tap** it to flick 3 drops in a high arc | `splat_roller.json` |
+  | splat bomb | 70 | 4 s of its own | 36 at the centre → 6 at 3.25 blocks | thrown 30° up at 0.75, bounces where it lands and goes off 20 ticks later | `splat_bomb.json` |
 
-  **Controls.** Right click fires (hold for the shooter and sprayer). Left click throws a splat
-  bomb. The charger is the exception on both counts:
-  right click is its scope and letting go fires nothing, and left click is its trigger — the charge
-  it has built if it is scoped, a snap shot at no charge if it is not. The splat bomb is a slow,
-  fat, no-bounce lob that splashes a 7×7 patch where it lands and takes 6 hearts off anyone from
-  another team within two blocks of it, for 25 ink and a four-second wait of its own (separate from
-  the fire cooldown, so the trigger is never held up by it; all seven numbers are tunable as
-  `special_*`). Server-side, a left click arrives as up to two packets in the same tick — an attack
+  Standing in your own ink refills the tank in ten seconds on your feet and three as a squid, and a
+  weapon that has just fired waits its own `refill_delay` first (7 for a shooter, 15 for a roller —
+  Splatcraft's `ink_recovery_cooldown`).
+
+  **Controls.** Right click fires. The shooter and the roller are *held*: a vanilla client repeats a
+  held right click only every four ticks, which is not a fire rate a shooter can have, so the press
+  starts using the item and `Item#onUseTick` does the work every tick until the button is let go — the
+  shooter fires whenever its cooldown is up, the roller rolls. The slosher stays a click, because
+  twelve ticks is slower than the client's repeat anyway. The roller's release is its other gesture:
+  under six ticks it was a tap and throws the bucketful, longer and it was a roll and throws nothing.
+  The charger is the exception on both counts: right click is its scope and letting go fires nothing,
+  and left click is its trigger — the charge it has built if it is scoped, a snap shot at no charge if
+  it is not.
+
+  Left click throws a **splat bomb** on everything but the charger: a slow lob that bounces where it
+  lands and counts twenty ticks down there rather than going off on contact, so it is a thing you can
+  run away from and throwing one is a decision about where someone will be. It splashes a 7×7 patch
+  and takes 36 hearts off at the centre falling to 6 at three and a quarter blocks (linear in distance
+  squared, no line-of-sight test), for 70 ink and a four-second wait of its own — separate from the
+  fire cooldown, so the trigger is never held up by it; all of it is tunable as `special_*`.
+  Server-side, a left click arrives as up to two packets in the same tick — an attack
   on the block or entity under the crosshair, then a swing — so Fabric's `AttackBlockCallback` and
   `AttackEntityCallback` (both returning `FAIL`, so a paint weapon never breaks the arena or
   punches anyone) and a mixin on `handlePunch`, 26.3's replacement for the swing packet, all go
@@ -120,13 +145,13 @@ dedicated Rivals server wants.
   face at 62% of its speed, pancakes flat against that face for two ticks before easing back into
   its flying shape over three more, throws off two short-lived single-face droplets along the
   reflection (droplets never throw droplets of their own) with a wet slime step, and keeps flying
-  until the impact after the last bounce spends it; sprayer and slosher shots don't bounce. On
-  impact (or the final bounce) it splashes: the usual blob on the struck face (3×3 for the shooter and sprayer, 5×5
+  until the impact after the last bounce spends it; slosher pellets and roller flicks do not bounce. On
+  impact (or the final bounce) it splashes: the usual blob on the struck face (3×3 for the shooter, 5×5
   for the slosher), plus fourteen short rays from the impact point (six axis directions and eight
   diagonals) that paint whatever face they hit, so a floor shot next to a wall also paints the
   wall and fills in the corner. A coloured dust burst and a wet impact sound go with it; the burst
   is sized to the splat (4 grains for a single face, 10 for a 3×3, 16 for a 5×5, with ray dust only
-  from radius 1 up), so a sprayer at point-blank range doesn't fill its own screen. Colour comes
+  from radius 1 up), so a single-face droplet at point-blank range does not fill its own screen. Colour comes
   from the shooter's vanilla team, whose name is the colour id.
 - Firing has a kick: the client's pitch is nudged up on the shot and eased back down two ticks
   later (scaled to the charger's charge), plus a small push, a muzzle particle burst and a
@@ -306,14 +331,15 @@ dedicated Rivals server wants.
 - Ink faces take `tintindex: 0`, which our `items/*.json` feeds from `minecraft:dye` — the same
   component `PaintWeapon.withTankColor` writes every inventory tick — and the LED takes
   `tintindex: 1` off `custom_model_data` colour 0. Fixed lime, ivory and dark parts stay untinted.
-- Ink: every gun holds 40 shots in one shared tank size, tracked in the stack's own data so it
-  survives item moves. A shot costs the weapon's own ink (see the table above — 1 for the
-  shooter/sprayer, 4 plus up to 8 more for the charger's charge, 15 for the slosher) and a splat
-  bomb costs 25, most of a tank but not all of it; trying to
-  fire on a tank that can't cover the shot starts a 30-tick refill (sound, cooldown) that fills
-  the tank the moment the deadline passes. Standing in your own colour's paint tops the tank up
-  over time, faster in squid form. An action-bar ammo bar in the team colour refreshes every 10
-  ticks and after every shot, rounded to ten cells (`INK ██████░░░░ 24/40`), and reads
+- Ink: every gun holds one shared tank of **100**, which is Splatoon's own scale — every cost in the
+  table above is that game's percentage with no factor in front of it — tracked in the stack's own data
+  so it survives item moves, and clamped on the way out so a stack written when the tank was 40 comes
+  back part-full rather than wrong. Trying to fire on a tank that can't cover the shot starts a 30-tick
+  refill (sound, cooldown) that fills the tank the moment the deadline passes. Standing in your own
+  colour's paint tops the tank up at Splatoon 1's rates — ten seconds on your feet, three as a squid —
+  but not while the weapon is still inside its own `refill_delay` after a shot. An action-bar ammo bar
+  in the team colour refreshes every 10 ticks and after every shot, rounded to ten cells
+  (`INK ██████░░░░ 61/100`), and reads
   `REFILLING…` or adds `SQUID` as appropriate. A scoped charger adds its charge to the same line and
   refreshes every tick instead of every ten (`INK ████░░ 26  CHARGE ▮▮▮▯▯▯ 48%`), in bold yellow at
   100%: the spyglass zoom says you are aiming and nothing else said how long you had been at it.
@@ -346,7 +372,7 @@ dedicated Rivals server wants.
 /rivals setup            teams data and it
 /team join data @s
 /rivals gun              shooter, the default
-/rivals gun slosher      or sprayer / charger
+/rivals gun slosher      or charger / roller
 /rivals kit              one of every weapon
 /rivals score
 /rivals reset
@@ -367,16 +393,23 @@ click — no restart, no reload:
 ```
 
 Weapon ids and parameter names both tab-complete, and a name that does not exist answers with the
-ones that do. The three ball weapons take `velocity`, `spread`, `gravity`, `bounces`, `restitution`,
-`lifetime`, `splat_radius`, `ink`, `cooldown`, `kick`, `damage`, `count` (balls per shot), `fan_yaw`
-and `fan_pitch` (the fan those balls go out in), and `spatter_count` / `spatter_lifetime` /
-`spatter_speed` / `spatter_scatter` / `spatter_damage` (what a bounce throws off), plus the splat
-bomb's own `special_ink`, `special_cooldown`, `special_radius`, `special_damage`, `special_velocity`,
-`special_gravity` and `special_lifetime`. The charger, which
-throws no ball, takes `ink`, `cooldown` and `kick` plus its own `charge_min`, `charge_full`,
-`range_min`, `range_full`, `charge_ink_min`, `charge_ink_full`, `charge_damage_min` and
-`charge_damage_full` — the `*_min` at no charge, the `*_full` at a full one, with everything between
-interpolated. It takes no `special_*`: its left click is its shot, not a bomb.
+ones that do.
+
+| group | parameters | who reads them |
+|---|---|---|
+| the shot | `velocity`, `spread`, `spread_air`, `straight_blocks`, `decayed_speed`, `gravity`, `bounces`, `restitution`, `lifetime`, `splat_radius`, `count`, `fan_yaw`, `fan_pitch` | the three that throw a ball |
+| the cost | `ink`, `cooldown`, `refill_delay`, `kick` | all four |
+| the damage | `damage`, `decay_start`, `decay_per_tick`, `decayed_damage` | the three that throw a ball |
+| a bounce | `spatter_count`, `spatter_lifetime`, `spatter_speed`, `spatter_scatter`, `spatter_damage` | the three that throw a ball |
+| the splat bomb | `special_ink`, `special_cooldown`, `special_radius`, `special_damage`, `special_edge_damage`, `special_blast`, `special_fuse`, `special_velocity`, `special_gravity`, `special_lifetime` | everything but the charger |
+| the roll | `roll_width`, `roll_damage`, `roll_hit_cooldown`, `roll_ink_every`, `roll_speed`, `flick_tap` | the roller alone |
+| the charge | `charge_min`, `charge_full`, `range_min`, `range_full`, `charge_ink_min`, `charge_ink_full`, `charge_damage_min`, `charge_damage_full` | the charger alone |
+
+`straight_blocks` and `decayed_speed` are the shot's shape — how far it flies straight and fast, and
+what it drops to after that — and `decay_start` / `decay_per_tick` / `decayed_damage` are how the
+damage falls off with time in the air; a `decay_per_tick` of 0 is a weapon that does not care how far
+it has thrown. The charger's `*_min` is at no charge and its `*_full` at a full one, with everything
+between interpolated; it takes no `special_*`, because its left click is its shot rather than a bomb.
 
 Every parameter has a range, which `/rivals tune <weapon>` prints beside it and a refusal states:
 several of them are loop bounds and spawn counts, so a `splat_radius` of 500 (a million block writes

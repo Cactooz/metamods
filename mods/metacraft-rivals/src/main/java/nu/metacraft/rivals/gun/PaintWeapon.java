@@ -315,6 +315,11 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			if (weapon == Weapon.SHOOTER) fireIfReady(serverLevel, player, gun, color);
 			return InteractionResult.CONSUME;
 		}
+		// The cadence is the cooldown for the clicked weapons too. A real client refuses to send a use
+		// packet for an item on cooldown, so this only ever fires on one that is not a real client — but
+		// the fire rate is a rule of the game, not a courtesy of the client, and the held weapons have
+		// been checking it since fireIfReady.
+		if (player.getCooldowns().isOnCooldown(gun)) return InteractionResult.FAIL;
 		fire(serverLevel, player, color);
 		feel(serverLevel, player, color);
 		spend(serverLevel, gun, tuning.intValue(Param.INK));

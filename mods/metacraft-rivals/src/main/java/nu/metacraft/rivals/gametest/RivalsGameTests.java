@@ -2697,6 +2697,17 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)), Ink.MAX - Weapon.SLOSHER.inkPerShot, "ink cost");
 		helper.assertTrue(player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)),
 				"the slosher goes on cooldown: the fire rate is the cooldown");
+		// The slosher is the one weapon that stays a click rather than a hold, and the reason is its own
+		// cadence: Splatoon's is 2 ticks of startup and 10 of endlag, which is slower than the four-tick
+		// repeat a vanilla client sends, so nothing is lost by leaving it on the click.
+		helper.assertTrue(!PaintWeapon.of(Weapon.SLOSHER).isHeld(), "the slosher is clicked, not held");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("cooldown"), 12.0, "twelve ticks a slosh");
+		helper.assertTrue(WeaponTuning.get(Weapon.SLOSHER).intValue(Param.COOLDOWN) > 4,
+				"which is slower than a held click repeats, so the click is enough");
+		// A second click inside the cadence throws nothing: the cooldown is the rate.
+		InteractionResult early = PaintWeapon.of(Weapon.SLOSHER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertValueEqual(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).size(), balls.size(),
+				"a second click inside the cadence throws nothing more, got " + early);
 		balls.forEach(Entity::discard);
 		helper.succeed();
 	}
@@ -2708,6 +2719,11 @@ public final class RivalsGameTests {
 		player.getInventory().clearContent();
 		int given = PaintWeapon.giveKit(player);
 		helper.assertValueEqual(given, Weapon.values().length, "one of each");
+		// Four, and the sprayer is not one of them: it did what the shooter does, and the roller took its
+		// place in the roster.
+		helper.assertValueEqual(Weapon.values().length, 4, "four weapons");
+		helper.assertTrue(Weapon.byId("sprayer").isEmpty(), "the sprayer is gone");
+		helper.assertTrue(Weapon.byId("roller").orElse(null) == Weapon.ROLLER, "and the roller is here");
 		for (Weapon weapon : Weapon.values()) {
 			helper.assertTrue(player.getInventory().contains(new ItemStack(PaintWeapon.of(weapon))), "has " + weapon.id);
 			helper.assertTrue(Weapon.byId(weapon.id).orElse(null) == weapon, "byId round-trips " + weapon.id);
