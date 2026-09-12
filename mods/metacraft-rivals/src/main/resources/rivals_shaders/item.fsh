@@ -84,8 +84,19 @@ void main() {
     // only 245..247 — the three values no texel of any blocks- or items-atlas texture reaches at any mip
     // level 0..4 (244 and 248 are both reachable: burning fire, a jungle door top). Its colour is the
     // custom_model_data tint, handed to the frame unlit and unmodulated so the post effect reads back the
-    // exact bytes the server wrote. Before the gloss and before the lighting, and it never discards.
+    // exact bytes the server wrote. Before the gloss and before the lighting.
+    //
+    // RIVALS_LED_IDLE: an LED with nothing to say draws nothing at all. InkOnScreen.IDLE is 0x303030 —
+    // 48/255 = 0.18824 on every channel — and it is what every viewer but the meter's owner is ever sent
+    // (PaintWeapon.ledForViewer), and what the owner carries whenever their screen is clean. Discarding it
+    // is what makes the LED invisible rather than merely small: a dark pip on someone else's gun would be
+    // a tell, and one on your own in third person or in the inventory would be a wart. The window is a
+    // channel-wise 1.5/255, wide enough for the tint's own byte rounding and far from any lit value, whose
+    // red is 255 by construction.
     if (abs(tex.a - 0.9647) < 0.006) {
+        if (all(lessThan(abs(rawColor.rgb - vec3(0.18824)), vec3(0.0059)))) {
+            discard;
+        }
         #ifdef OIT_ALPHA_ONLY
         executeAlphaOnlyPhase(gl_FragCoord.z, 1.0);
         #else
@@ -164,10 +175,13 @@ void main() {
         vec3 n = normalize(cross(viewDx, viewDy));
         vec3 v = normalize(-viewPos);
         vec3 l = normalize(vec3(0.3 + 0.15 * sin(t), 0.8, 0.5 + 0.15 * cos(t)));
+        // The cell's phase rides the waves too, as it rides the border's wobble: without it every cell's
+        // specular pattern was the identical stamp, and a floor of paint read as tiling rather than as a
+        // sheet. Still the cell's own coordinate, so nothing flows across the seams.
         vec3 wave = vec3(
-            sin(p.x * 6.0 + t * 0.9) * 0.4 + sin((p.x + p.y) * 11.0 + t * 1.4) * 0.35 + sin(p.y * 17.0 - t * 2.3) * 0.25,
+            sin(p.x * 6.0 + phase + t * 0.9) * 0.4 + sin((p.x + p.y) * 11.0 + phase + t * 1.4) * 0.35 + sin(p.y * 17.0 + phase - t * 2.3) * 0.25,
             0.0,
-            cos(p.y * 6.0 + t * 0.9) * 0.4 + cos((p.y - p.x) * 11.0 + t * 1.4) * 0.35 + cos(p.x * 17.0 - t * 2.3) * 0.25);
+            cos(p.y * 6.0 + phase + t * 0.9) * 0.4 + cos((p.y - p.x) * 11.0 + phase + t * 1.4) * 0.35 + cos(p.x * 17.0 + phase - t * 2.3) * 0.25);
         n = normalize(n + 0.05 * wave);
         vec3 lightened = mix(color.rgb, vec3(1.0), 0.35);
         // The meniscus: the outer 0.08 of the shape is a bevel, lit on the side facing the light.

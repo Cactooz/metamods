@@ -36,10 +36,10 @@ void main() {
         fragColor = vec4(frame, 1.0);
         return;
     }
-    // The probe packs the LED's half extent in pixels and the team's one bit into the same byte.
-    float packed = floor(probe.g * 255.0 + 0.5);
-    vec3 ink = mod(packed, 2.0) < 0.5 ? DATA_INK : IT_INK;
-    float ledHalf = floor(packed * 0.5);
+    // The probe's green is the enemy team's index, and nothing else: the LED's position and size used to
+    // ride in the same byte so this pass could paint over it, and there is nothing left to paint over —
+    // the LED sits under the hotbar now, and the hotbar is drawn after this pass.
+    vec3 ink = floor(probe.g * 255.0 + 0.5) < 0.5 ? DATA_INK : IT_INK;
     float aspect = ScreenSize.x / ScreenSize.y;
     // Pixel art: the whole decision is taken at the centre of a 4x4 block of screen pixels, so every
     // edge — blob, rim and cover — comes out stepped rather than smooth. Units below are screen heights
@@ -68,16 +68,7 @@ void main() {
     // The middle of the screen is where the player is aiming: ink there is a blindfold, not a nuisance.
     if (length(p) < CLEAR) d = 1.0;
 
-    // And the LED itself, painted over with ink so the player never sees the number they are being told.
-    // The probe measured where it is and how big it is; the margin is the half pixel of slack the
-    // position's one byte per axis leaves, plus a cell of the grid.
-    vec2 led = vec2(probe.b, probe.a) * ScreenSize;
-    vec2 margin = ScreenSize / 510.0 + vec2(ledHalf + GRID);
-    bool cover = all(lessThan(abs(pixel - led), margin));
-
-    if (cover) {
-        fragColor = vec4(ink, 1.0);
-    } else if (d < 0.0) {
+    if (d < 0.0) {
         fragColor = vec4(d > -RIM ? mix(ink, vec3(1.0), 0.35) : ink, 1.0);
     } else {
         fragColor = vec4(frame, 1.0);

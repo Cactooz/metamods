@@ -32,9 +32,9 @@ import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
@@ -565,13 +565,20 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	/**
 	 * The client's copy of a weapon: Polymer's own (the mapped item, the dye, the model) with the data LED
 	 * masked to whoever is being sent it. {@link PacketContext#GAME_PROFILE} is the receiving player.
+	 *
+	 * <p>The masking happens on a copy of the <em>server</em> stack, before Polymer builds anything.
+	 * Polymer's {@code createItemStack} embeds the stack it was handed under {@code $polymer:stack} in the
+	 * client stack's custom data so it can map the item back; masking the result afterwards left the real
+	 * value, and the LED's owner UUID with it, inside that copy, on every other player's client. Masking
+	 * first means the number on the wire is the number that viewer is allowed to see, whichever field of
+	 * the packet they read it out of.
 	 */
 	@Override
 	public ItemStack getPolymerItemStack(ItemStack stack, TooltipFlag flag, PacketContext context, HolderLookup.Provider lookup) {
-		ItemStack out = PolymerItem.super.getPolymerItemStack(stack, flag, context, lookup);
 		GameProfile viewer = context.get(PacketContext.GAME_PROFILE);
-		InkOnScreen.put(out, ledForViewer(stack, viewer == null ? null : viewer.id()));
-		return out;
+		ItemStack masked = stack.copy();
+		InkOnScreen.put(masked, ledForViewer(stack, viewer == null ? null : viewer.id()));
+		return PolymerItem.super.getPolymerItemStack(masked, flag, context, lookup);
 	}
 
 	@Override

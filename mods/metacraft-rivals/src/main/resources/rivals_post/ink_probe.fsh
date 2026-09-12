@@ -20,22 +20,27 @@ layout(location = 0) out vec4 fragColor;
 // custom_model_data tint to the frame unlit and exact, and this pass goes looking for it: red at full
 // with green under 16, which nothing in a rendered world is for two samples in a row.
 //
+// Where it looks is the point of round 7. The LED no longer sits on the gun: each weapon's element is
+// solved so that its own firstperson_righthand transform lands it dead centre horizontally and a hair
+// above the bottom edge — inside the hotbar, which the GUI draws after this pass has read the frame. So
+// the probe stops sweeping the lower half of the screen and reads the one box the LED can be in, which
+// is both cheaper and impossible to confuse with a red block on the floor to the shooter's left.
+//
 // This pass renders to a 1x1 target, so everything below runs once per frame for the whole screen rather
 // than once per pixel.
 
-/** The band the first-person item lands in: the bottom 40% of the screen, either hand's side. */
-const float BAND = 0.40;
+/** The box the LED lands in: the bottom 8% of the height, the middle 30% of the width. */
+const float BAND = 0.08;
+const float MIDDLE = 0.30;
 /**
- * Sampling step as a share of the screen height. The LED is one model pixel of an item held at about a
- * quarter of the screen's height, so it covers some 1.7% of the height — a step of 1% cannot step over
- * it, and at 1920x1080 it puts the whole search at 192 x 43 = 8256 samples for the frame (one fetch
- * each; the confirmation fetch and the footprint walk only happen once something matches).
+ * Sampling step as a share of the screen height. The LED comes out about 2.5% of the height tall and
+ * 1.1% of the width across at 16:9, so a 0.6% step cannot step over it in either axis; at 1920x1080 that
+ * is 6 px, and the whole search is 96 x 14 = 1344 samples for the frame (one fetch each; the
+ * confirmation fetch only happens once something matches).
  */
-const float STEP_SHARE = 0.01;
+const float STEP_SHARE = 0.006;
 /** The confirmation sample's distance, a share of the height: well inside the LED, whatever the step is. */
 const float CONFIRM_SHARE = 0.004;
-/** How far the footprint measurement walks, in steps. */
-const int REACH = 24;
 
 /** The signature: red at full, green below 16 (green carries the team index in its low nibble). */
 bool marker(vec2 pixel, out vec3 data) {
@@ -44,51 +49,34 @@ bool marker(vec2 pixel, out vec3 data) {
     return frame.r > 0.99 && frame.g < 0.0627;
 }
 
-bool marker(vec2 pixel) {
-    vec3 ignored;
-    return marker(pixel, ignored);
-}
-
-/** How far the signature holds from {@code at} along {@code stride}, in pixels. */
-float reach(vec2 at, vec2 stride) {
-    float far = 0.0;
-    for (int i = 1; i <= REACH; i++) {
-        if (!marker(at + stride * float(i))) break;
-        far = length(stride) * float(i);
-    }
-    return far;
+/** A second sample carrying the same amount: a lone red pixel in the world is not a flat run of them. */
+bool confirms(vec2 at, float hop, vec3 here) {
+    vec3 there;
+    if (!marker(at + vec2(hop, 0.0), there)) return false;
+    return abs(there.b - here.b) <= 0.002;
 }
 
 void main() {
-    float stride = max(4.0, floor(InSize.y * STEP_SHARE));
-    // The second sample is a fixed short hop, not a whole step: the step may be wider than the LED.
+    float stride = max(2.0, floor(InSize.y * STEP_SHARE));
+    // The second sample is a fixed short hop, not a whole step: the step may be wider than the LED. It is
+    // tried both ways, because a scan column can land near either edge of the LED and a one-sided hop
+    // would then fall outside it and lose the reading for the whole frame.
     float confirm = max(2.0, floor(InSize.y * CONFIRM_SHARE));
+    float left = InSize.x * (0.5 - MIDDLE * 0.5);
+    float right = InSize.x * (0.5 + MIDDLE * 0.5);
     for (float y = stride * 0.5; y < InSize.y * BAND; y += stride) {
-        for (float x = stride * 0.5; x < InSize.x; x += stride) {
+        for (float x = left + stride * 0.5; x < right; x += stride) {
             vec2 at = vec2(x, y);
-            vec3 here, right;
+            vec3 here;
             if (!marker(at, here)) continue;
-            // Two samples a short hop apart, carrying the same amount: a lone red pixel in the world (a
-            // redstone block, a lava fleck, someone's red skin) is not a flat run of them.
-            if (!marker(at + vec2(confirm, 0.0), right)) continue;
-            if (abs(right.b - here.b) > 0.002) continue;
-            // Measure the LED's footprint by walking out until the signature stops, so the ink pass can
-            // cover exactly as much as it has to and no more.
-            // Walked at the confirmation distance, so the reach scales with the screen the LED does.
-            float walk = confirm;
-            float left = reach(at, vec2(-walk, 0.0));
-            float east = reach(at, vec2(walk, 0.0));
-            float down = reach(at, vec2(0.0, -walk));
-            float up = reach(at, vec2(0.0, walk));
-            vec2 centre = at + vec2(east - left, up - down) * 0.5;
-            float halfExtent = max(max(left + east, down + up) * 0.5, 1.0);
-            // amount, the team plus the half extent (the team needs one bit, so it rides the low one),
-            // and where the LED is as a share of the frame.
-            fragColor = vec4(here.b, (floor(min(halfExtent, 126.0)) * 2.0 + floor(here.g * 255.0 + 0.5)) / 255.0,
-                    centre.x / InSize.x, centre.y / InSize.y);
+            if (!confirms(at, confirm, here) && !confirms(at, -confirm, here)) continue;
+            // amount, and the team index the ink pass picks its colour by. Where the LED is no longer
+            // matters to anyone: the ink pass has nothing to cover, because the hotbar covers it.
+            fragColor = vec4(here.b, here.g, 0.0, 1.0);
             return;
         }
     }
-    // No weapon in view: no ink, and the ink pass hands the frame straight through.
+    // No weapon in view, or an idle LED (which the item shader discards outright): no ink, and the ink
+    // pass hands the frame straight through.
     fragColor = vec4(0.0);
 }
