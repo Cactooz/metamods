@@ -24,24 +24,28 @@ with paint on more than one face (a corner: floor plus wall in the same air cell
 per-face encoding: 2^6 − 1 − 6 = 57 combinations (the empty and single-face combinations never
 occur in this mode). Per colour 153, for two colours 306.
 
-Client states that render whatever we say, have no collision and no client-side behaviour
-(no `animateTick`, no fluid, no tint):
+Client states that render whatever we say, have no collision, emit no light and have no
+client-side behaviour (no `animateTick` particles, no fluid, no tint, not climbable). Glow lichen is
+**not** in the pool: `GlowLichenBlock.emission` gives light 7 to every state with a face, so paint on
+its states would glow while the rest stayed dark.
 
 | donor | usable states | note |
 |---|---|---|
 | sculk vein | 63 | six face booleans; waterlogged renders water, the all-false state renders nothing |
-| glow lichen | 63 | same |
 | resin clump | 63 | same |
 | tripwire | 128 | attached × disarmed × powered × n/e/s/w; no `animateTick`, thin outline shape only |
+| redstone wire, power 0 | 81 | n/e/s/w ∈ {none, side, up}; `animateTick` only spawns dust when power > 0; our model carries no tint index |
 
-317 states; 306 used. Assignment (a fixed table in `PaintStates`, not a formula):
+335 states; 306 used. The pool is the donors in that order, each donor's usable states in registry
+order, and each colour takes 153 contiguous entries (connected 96 first, then the 57 splat masks):
 
 - DATA: connected 96 → sculk vein 63 + resin clump 33; splat 57 → resin clump 30 + tripwire 27.
-- IT: connected 96 → glow lichen 63 + tripwire 33; splat 57 → tripwire 57.
+- IT: connected 96 → tripwire 96; splat 57 → tripwire 5 + redstone wire 52.
 
-The table is generated deterministically from the donor list in that order and asserted unique,
-never waterlogged and never all-false by a game test. Real tripwire, sculk veins, lichen or resin
-clumps placed by players in an arena render as paint; same caveat as v1, documented.
+A game test asserts the 306 states are distinct, never waterlogged, never all-false, and emit no
+light (`BlockState.getLightEmission()` is 0), and that `entry()` inverts `connected()`/`splat()` for
+every input. Real tripwire, redstone dust, sculk veins or resin clumps placed by players in an
+arena render as paint; same caveat as v1, documented.
 
 ## 3. Blocks and encoding
 
