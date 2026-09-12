@@ -18,6 +18,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
@@ -103,7 +104,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			if (player.getInventory().add(stack)) {
 				given++;
 			} else {
-				player.drop(stack, false);
+				player.drop(stack, false, Prediction.SERVER_ONLY);
 			}
 		}
 		return given;
@@ -313,7 +314,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	void muzzle(ServerLevel level, Player shooter, PaintColor color) {
 		Vec3 look = shooter.getLookAngle();
 		shooter.push(-look.x * 0.06, 0, -look.z * 0.06);
-		shooter.hurtMarked = true;
+		shooter.syncVelocity = true;
 		// The full burst is for everyone else. Ink crumbs at the shooter's own eyes hang in front of their
 		// camera for the whole of a held trigger and clog the first-person view, so the shooter gets a
 		// couple at the barrel tip instead — off the centre of the screen, where a muzzle is.

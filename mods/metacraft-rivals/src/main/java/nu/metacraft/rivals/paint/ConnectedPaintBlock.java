@@ -40,7 +40,7 @@ public final class ConnectedPaintBlock extends Block implements Paint, PolymerBl
 	/**
 	 * The paper-thin slab against each face — the shape the multiface donors carry — so rays and
 	 * {@link Painter#paintable} see a face rather than a cube. Vanilla keeps its own copy behind a
-	 * private field on {@code MultifaceBlock} in 26.2, so paint builds the six boxes itself.
+	 * private field on {@code MultifaceBlock} in 26.3, so paint builds the six boxes itself.
 	 */
 	private static final Map<Direction, VoxelShape> SHAPES = shapes();
 

@@ -4,7 +4,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.MultifaceBlock;
-import net.minecraft.world.level.block.RedStoneWireBlock;
+import net.minecraft.world.level.block.RedstoneWireBlock;
 import net.minecraft.world.level.block.TripWireBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
@@ -82,7 +82,7 @@ public final class PaintStates {
 		for (BlockState state : donor.getStateDefinition().getPossibleStates()) {
 			if (state.hasProperty(BlockStateProperties.WATERLOGGED) && state.getValue(BlockStateProperties.WATERLOGGED)) continue;
 			if (donor instanceof MultifaceBlock && faceMask(state) == 0) continue;
-			if (donor == Blocks.REDSTONE_WIRE && state.getValue(RedStoneWireBlock.POWER) != 0) continue;
+			if (donor == Blocks.REDSTONE_WIRE && state.getValue(RedstoneWireBlock.POWER) != 0) continue;
 			out.add(state);
 		}
 		return out;
@@ -101,7 +101,7 @@ public final class PaintStates {
 	private static int ups(BlockState wire) {
 		int ups = 0;
 		for (Direction d : Direction.Plane.HORIZONTAL) {
-			if (wire.getValue(RedStoneWireBlock.PROPERTY_BY_DIRECTION.get(d)) == RedstoneSide.UP) ups++;
+			if (wire.getValue(RedstoneWireBlock.PROPERTY_BY_DIRECTION.get(d)) == RedstoneSide.UP) ups++;
 		}
 		return ups;
 	}
@@ -125,7 +125,7 @@ public final class PaintStates {
 		for (BlockState wire : wires) {
 			Direction shortest = null;
 			for (Direction d : Direction.Plane.HORIZONTAL) {
-				if (wire.getValue(RedStoneWireBlock.PROPERTY_BY_DIRECTION.get(d)) != RedstoneSide.UP) continue;
+				if (wire.getValue(RedstoneWireBlock.PROPERTY_BY_DIRECTION.get(d)) != RedstoneSide.UP) continue;
 				if (shortest == null || sorted.get(d).size() < sorted.get(shortest).size()) shortest = d;
 			}
 			sorted.get(shortest).add(wire);

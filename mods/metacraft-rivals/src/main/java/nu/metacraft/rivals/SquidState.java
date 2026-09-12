@@ -119,7 +119,7 @@ public final class SquidState {
 
 	/**
 	 * Tell everyone tracking {@code player} — and only them, never the player — what is in these slots.
-	 * 26.2 calls this {@code sendToTrackingPlayers}; the self-including variant beside it would take the
+	 * 26.3 calls this {@code sendToTrackingPlayers}; the self-including variant beside it would take the
 	 * squid's own gun off its own screen.
 	 */
 	private static void broadcast(Player player, List<Pair<EquipmentSlot, ItemStack>> slots) {

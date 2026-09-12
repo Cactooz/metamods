@@ -15,6 +15,7 @@ import net.minecraft.server.ServerScoreboard;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.PermissionLevel;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
@@ -102,7 +103,7 @@ public final class RivalsCommands {
 	private static int gun(CommandSourceStack source, Weapon weapon) throws CommandSyntaxException {
 		ServerPlayer player = source.getPlayerOrException();
 		ItemStack gun = new ItemStack(PaintWeapon.of(weapon));
-		if (!player.getInventory().add(gun)) player.drop(gun, false);
+		if (!player.getInventory().add(gun)) player.drop(gun, false, Prediction.SERVER_ONLY);
 		source.sendSuccess(() -> Component.literal("Here is a " + weapon.displayName + ". Right-click to fire; join a team for colour."), false);
 		return 1;
 	}

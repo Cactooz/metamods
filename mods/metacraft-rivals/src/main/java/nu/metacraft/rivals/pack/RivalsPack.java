@@ -16,7 +16,7 @@ import java.util.Map;
  * bit-carrying textures, the six face quads and a variants blockstate override per donor block — and
  * the white splat quads the display paint uses. Required, because without it players see sculk veins,
  * resin clumps, tripwire and redstone dust where the paint is. Also ships a terrain shader override:
- * chunk geometry in 26.2 is drawn by terrain.vsh/terrain.fsh (not block.*), so the paint gloss is
+ * chunk geometry in 26.3 is drawn by terrain.vsh/terrain.fsh (not block.*), so the paint gloss is
  * keyed into that pair instead.
  */
 public final class RivalsPack {

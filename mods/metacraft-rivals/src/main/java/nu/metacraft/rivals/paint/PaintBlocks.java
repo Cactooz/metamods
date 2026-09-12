@@ -50,7 +50,7 @@ public final class PaintBlocks {
 				.noOcclusion()
 				.instabreak()
 				.noLootTable()
-				.pushReaction(PushReaction.DESTROY)
+				.pushReaction(PushReaction.POPPED)
 				.setId(ResourceKey.create(Registries.BLOCK, id));
 	}
 }

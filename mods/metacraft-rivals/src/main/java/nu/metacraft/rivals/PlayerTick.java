@@ -213,7 +213,7 @@ public final class PlayerTick {
 				} else {
 					player.setDeltaMovement(velocity.x, Math.max(velocity.y, 0.0), velocity.z);
 				}
-				player.hurtMarked = true;
+				player.syncVelocity = true;
 				player.resetFallDistance();
 			}
 		} else {
@@ -309,7 +309,7 @@ public final class PlayerTick {
 		LAST_DIVE.put(player.getUUID(), now);
 		Vec3 look = player.getLookAngle();
 		player.push(look.x * DIVE_SURGE_SPEED, 0, look.z * DIVE_SURGE_SPEED);
-		player.hurtMarked = true;
+		player.syncVelocity = true;
 		if (player.level() instanceof ServerLevel level) {
 			level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_SPLASH, SoundSource.PLAYERS, 0.4f, 1.5f);
 			// A ring of ink thrown outwards, so the dive lands with a splat rather than a shove.

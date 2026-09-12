@@ -605,7 +605,7 @@ public final class RivalsGameTests {
 		// The projectile's entity sweep only sees entities the level knows about.
 		helper.assertTrue(helper.getLevel().addFreshEntity(target), "the target player joined the level");
 		target.setHealth(target.getMaxHealth());
-		target.invulnerableTime = 0;
+		target.damageCooldownTime = 0;
 		float health = target.getHealth();
 		helper.assertFalse(PaintBall.hostile(PaintColor.DATA, target), "a teammate is not a target");
 		PaintBall direct = new PaintBall(helper.getLevel(), shooter, PaintColor.DATA);
@@ -651,7 +651,7 @@ public final class RivalsGameTests {
 		Vec3 at = helper.absoluteVec(new Vec3(2.5, 2.0, 2.5));
 		target.setPos(at.x, at.y, at.z);
 		target.setHealth(target.getMaxHealth());
-		target.invulnerableTime = 0;
+		target.damageCooldownTime = 0;
 		float before = target.getHealth();
 		PaintBall ball = new PaintBall(helper.getLevel(), null, PaintColor.DATA, 0, 0);
 		ball.setPos(at.x, at.y + 1.0, at.z);
@@ -675,7 +675,7 @@ public final class RivalsGameTests {
 		Vec3 at = helper.absoluteVec(new Vec3(2.5, 2.0, 2.5));
 		target.setPos(at.x, at.y, at.z);
 		target.setHealth(target.getMaxHealth());
-		target.invulnerableTime = 0;
+		target.damageCooldownTime = 0;
 		float before = target.getHealth();
 		PaintBall ball = new PaintBall(helper.getLevel(), null, PaintColor.DATA, 0, 0);
 		ball.setPos(at.x, at.y + 1.0, at.z);
@@ -871,7 +871,7 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** The gloss lives in the terrain shader pair (what actually draws chunks in 26.2), keyed on the paint alpha marker. */
+	/** The gloss lives in the terrain shader pair (what actually draws chunks in 26.3), keyed on the paint alpha marker. */
 	@GameTest
 	public void glossShaderCarriesTheMarkerGuard(GameTestHelper helper) {
 		String fsh = new String(RivalsPack.shader("terrain.fsh"), StandardCharsets.UTF_8);
@@ -1251,18 +1251,18 @@ public final class RivalsGameTests {
 		// The guard itself, isolated from vanilla's post-hit invulnerability: at 1.5 health a drip would
 		// take the player below one, so it must not land at all.
 		player.setHealth(1.5f);
-		player.invulnerableTime = 0;
+		player.damageCooldownTime = 0;
 		PlayerTick.tick(player, 40);
 		helper.assertTrue(player.getHealth() == 1.5f, "guard skips the drip below one health, health " + player.getHealth());
 		// At 3.0 a drip lands as normal.
 		player.setHealth(3.0f);
-		player.invulnerableTime = 0;
+		player.damageCooldownTime = 0;
 		PlayerTick.tick(player, 60);
 		helper.assertTrue(player.getHealth() == 2.0f, "drip lands with health to spare, health " + player.getHealth());
-		// Never below one health: without resetting invulnerableTime this would be vacuous, since vanilla
+		// Never below one health: without resetting damageCooldownTime this would be vacuous, since vanilla
 		// itself rejects a second hit within the previous drip's invulnerability window.
 		player.setHealth(1.5f);
-		player.invulnerableTime = 0;
+		player.damageCooldownTime = 0;
 		PlayerTick.tick(player, 80);
 		helper.assertTrue(player.getHealth() == 1.5f, "never below one health, health " + player.getHealth());
 		player.setHealth(before);
