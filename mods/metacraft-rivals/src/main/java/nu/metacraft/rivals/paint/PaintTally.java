@@ -37,9 +37,10 @@ public final class PaintTally {
 		return TALLIES.computeIfAbsent(level.dimension(), key -> new PaintTally());
 	}
 
-	/** Forget every level's cells (server stop). */
+	/** Forget every level's cells and drop every display quad (server stop). */
 	public static void clearAll() {
 		TALLIES.clear();
+		PaintDisplays.clearAll();
 	}
 
 	public void track(BlockPos cell) {
@@ -50,7 +51,10 @@ public final class PaintTally {
 		return cells.size();
 	}
 
-	/** Faces per colour over the tracked cells, pruning cells that hold no paint any more. Every colour has an entry. */
+	/**
+	 * Faces per colour over the tracked cells plus the level's {@link PaintDisplays} quads, pruning cells
+	 * that hold no paint any more. Every colour has an entry.
+	 */
 	public Map<PaintColor, Integer> count(ServerLevel level) {
 		Map<PaintColor, Integer> counts = new EnumMap<>(PaintColor.class);
 		for (PaintColor color : PaintColor.values()) counts.put(color, 0);
@@ -68,6 +72,7 @@ public final class PaintTally {
 			}
 			counts.merge(paint.color, faces, Integer::sum);
 		}
+		PaintDisplays.of(level).count().forEach((color, quads) -> counts.merge(color, quads, Integer::sum));
 		return counts;
 	}
 
@@ -78,7 +83,10 @@ public final class PaintTally {
 		return total == 0 ? 0f : counts.getOrDefault(color, 0) / (float) total;
 	}
 
-	/** Remove every tracked paint block from the level and forget the cells. Returns how many were removed. */
+	/**
+	 * Remove every tracked paint block and every display quad from the level and forget the cells.
+	 * Returns how many were removed.
+	 */
 	public int reset(ServerLevel level) {
 		int removed = 0;
 		for (BlockPos pos : cells) {
@@ -87,6 +95,7 @@ public final class PaintTally {
 				removed++;
 			}
 		}
+		removed += PaintDisplays.of(level).clear();
 		cells.clear();
 		return removed;
 	}

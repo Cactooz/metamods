@@ -21,9 +21,10 @@ import nu.metacraft.rivals.PaintColor;
 import org.jspecify.annotations.Nullable;
 
 /**
- * Where a hit puts paint. The struck block is the surface; the paint lives in the cell in front of the
- * struck face, as a paint block whose face flag points back at the surface. A splat covers the 3×3 of
- * surface blocks around the hit in the plane of the face, corners dropped at random.
+ * Where a hit puts paint. The struck block is the surface; a full face takes a paint block in the cell
+ * in front, whose face flag points back at the surface. Any other shape (stairs, slabs, fences, panes)
+ * takes {@link PaintDisplays} quads instead, wrapped around the block's own collision boxes. A splat
+ * covers the 3×3 of surface blocks around the hit in the plane of the face, corners dropped at random.
  */
 public final class Painter {
 	public static final int RADIUS = 1;
@@ -56,13 +57,23 @@ public final class Painter {
 		};
 	}
 
+	/** Anything solid: not air, not replaceable (grass, snow), not a fluid, not paint. */
+	public static boolean paintable(BlockState surface) {
+		return !surface.isAir() && !surface.canBeReplaced() && surface.getFluidState().isEmpty() && !(surface.getBlock() instanceof PaintBlock);
+	}
+
 	/**
-	 * Paint one face: the {@code face} side of the block at {@code surface}. The cell in front must be air
-	 * or paint, and the surface must be something a multiface block can attach to. An air cell becomes
-	 * this colour with that face; a same-colour cell gains the face; another colour's cell is recoloured
-	 * whole, keeping its faces. Returns whether anything changed.
+	 * Paint one face: the {@code face} side of the block at {@code surface}. The surface must be solid; a
+	 * face that is not full takes display quads instead of a block. Otherwise the cell in front must be air
+	 * or paint: an air cell becomes this colour with that face; a same-colour cell gains the face; another
+	 * colour's cell is recoloured whole, keeping its faces. Returns whether anything changed.
 	 */
 	public static boolean paintFace(ServerLevel level, BlockPos surface, Direction face, PaintColor color) {
+		BlockState surfaceState = level.getBlockState(surface);
+		if (!paintable(surfaceState)) return false;
+		if (!Block.isFaceFull(surfaceState.getCollisionShape(level, surface), face)) {
+			return PaintDisplays.of(level).paint(level, surface, face, color);
+		}
 		BlockPos cell = surface.relative(face);
 		Direction attach = face.getOpposite();
 		BooleanProperty attachFace = MultifaceBlock.getFaceProperty(attach);
@@ -81,7 +92,6 @@ public final class Painter {
 		} else {
 			return false;
 		}
-		if (!MultifaceBlock.canAttachTo(level, attach, surface, level.getBlockState(surface))) return false;
 		if (!level.setBlock(cell, next, Block.UPDATE_ALL)) return false;
 		PaintTally.of(level).track(cell);
 		return true;

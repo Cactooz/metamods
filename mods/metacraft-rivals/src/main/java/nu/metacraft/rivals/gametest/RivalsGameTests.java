@@ -36,6 +36,7 @@ import nu.metacraft.rivals.gun.PaintGun;
 import nu.metacraft.rivals.gun.Recoil;
 import nu.metacraft.rivals.paint.PaintBlock;
 import nu.metacraft.rivals.paint.PaintBlocks;
+import nu.metacraft.rivals.paint.PaintDisplays;
 import nu.metacraft.rivals.paint.Painter;
 import nu.metacraft.rivals.paint.PaintTally;
 import nu.metacraft.rivals.pack.SplatArt;
@@ -443,6 +444,30 @@ public final class RivalsGameTests {
 		helper.assertTrue(result == InteractionResult.SUCCESS, "shot succeeds");
 		helper.assertValueEqual(Recoil.pending(), before, "no settle queued for a connectionless player");
 		helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/** A stair top takes paint as display quads: tracked, counted in the colour, removed by reset. */
+	@GameTest
+	public void stairTakesDisplayPaint(GameTestHelper helper) {
+		BlockPos stair = new BlockPos(2, 1, 2);
+		helper.setBlock(stair, Blocks.STONE_STAIRS.defaultBlockState());
+		PaintDisplays displays = PaintDisplays.of(helper.getLevel());
+		int before = displays.holders();
+		boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.LIME);
+		helper.assertTrue(painted, "stair top accepted paint");
+		helper.assertTrue(helper.getBlockState(stair.above()).isAir(), "no paint block above a stair (quads instead)");
+		helper.assertValueEqual(displays.holders(), before + 1, "one holder for the cell");
+		helper.assertTrue(displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.LIME, "cell is lime");
+		helper.assertTrue(displays.count().get(PaintColor.LIME) >= 1, "counted as lime faces");
+		boolean recoloured = Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.CYAN);
+		helper.assertTrue(recoloured && displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.CYAN, "recoloured to cyan");
+		helper.assertValueEqual(displays.holders(), before + 1, "recolour reuses the cell");
+		PaintTally tally = new PaintTally();
+		helper.assertTrue(tally.count(helper.getLevel()).get(PaintColor.CYAN) >= 1, "the tally counts the quads as cyan faces");
+		int removed = tally.reset(helper.getLevel()); // a reset clears the level's display quads too
+		helper.assertTrue(removed >= 1 && displays.holders() == 0, "clear removed the quads");
+		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.CYAN), 0, "nothing left to count");
 		helper.succeed();
 	}
 }

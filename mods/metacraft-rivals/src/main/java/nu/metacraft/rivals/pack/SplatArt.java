@@ -35,7 +35,10 @@ public final class SplatArt {
 
 	private SplatArt() {}
 
-	/** Every generated file for the block art: textures, models, and the three blockstate overrides. */
+	/**
+	 * Every generated file: the block art (textures, models, the three blockstate overrides) and the
+	 * white splat quad item used by the display paint on non-full faces.
+	 */
 	public static Map<String, byte[]> packFiles() {
 		Map<String, byte[]> files = new LinkedHashMap<>();
 		for (PaintColor color : PaintColor.values()) {
@@ -49,6 +52,28 @@ public final class SplatArt {
 			}
 			files.put("assets/minecraft/blockstates/" + color.donorPath() + ".json",
 					blockstate(color).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+		}
+		// One white silhouette per shape for the display quads on non-full faces: the dye tint colours it.
+		for (String shape : SHAPES) {
+			String name = "splat_quad_" + shape;
+			files.put("assets/" + Rivals.MOD_ID + "/textures/item/" + name + ".png", whiteMask(shape));
+			files.put("assets/" + Rivals.MOD_ID + "/models/item/" + name + ".json", """
+					{
+						"textures": {"particle": "%1$s", "splat": "%1$s"},
+						"elements": [{
+							"from": [0, 0, 8],
+							"to": [16, 16, 8],
+							"faces": {
+								"north": {"uv": [16, 0, 0, 16], "texture": "#splat", "tintindex": 0},
+								"south": {"uv": [0, 0, 16, 16], "texture": "#splat", "tintindex": 0}
+							}
+						}],
+						"display": {"fixed": {"rotation": [0, 0, 0], "translation": [0, 0, 0], "scale": [1, 1, 1]}}
+					}
+					""".formatted(Rivals.MOD_ID + ":item/" + name).getBytes(java.nio.charset.StandardCharsets.UTF_8));
+			files.put("assets/" + Rivals.MOD_ID + "/items/" + name + ".json", """
+					{"model": {"type": "minecraft:model", "model": "%s", "tints": [{"type": "minecraft:dye", "default": 16777215}]}}
+					""".formatted(Rivals.MOD_ID + ":item/" + name).getBytes(java.nio.charset.StandardCharsets.UTF_8));
 		}
 		return files;
 	}

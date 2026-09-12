@@ -2,7 +2,9 @@ package nu.metacraft.rivals.paint;
 
 import eu.pb4.polymer.core.api.block.PolymerBlock;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
+import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
@@ -36,6 +38,12 @@ public final class PaintBlock extends MultifaceBlock implements PolymerBlock {
 			throw new IllegalStateException("[" + Rivals.MOD_ID + "] donor " + color.donor + " for paint colour "
 					+ color.id + " has no waterlogged property");
 		}
+	}
+
+	/** The relaxed support rule: any solid block on that side, not only a full face. */
+	@Override
+	public boolean isValidStateForPlacement(BlockGetter level, BlockState state, BlockPos pos, Direction direction) {
+		return Painter.paintable(level.getBlockState(pos.relative(direction)));
 	}
 
 	@Override
