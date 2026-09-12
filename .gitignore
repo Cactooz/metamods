@@ -22,6 +22,7 @@ bin/
 # fabric
 run/
 run2/
+run-v6/
 generated/
 # fabric j-unit
 mods/**/config/
