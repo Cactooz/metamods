@@ -179,6 +179,7 @@ public final class PlayerTick {
 		if (player.isSpectator()) {
 			SquidState.exit(player);
 			SquidState.clearEnemyInk(player);
+			LAST_POS.remove(player.getUUID());
 			return;
 		}
 		if (now % OVVE_EVERY == 0) wearYourColours(player);
@@ -285,7 +286,7 @@ public final class PlayerTick {
 	 * Ink specks at the squid's feet, if it is moving horizontally at all. Returns how many were sent —
 	 * the only thing a server-side test can see, since particles leave no trace in the level.
 	 *
-	 * <p>Everyone gets them, the squid included: three small specks down at foot level are under the
+	 * <p>Everyone gets them, the squid included: a couple of small crumbs down at foot level are under the
 	 * camera of a half-height squid, and leaving your own wake out is what makes squid form feel like
 	 * nothing is happening.
 	 */

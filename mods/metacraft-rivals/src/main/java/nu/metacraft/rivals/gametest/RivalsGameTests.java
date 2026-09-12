@@ -535,22 +535,45 @@ public final class RivalsGameTests {
 		});
 	}
 
-	/** A ball that hits a teammate paints the floor under them and leaves their health alone. */
+	/**
+	 * A ball that hits a teammate paints the floor under them and leaves their health alone.
+	 *
+	 * <p>Two halves, and they are deliberately not in the same tick. Friendly fire is checked
+	 * <em>synchronously</em>, against a direct {@code onHitEntity}: every mock player shares the
+	 * scoreboard name {@code test-mock-player}, and the tests in a batch tick side by side, so the team
+	 * on that name ten ticks from now belongs to whichever test touched it last — a delayed health
+	 * assertion here is a coin toss, not a test. The flight is then checked for what only a flight can
+	 * show: that a ball thrown at a player lands on them and paints the cell under their feet. The
+	 * synchronous half paints that cell too, so it is wiped first and asserted empty; the flight has to
+	 * put the paint there itself.
+	 */
 	@GameTest
 	public void paintBallOnEntityPaintsUnderneathWithoutDamage(GameTestHelper helper) {
 		stoneFloor(helper, 5);
+		// gunner() is a different mock player — a projectile never hits its own owner — and its first act
+		// is to clear the shared mock scoreboard name, so it has to run before the target joins a team.
+		Player shooter = gunner(helper);
 		Player target = helper.makeMockPlayer(GameType.SURVIVAL);
 		Vec3 stand = helper.absoluteVec(new Vec3(2.5, 2, 2.5));
 		target.setPos(stand.x, stand.y, stand.z);
-		// On the shooter's own team, so the ball is the one that paints and does not hurt. (Every mock
-		// player shares the name "test-mock-player", so this puts the shooter on DATA as well, which is
-		// what makes them teammates.)
+		// On the shooter's own team, which for the shared mock name means both of them at once.
 		helper.getLevel().getScoreboard().addPlayerToTeam(target.getScoreboardName(), team(helper, PaintColor.DATA));
 		// The projectile's entity sweep only sees entities the level knows about.
 		helper.assertTrue(helper.getLevel().addFreshEntity(target), "the target player joined the level");
+		target.setHealth(target.getMaxHealth());
+		target.invulnerableTime = 0;
 		float health = target.getHealth();
-		// gunner() is a different mock player: a projectile never hits its own owner.
-		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.DATA);
+		helper.assertFalse(PaintBall.hostile(PaintColor.DATA, target), "a teammate is not a target");
+		PaintBall direct = new PaintBall(helper.getLevel(), shooter, PaintColor.DATA);
+		direct.setPos(stand.x, stand.y + 1.0, stand.z);
+		helper.assertTrue(direct.damage() > 0, "the ball would hurt someone, damage " + direct.damage());
+		direct.onHitEntity(new EntityHitResult(target));
+		helper.assertValueEqual(target.getHealth(), health, "a teammate takes no damage from a direct hit");
+		direct.discard();
+		// Wipe what the direct hit painted, so the flight below has to paint the cell from scratch.
+		helper.setBlock(new BlockPos(2, 2, 2), Blocks.AIR);
+		helper.assertFalse(isPaint(helper.getBlockState(new BlockPos(2, 2, 2)), PaintColor.DATA), "the cell starts empty");
+		PaintBall ball = new PaintBall(helper.getLevel(), shooter, PaintColor.DATA);
 		Vec3 from = helper.absoluteVec(new Vec3(2.5, 2.6, 0.5));
 		ball.setPos(from.x, from.y, from.z);
 		// Flat and fast at the player's chest, not dropped on their head: a ball that missed would
@@ -564,8 +587,6 @@ public final class RivalsGameTests {
 			helper.assertTrue(isPaint(state, PaintColor.DATA),
 					Component.literal("the floor under the player should be DATA paint, got " + state));
 			helper.assertTrue(hasFace(state, PaintColor.DATA, Direction.DOWN), "paint sits on its down face");
-			helper.assertTrue(target.getHealth() == health,
-					"a teammate took no damage, health " + target.getHealth() + " was " + health);
 			target.discard();
 			helper.getLevel().getScoreboard().removePlayerFromTeam(target.getScoreboardName());
 			helper.succeed();

@@ -53,14 +53,15 @@ and throws rather than reusing one or running a pool dry:
    direction is `up` carries `boxZ(10, 16, 0, 1)`, a full-height 1-px strip climbing that face — the
    nearest thing any donor has to a wall decal. The 65 strip states are handed out fewest-other-`up`
    first, each to whichever of its own `up` directions is currently shortest, which spreads them
-   16/16/16/17 over N/E/S/W: eight per colour per direction. The other eight per colour fall back to
+   17/16/16/16 over N/E/S/W: at least eight per colour per direction. The rest fall back to
    the leftover flat states (tripwire `attached=true` remainder, then the 16 redstone states with no
    `up`) and finally to half boxes.
 4. **Ceiling cells (attach `UP`) are half boxes.** Tripwire `attached=false` — `column(16, 0, 8)`.
    No donor draws a ceiling slab with 16 spare states, and ceilings are the rarest cell there is.
 
-The 306 come out as 114 exact multiface (splats), 32 flat (floors), 64 strip + 48 flat + 16 half
-(walls) and 32 half (ceilings); 29 states are left over (12 multiface, 16 half, 1 strip).
+The 306 come out as 114 exact multiface (splats), 32 flat (floors), 65 strip + 48 flat + 15 half
+(walls) and 32 half (ceilings); 29 states are left over (12 multiface and 17 half — every strip and
+every flat state is spent).
 
 `connected()`, `splat()`, `all()` and `entry()` keep their signatures — `entry()` is now a reverse map
 built alongside the table — so `PaintArt` follows the allocator without change.

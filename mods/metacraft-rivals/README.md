@@ -67,9 +67,11 @@ dedicated Rivals server wants.
   to see its own gun — an equipment packet with empty hands and armour; the tick it stops being a
   squid sends the real one back.
 - Shots hurt. A direct hit on someone from another team takes hearts off them as well as painting the
-  ground under their feet: 3 from a shooter's ball, 1 per sprayer droplet (it throws three), 4 per
-  slosher ball (it throws four), ½ from a bounce droplet, and 4 + 6 × charge from the charger's line,
-  which makes a full charge the hardest hit in the game. Teammates take the paint and nothing else, no
+  ground under their feet: 3 from a shooter's ball, 1 from a sprayer droplet, 4 from a slosher ball, ½
+  from a bounce droplet, and 4 + 6 × charge from the charger's line, which makes a full charge the
+  hardest hit in the game. The multi-projectile weapons do not add up: vanilla's post-hit
+  invulnerability window means a fistful of droplets arriving together is worth one of them, so the
+  sprayer and the slosher pay for their spread in coverage rather than in damage. Teammates take the paint and nothing else, no
   team at all counts as fair game, and a squid is an ordinary player here — squid form is cover, not
   armour. Kills are attributed to the shooter.
 - One colour per cell: a hit in another colour wipes the cell and starts it over as a single

@@ -49,8 +49,8 @@ import java.util.Set;
  *     direction is {@code up}, which adds a full-height 1-px strip climbing that face of the cell —
  *     the nearest thing any donor has to a wall decal. Each strip state is spent once, fewest other
  *     {@code up} sides first and on whichever of its own {@code up} directions is shortest, which
- *     spreads the 65 of them sixteen to a direction: eight per colour. The other eight per colour
- *     fall back to the leftover FLAT states and then to HALF.</li>
+ *     spreads the 65 of them 17/16/16/16 over N/E/S/W: at least eight per colour per direction. The
+ *     other eight-odd per colour fall back to the leftover FLAT states and then to HALF.</li>
  * <li><b>Ceiling cells are halves.</b> Attach {@link Direction#UP} takes {@code HALF}: tripwire
  *     {@code attached=false}, a half box. No donor draws a ceiling slab with 16 spare states, and
  *     ceilings are the rarest cell there is.</li>

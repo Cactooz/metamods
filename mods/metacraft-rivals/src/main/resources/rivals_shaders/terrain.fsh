@@ -17,6 +17,8 @@ out vec4 fragColor;
 
 /** Texels to a block: the grid the paint's border, wobble and highlights are all snapped to. */
 const float TEXELS = 16.0;
+/** Wobble amplitude, in blocks. Above 1/TEXELS, or it cannot move the quantised edge at all. */
+const float WOBBLE = 0.07;
 
 vec4 sampleNearest(sampler2D source, vec2 uv, vec2 pixelSize, vec2 du, vec2 dv, vec2 texelScreenSize) {
 	// Convert our UV back up to texel coordinates and find out how far over we are from the center of each pixel
@@ -130,8 +132,11 @@ void main() {
 		float t = GameTime * 1200.0;
 		bool negU = (bits & 1) != 0, posU = (bits & 2) != 0, negV = (bits & 4) != 0, posV = (bits & 8) != 0;
 		// Inset each unconnected side by 0.06 plus a slow wobble; connected sides run out past the cell.
-		float w0 = 0.02 * sin(along.y * 12.0 + t * 1.1), w1 = 0.02 * sin(along.y * 12.0 + 2.0 + t * 0.9);
-		float w2 = 0.02 * sin(along.x * 12.0 + 4.0 + t * 1.3), w3 = 0.02 * sin(along.x * 12.0 + 1.0 + t * 0.8);
+		// The amplitude has to clear a whole texel (1/TEXELS = 0.0625) or the quantised edge below never
+		// moves: 0.02 kept the threshold inside the texel it started in, so a straight edge sat perfectly
+		// still. At 0.07 the inset swings between none and two texels and the border crawls.
+		float w0 = WOBBLE * sin(along.y * 12.0 + t * 1.1), w1 = WOBBLE * sin(along.y * 12.0 + 2.0 + t * 0.9);
+		float w2 = WOBBLE * sin(along.x * 12.0 + 4.0 + t * 1.3), w3 = WOBBLE * sin(along.x * 12.0 + 1.0 + t * 0.8);
 		float lo_u = negU ? -1.0 : 0.06 + w0, hi_u = posU ? 2.0 : 0.94 + w1;
 		float lo_v = negV ? -1.0 : 0.06 + w2, hi_v = posV ? 2.0 : 0.94 + w3;
 		vec2 centre = vec2(lo_u + hi_u, lo_v + hi_v) * 0.5;
