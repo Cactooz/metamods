@@ -872,7 +872,13 @@ public final class RivalsGameTests {
 		for (Weapon weapon : Weapon.values()) {
 			helper.assertTrue(player.getInventory().contains(new ItemStack(PaintWeapon.of(weapon))), "has " + weapon.id);
 			helper.assertTrue(Weapon.byId(weapon.id).orElse(null) == weapon, "byId round-trips " + weapon.id);
+			helper.assertTrue(Weapon.byId(weapon.commandId()).orElse(null) == weapon,
+					"byId also takes the lowercase name " + weapon.commandId());
 		}
+		helper.assertTrue(Weapon.byId("shooter").orElse(null) == Weapon.SHOOTER, "the shooter answers to \"shooter\"");
+		helper.assertTrue(Weapon.byId("paint_gun").orElse(null) == Weapon.SHOOTER, "and still to its registry id");
+		helper.assertTrue(Weapon.idList().contains("shooter") && !Weapon.idList().contains("paint_gun"),
+				"the help offers \"shooter\", not the registry id: " + Weapon.idList());
 		helper.assertTrue(Weapon.byId("nonesuch").isEmpty(), "an unknown id resolves to nothing");
 		player.getInventory().clearContent();
 		helper.succeed();

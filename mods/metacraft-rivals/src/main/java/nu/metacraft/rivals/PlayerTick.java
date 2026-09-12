@@ -2,6 +2,7 @@ package nu.metacraft.rivals;
 
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
+import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
@@ -57,6 +58,13 @@ public final class PlayerTick {
 			for (ServerPlayer player : server.getPlayerList().getPlayers()) tick(player, now);
 		});
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> SquidState.clearAll());
+		// A player who logs out mid-squid (or standing in enemy ink) is never ticked again, so nothing
+		// would ever take the state off them: the UUID would stay in the squid set, and a rejoin would
+		// report a squid whose attributes died with the old entity. Same tidy-up the spectator branch does.
+		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
+			SquidState.exit(handler.getPlayer());
+			SquidState.clearEnemyInk(handler.getPlayer());
+		});
 	}
 
 	public static boolean isSquid(Player player) {
