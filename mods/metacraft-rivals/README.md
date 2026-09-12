@@ -482,6 +482,12 @@ Mojang/Microsoft.* The paint art — block textures and the display quads' sprit
 by the mod. Kenney's Blaster Kit supplied the weapons up to round 6 and Kenney's Splat Pack the
 display quads up to round 5; neither is shipped any more.
 
+`tools/splatcraft-rp/` is **SplatCraft RP by SculK3d**, from the "SplatCraft Map + RP" bundle, under
+**LGPL-3.0** (its own `LICENSE.LGPL-3.0` and `ATTRIBUTION.md` are kept with it). It is source material,
+not something the mod ships: it is where the squid item model, the splat bomb model and the ink tank
+textures are being read from. Nothing in `src/main/resources` is copied out of it as things stand, and
+anything that ever is inherits those terms.
+
 ## Not yet
 
 Arena bounds and a round loop; persisting display quads and the tally across a restart; damage on
