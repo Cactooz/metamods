@@ -176,9 +176,15 @@ def main():
 	ap.add_argument("--colours", type=int, default=16, help="palette entries, one texel column each")
 	ap.add_argument("--flip", action="store_true", help="rotate 180 degrees about Y (muzzle was pointing the wrong way)")
 	ap.add_argument("--max-elements", type=int, default=400)
+	ap.add_argument("--accent", help='semicolon-separated "r,g,b" triples overriding the default ACCENT family')
+	ap.add_argument("--name", default="paint_gun", help="palette texture reference: metacraft-rivals:item/<name>_palette")
 	args = ap.parse_args()
 	if not 1 <= args.colours <= 16:
 		sys.exit("--colours must be 1..16: the palette is one 16x16 texture, one texel column per colour")
+
+	accent = ACCENT
+	if args.accent:
+		accent = [tuple(int(v) for v in triple.split(",")) for triple in args.accent.split(";")]
 
 	verts, uvs, tris = load_obj(args.obj)
 	tex = Image.open(colormap_path(args.obj)).convert("RGB")
@@ -196,9 +202,9 @@ def main():
 	# Palette: the accent family turns greyscale and is tinted by the item definition's dye;
 	# everything else keeps its own texel. The mesh's light/shade split survives the change:
 	# colours nearest ACCENT[0] (the lit orange) go white, the rest of the family go grey.
-	tinted = {c for c in palette if any(near(c, a, ACCENT_TOLERANCE) for a in ACCENT)}
+	tinted = {c for c in palette if any(near(c, a, ACCENT_TOLERANCE) for a in accent)}
 	def tint_shade(colour):
-		lit = min(ACCENT, key=lambda a: sum((x - y) ** 2 for x, y in zip(a, colour))) == ACCENT[0]
+		lit = min(accent, key=lambda a: sum((x - y) ** 2 for x, y in zip(a, colour))) == accent[0]
 		return (255, 255, 255) if lit else (200, 200, 200)
 	order = [c for c in palette]
 	pal = Image.new("RGBA", (16, 16), (0, 0, 0, 0))
@@ -234,9 +240,9 @@ def main():
 		})
 
 	model = {
-		"credit": "Kenney Blaster Kit (CC0) blaster-b, converted by tools/obj2mc.py; tank faces tinted",
+		"credit": f"Kenney Blaster Kit (CC0) {os.path.splitext(os.path.basename(args.obj))[0]}, converted by tools/obj2mc.py; tank faces tinted",
 		"texture_size": one_line([16, 16]),
-		"textures": {"0": "metacraft-rivals:item/paint_gun_palette", "particle": "metacraft-rivals:item/paint_gun_palette"},
+		"textures": {"0": f"metacraft-rivals:item/{args.name}_palette", "particle": f"metacraft-rivals:item/{args.name}_palette"},
 		"elements": elements,
 		"gui_light": "side",
 		"display": {

@@ -1,0 +1,12 @@
+{
+	"model": {
+		"type": "minecraft:model",
+		"model": "metacraft-rivals:item/sprayer",
+		"tints": [
+			{
+				"type": "minecraft:dye",
+				"default": 16777215
+			}
+		]
+	}
+}

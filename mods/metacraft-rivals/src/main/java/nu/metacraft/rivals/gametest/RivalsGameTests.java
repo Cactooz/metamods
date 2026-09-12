@@ -324,40 +324,42 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** The gun's item definition, model and palette ship in the jar, and the model stays inside the item bounds. */
+	/** Every weapon's item definition, model and palette ship in the jar, and each model stays inside the item bounds. */
 	@GameTest
 	public void gunModelAssetsArePresent(GameTestHelper helper) throws IOException {
 		String base = "/assets/" + Rivals.MOD_ID + "/";
-		for (String path : new String[] {"items/paint_gun.json", "models/item/paint_gun.json", "textures/item/paint_gun_palette.png"}) {
-			try (InputStream in = Rivals.class.getResourceAsStream(base + path)) {
-				helper.assertTrue(in != null, "asset present: " + path);
+		for (String id : new String[] {"paint_gun", "sprayer", "charger", "slosher"}) {
+			for (String path : new String[] {"items/" + id + ".json", "models/item/" + id + ".json", "textures/item/" + id + "_palette.png"}) {
+				try (InputStream in = Rivals.class.getResourceAsStream(base + path)) {
+					helper.assertTrue(in != null, "asset present: " + path);
+				}
 			}
-		}
-		try (InputStream in = Rivals.class.getResourceAsStream(base + "models/item/paint_gun.json")) {
-			JsonObject model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
-			JsonArray elements = model.getAsJsonArray("elements");
-			helper.assertTrue(elements.size() >= 5, "model has elements");
-			helper.assertTrue(elements.size() <= 400, "model stays under 400 elements, got " + elements.size());
-			boolean tinted = false;
-			for (JsonElement e : elements) {
-				JsonObject box = e.getAsJsonObject();
-				for (String key : new String[] {"from", "to"}) {
-					for (JsonElement v : box.getAsJsonArray(key)) {
-						double d = v.getAsDouble();
-						helper.assertTrue(d >= -16 && d <= 32, "element coordinate in range: " + d);
+			try (InputStream in = Rivals.class.getResourceAsStream(base + "models/item/" + id + ".json")) {
+				JsonObject model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+				JsonArray elements = model.getAsJsonArray("elements");
+				helper.assertTrue(elements.size() >= 5, id + ": model has elements");
+				helper.assertTrue(elements.size() <= 400, id + ": model stays under 400 elements, got " + elements.size());
+				boolean tinted = false;
+				for (JsonElement e : elements) {
+					JsonObject box = e.getAsJsonObject();
+					for (String key : new String[] {"from", "to"}) {
+						for (JsonElement v : box.getAsJsonArray(key)) {
+							double d = v.getAsDouble();
+							helper.assertTrue(d >= -16 && d <= 32, id + ": element coordinate in range: " + d);
+						}
+					}
+					for (var face : box.getAsJsonObject("faces").entrySet()) {
+						if (face.getValue().getAsJsonObject().has("tintindex")) tinted = true;
 					}
 				}
-				for (var face : box.getAsJsonObject("faces").entrySet()) {
-					if (face.getValue().getAsJsonObject().has("tintindex")) tinted = true;
-				}
+				helper.assertTrue(tinted, id + ": some faces are tinted");
 			}
-			helper.assertTrue(tinted, "some faces are tinted (the tank)");
-		}
-		try (InputStream in = Rivals.class.getResourceAsStream(base + "items/paint_gun.json")) {
-			JsonObject definition = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
-			JsonObject modelDef = definition.getAsJsonObject("model");
-			helper.assertValueEqual(modelDef.get("model").getAsString(), Rivals.MOD_ID + ":item/paint_gun", "definition points at the model");
-			helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(), "minecraft:dye", "dye tint");
+			try (InputStream in = Rivals.class.getResourceAsStream(base + "items/" + id + ".json")) {
+				JsonObject definition = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+				JsonObject modelDef = definition.getAsJsonObject("model");
+				helper.assertValueEqual(modelDef.get("model").getAsString(), Rivals.MOD_ID + ":item/" + id, id + ": definition points at the model");
+				helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(), "minecraft:dye", id + ": dye tint");
+			}
 		}
 		helper.succeed();
 	}
