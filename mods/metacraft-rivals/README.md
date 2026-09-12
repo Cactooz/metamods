@@ -1,7 +1,9 @@
 # Metacraft Rivals
 
 METAmods module `mods/metacraft-rivals` (mod id `metacraft-rivals`). A Splatoon-style paint
-prototype for vanilla clients: Fabric + [Polymer](https://polymer.pb4.eu), Minecraft 26.2, Java 25.
+prototype for vanilla clients: Fabric + [Polymer](https://polymer.pb4.eu), Minecraft 26.3-rc-1, Java 25.
+(Loader 0.19.5, Fabric API 0.160.3+26.3, Polymer 0.18.0+26.3-rc-1 — all from the root
+`gradle.properties`. The module is not shipped in `dist`; it runs on a server of its own.)
 Players need only the auto-served resource pack. Design: `docs/superpowers/specs/2026-09-11-metacraft-rivals-paint-prototype-design.md`
 (v1), `docs/superpowers/specs/2026-09-12-metacraft-rivals-v2-design.md` (v2: feel, art, any-block
 paint, ink), `docs/superpowers/specs/2026-09-12-metacraft-rivals-v3-design.md` (v3: gloss that
@@ -141,7 +143,7 @@ dedicated Rivals server wants.
   opaque white masks and dye-tinted per shooter, for the flat quads `PaintDisplays` hangs on faces
   that aren't full blocks (stairs, slabs, fences, panes) — the item icon still uses one variant too.
 - The pack also overrides `assets/minecraft/shaders/core/terrain.vsh`/`terrain.fsh` — the pair that
-  actually draws chunk geometry in 26.2 — inside a guard on that alpha marker. It reads the four
+  actually draws chunk geometry in 26.3 — inside a guard on that alpha marker. It reads the four
   bits back out of the texel's red channel, works out the face's two in-plane axes from
   `cross(dFdx(chunkPos), dFdy(chunkPos))`, and computes the signed distance to a rounded box in that
   plane: unconnected sides are inset (with a slow time-and-position wobble) and rounded at a corner
@@ -249,7 +251,10 @@ defaults stand.
 Or just get dressed: wearing an ovvar ovve puts you on that chapter's team within the second, creating
 the teams if nobody has run `/rivals setup` yet. Matched on the item's registry id (`ovvar:data_*` →
 DATA, `ovvar:it_*` → IT), so there is no dependency on ovvar and an arena without it plays exactly as
-before; taking the ovve off leaves you on the team you were on.
+before; taking the ovve off leaves you on the team you were on. On 26.3 that needs ovvar's own 26.3
+build in `run/mods/`: the published ovvar jar is 26.2-only (`minecraft >=26.2 <26.3`) and a 26.3
+server refuses it, so until ovvar is ported the ovve-team shortcut has nothing to match and teams
+are joined with `/rivals team`.
 
 ## Build, run, test
 
@@ -269,7 +274,7 @@ on a fresh clone `runServer` takes two passes:
 Polymer's pack autohost is on by default in the dev environment, so the required pack is served
 without any extra setup.
 
-Join the dev server with a vanilla 26.2 client (offline mode) and accept the pack.
+Join the dev server with a vanilla 26.3-rc-1 client (offline mode) and accept the pack.
 
 To drive a running dev server without a client attached (`/rivals setup`, `/op <name>`, a score
 check), `tools/rcon.py` sends one command over RCON and prints the reply — standard library only,
