@@ -180,8 +180,8 @@ public final class PaintWeapon extends Item implements PolymerItem {
 
 	/**
 	 * The charger's shot, fired when the hold ends. How long the button was down is the whole weapon:
-	 * under {@link #MIN_CHARGE_TICKS} it was a tap and nothing happens (no ink, no cooldown — a
-	 * mis-click must not cost anything), and from there to {@link #CHARGE_FULL_TICKS} the charge scales
+	 * under {@link Weapon#MIN_CHARGE_TICKS} it was a tap and nothing happens (no ink, no cooldown — a
+	 * mis-click must not cost anything), and from there to {@link Weapon#CHARGE_FULL_TICKS} the charge scales
 	 * range, ink and kick together. The shot itself is hitscan: one clip along the view, a line of paint
 	 * on the floor under it, and a splash where it stops — under the feet of whoever was standing in the
 	 * way, if anyone was, and otherwise on the block face it ran into.
@@ -219,7 +219,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		// painted the wall behind them read as a miss.
 		AABB along = entity.getBoundingBox().expandTowards(reach).inflate(1.0);
 		EntityHitResult inTheWay = ProjectileUtil.getEntityHitResult(serverLevel, entity, from, end, along,
-				candidate -> candidate != entity && candidate.isAlive() && !candidate.isSpectator(), 0.0f);
+				// isPickable, so a dropped item, an XP orb or someone else's paint ball in flight does not
+				// stop the line: those are not what a charger shot is aimed at.
+				candidate -> candidate != entity && candidate.isAlive() && candidate.isPickable() && !candidate.isSpectator(), 0.0f);
 		if (inTheWay != null) end = inTheWay.getLocation();
 		int painted = Painter.line(serverLevel, from, end, color, entity);
 		if (inTheWay != null) {

@@ -526,7 +526,7 @@ public final class RivalsGameTests {
 		PaintTally tally = new PaintTally();
 		helper.assertTrue(tally.count(helper.getLevel()).get(PaintColor.CYAN) >= 1, "the tally counts the quads as cyan faces");
 		int removed = tally.reset(helper.getLevel()); // a reset clears the level's display quads too
-		helper.assertTrue(removed >= 1 && displays.holders() == before, "clear removed the quads");
+		helper.assertTrue(removed >= 1 && displays.holders() == 0, "clear removed the quads");
 		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.CYAN), 0, "nothing left to count");
 		// A surface that only changes shape keeps its position, so every check above still passes, but the
 		// quads were cut to the old shape and now hang over nothing: the cell must be dropped.
@@ -539,7 +539,7 @@ public final class RivalsGameTests {
 		displays.count(helper.getLevel()); // the sweep
 		helper.assertTrue(displays.colorAt(helper.absolutePos(turned.above())) == null,
 				"turning the stair under the quads dropped the cell");
-		helper.assertValueEqual(displays.holders(), before, "no holders left");
+		helper.assertValueEqual(displays.holders(), 0, "no holders left");
 		helper.succeed();
 	}
 
