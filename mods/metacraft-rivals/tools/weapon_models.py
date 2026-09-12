@@ -57,10 +57,14 @@ FOV_Y = 70.0                 # Camera.calculateHudFov
 ARM = (0.56, -0.52, -0.72)   # applyItemArmTransform, right hand, equip progress 0
 
 # Where the LED has to land. Both are resolution-independent: x dead centre is ndc_x = 0 at any aspect,
-# and the vertical share only ever divides by the fixed 70 deg. 11/1080 of the height puts the whole box
-# inside a 22-GUI-pixel hotbar even at GUI scale 1, which is smaller than vanilla's automatic scale
-# picks at any window size worth playing at.
-TARGET_Y_SHARE = 11.0 / 1080.0
+# and the vertical share only ever divides by the fixed 70 deg. 9/1080 of the height puts the whole box
+# inside a 22-GUI-pixel hotbar even at GUI scale 1 — which is smaller than vanilla's automatic scale
+# picks at any window size worth playing at — and leaves a couple of pixels of headroom under its top
+# edge, which is what absorbs the view bob: the hand pass is rotated by a tenth of the turn rate, so a
+# fast flick moves the LED a pixel or two. The cost is that the bottom of the box is clipped by the
+# bottom of the screen, which costs nothing: it is under the hotbar either way, and what is left is
+# still three times the probe's sampling step.
+TARGET_Y_SHARE = 9.0 / 1080.0
 # How far in front of the eye. Nearer and the box comes out too tall for the hotbar; further and the
 # model coordinates run past the [-16, 32] a model element may use.
 DEPTH = 1.5
@@ -129,7 +133,9 @@ def led_centre(display):
               [target[i] - ARM[i] - t[i] for i in range(3)])
     centre = [round(16.0 * (u[i] / s[i] + 0.5) * SNAP) / SNAP for i in range(3)]
     for i in range(3):
-        if not -16.0 <= centre[i] - HALF[i] and centre[i] + HALF[i] <= 32.0:
+        # Parenthesised: without the brackets this is `(not lower) and upper`, which passes a box that
+        # has run off the low end and fails one that has not.
+        if not (-16.0 <= centre[i] - HALF[i] and centre[i] + HALF[i] <= 32.0):
             raise SystemExit("LED corner %r is outside the [-16, 32] a model element may use; "
                              "try a smaller DEPTH" % (centre,))
     return centre

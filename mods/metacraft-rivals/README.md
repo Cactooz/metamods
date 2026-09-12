@@ -98,9 +98,9 @@ dedicated Rivals server wants.
   | Weapon | Ink | Cadence | Damage | Shot | Splatcraft |
   |---|---|---|---|---|---|
   | shooter | 1 | 3 ticks (held) | 8, −0.34/tick from tick 3, floor 4 | one ball at 2.0 straight for 8 blocks, then 0.5 falling at 0.075; one bounce; 3×3 splat; spread 6° on the ground, 12° in the air | `splattershot.json` |
-  | charger | 2 → 18 | 20 ticks | 8 → 32 by charge | hold right click to aim (the spyglass scope; a full charge is 20 ticks), left click to fire a hitscan line of 9 → 24 blocks, stopped by the first block or player in it | `splat_charger.json` |
+  | charger | 2 → 18 | 20 ticks | 8 → 16 over a partial charge, **32 at a full one** | hold right click to aim (the spyglass scope; a full charge is 20 ticks), left click to fire a hitscan line of 9 → 24 blocks, stopped by the first block or player in it | `splat_charger.json` |
   | slosher | 7 | 12 ticks (click) | 7, flat | 2 pellets 8° apart, lobbed 15° up at 1.1 under gravity 0.06, 5×5 splat, no bounce | `slosher.json` |
-  | roller | 9 a flick, 1 per 16 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed and a head that runs over anyone in front once per 10 ticks; **tap** it to flick 3 drops in a high arc | `splat_roller.json` |
+  | roller | 9 a flick, 1 per 16 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed and a head that runs over anyone in front once per 10 ticks — both only while you are actually moving, so a roller parked in a doorway is not a wall of damage; **tap** it to flick 3 drops in a high arc | `splat_roller.json` |
   | splat bomb | 70 | 4 s of its own | 36 at the centre → 6 at 3.25 blocks | thrown 30° up at 0.75, bounces where it lands and goes off 20 ticks later | `splat_bomb.json` |
 
   Standing in your own ink refills the tank in ten seconds on your feet and three as a squid, and a
@@ -407,15 +407,24 @@ ones that do.
 | the cost | `ink`, `cooldown`, `refill_delay`, `kick` | all four |
 | the damage | `damage`, `decay_start`, `decay_per_tick`, `decayed_damage` | the three that throw a ball |
 | a bounce | `spatter_count`, `spatter_lifetime`, `spatter_speed`, `spatter_scatter`, `spatter_damage` | the three that throw a ball |
-| the splat bomb | `special_ink`, `special_cooldown`, `special_radius`, `special_damage`, `special_edge_damage`, `special_blast`, `special_fuse`, `special_velocity`, `special_gravity`, `special_lifetime` | everything but the charger |
+| the splat bomb | `special_ink`, `special_cooldown`, `special_refill_delay`, `special_radius`, `special_damage`, `special_edge_damage`, `special_blast`, `special_fuse`, `special_velocity`, `special_gravity`, `special_lifetime` | everything but the charger |
 | the roll | `roll_width`, `roll_damage`, `roll_hit_cooldown`, `roll_ink_every`, `roll_speed`, `flick_tap` | the roller alone |
-| the charge | `charge_min`, `charge_full`, `range_min`, `range_full`, `charge_ink_min`, `charge_ink_full`, `charge_damage_min`, `charge_damage_full` | the charger alone |
+| the charge | `charge_min`, `charge_full`, `range_min`, `range_full`, `charge_ink_min`, `charge_ink_full`, `charge_damage_min`, `charge_damage_partial`, `charge_damage_full` | the charger alone |
 
 `straight_blocks` and `decayed_speed` are the shot's shape — how far it flies straight and fast, and
 what it drops to after that — and `decay_start` / `decay_per_tick` / `decayed_damage` are how the
 damage falls off with time in the air; a `decay_per_tick` of 0 is a weapon that does not care how far
-it has thrown. The charger's `*_min` is at no charge and its `*_full` at a full one, with everything
-between interpolated; it takes no `special_*`, because its left click is its shot rather than a bomb.
+it has thrown. `refill_delay` belongs to all four, and a splat bomb waits `special_refill_delay`
+instead — its own, not the weapon it was thrown from, because seventy ink of a hundred is not a
+shooter's shot.
+
+The charger's `range_*` and `charge_ink_*` run from no charge to a full one with everything between
+interpolated. Its **damage does not**, and that is deliberate: `charge_damage_min` → `charge_damage_partial`
+is the line a partial charge climbs (8 → 16), and `charge_damage_full` (32) is a *step* taken the moment
+the charge is full. Splatoon's charger is built on exactly that discontinuity — held to the top it
+splats, let go a moment early it does not — and a straight 8 → 32 would make every fraction of a charge
+worth its fraction of a kill, which is a duller weapon. The charger takes no `special_*`, because its
+left click is its shot rather than a bomb.
 
 Every parameter has a range, which `/rivals tune <weapon>` prints beside it and a refusal states:
 several of them are loop bounds and spawn counts, so a `splat_radius` of 500 (a million block writes

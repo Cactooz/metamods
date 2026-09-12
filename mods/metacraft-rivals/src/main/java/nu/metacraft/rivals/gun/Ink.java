@@ -25,32 +25,44 @@ public final class Ink {
 	public static final int REFILL_TICKS = 30;
 	static final String INK = "rivals_ink";
 	static final String REFILL_UNTIL = "rivals_refill_until";
-	/** The tick of the last shot, for {@link #recovering}. */
-	static final String LAST_SHOT = "rivals_last_shot";
+	/** The tick the post-shot wait is over, for {@link #recovering}. */
+	static final String RECOVER_AT = "rivals_recover_at";
+	/**
+	 * The longest post-shot wait any parameter may ask for, which is {@code refill_delay}'s and
+	 * {@code special_refill_delay}'s own range. Nothing further ahead than this can have been written
+	 * this session, so it is the staleness bound for {@link #RECOVER_AT} the way {@link #REFILL_TICKS}
+	 * is for {@link #REFILL_UNTIL}.
+	 */
+	public static final int MAX_RECOVERY = 200;
 
 	private Ink() {}
 
 	/**
-	 * Note that this weapon has just fired. Splatcraft calls the wait that follows
-	 * {@code ink_recovery_cooldown}: standing in your own ink does not top the tank up until the weapon
-	 * has been quiet for the weapon's own {@code refill_delay} ticks, so a weapon cannot be fired and
-	 * refilled in the same breath — which is most of why holding down a shooter over your own paint is
-	 * not free.
+	 * Note that this weapon has just fired, and for how long that stops it drinking. Splatcraft calls the
+	 * wait {@code ink_recovery_cooldown}: standing in your own ink does not top the tank up until the
+	 * weapon has been quiet that long, so a weapon cannot be fired and refilled in the same breath —
+	 * which is most of why holding down a shooter over your own paint is not free.
+	 *
+	 * <p>The <em>deadline</em> is stored rather than the shot's tick, because the wait is not a property
+	 * of the weapon alone: a splat bomb thrown from a shooter costs the bomb's own
+	 * {@code special_refill_delay}, not the shooter's. Whoever fires knows which; the tick loop only has
+	 * to know whether the wait is over.
 	 */
-	public static void noteShot(ItemStack stack, long now) {
-		CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.putLong(LAST_SHOT, now));
+	public static void noteShot(ItemStack stack, long now, int delay) {
+		if (delay <= 0) return;
+		long until = now + Math.min(delay, MAX_RECOVERY);
+		CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.putLong(RECOVER_AT, until));
 	}
 
 	/**
-	 * Is this weapon still inside its post-shot wait? An absolute server tick, so the same rule
-	 * {@link #stale} uses applies: a stamp further ahead than the wait itself cannot have been written
-	 * this session and counts as long past.
+	 * Is this weapon still inside its post-shot wait? An absolute server tick, and the tick count starts
+	 * again at 0 every boot, so the same rule {@link #stale} uses applies: a deadline more than
+	 * {@link #MAX_RECOVERY} ahead of now cannot have been written this session and counts as long past.
 	 */
-	public static boolean recovering(ItemStack stack, long now, int delay) {
-		if (delay <= 0) return false;
-		long last = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag().getLongOr(LAST_SHOT, Long.MIN_VALUE);
-		if (last == Long.MIN_VALUE || last > now) return false;
-		return now - last < delay;
+	public static boolean recovering(ItemStack stack, long now) {
+		long until = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag().getLongOr(RECOVER_AT, Long.MIN_VALUE);
+		if (until == Long.MIN_VALUE) return false;
+		return now < until && until - now <= MAX_RECOVERY;
 	}
 
 	/** What the stack holds, clamped: the tank has changed size once and may again. */

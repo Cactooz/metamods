@@ -95,11 +95,13 @@ public final class Roll {
 		speed(player, tuning.value(Param.ROLL_SPEED));
 		Vec3 at = player.position();
 		Vec3 last = LAST_POS.put(player.getUUID(), at);
-		// The head sweeps whether or not the feet moved: someone walking into a held roller is run over.
-		runOver(level, player, tuning, color);
 		if (last == null) return false;
 		Vec3 moved = at.subtract(last);
+		// Nothing happens where the roller stands still. Splatoon's roller paints and runs people over
+		// with what it is pushed over, so holding the button in a doorway must not be a wall of damage
+		// that anyone who walks past is splatted by: the roll is a charge, not a hazard.
 		if (moved.horizontalDistanceSqr() < MOVING * MOVING) return false;
+		runOver(level, player, tuning, color);
 		if (Ink.get(stack) <= 0) return false;
 		int painted = strip(level, player, tuning, color);
 		// The trickle is per tick of rolling, not per cell: a roller that turns on the spot and one that
@@ -125,9 +127,17 @@ public final class Roll {
 		modifier(player, Attributes.MOVEMENT_SPEED, bonus);
 	}
 
+	/**
+	 * Put the modifier on, or move it to {@code amount} if it is already on and says something else.
+	 * Bailing out on {@code hasModifier} alone — which is what this did — meant a {@code /rivals tune
+	 * roller roll_speed} landed on the next roll but never on the one in progress, and the number a
+	 * player is holding down is exactly the one they are trying to feel while tuning it.
+	 */
 	private static void modifier(Player player, Holder<Attribute> attribute, double amount) {
 		AttributeInstance instance = player.getAttribute(attribute);
-		if (instance == null || instance.hasModifier(SPEED_ID)) return;
+		if (instance == null) return;
+		AttributeModifier existing = instance.getModifier(SPEED_ID);
+		if (existing != null && existing.amount() == amount) return;
 		instance.addOrUpdateTransientModifier(
 				new AttributeModifier(SPEED_ID, amount, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL));
 	}
@@ -165,6 +175,8 @@ public final class Roll {
 	 * {@code roll_hit_cooldown} ticks. The window is kept per victim rather than per roller: being run
 	 * over is worth most of a player's health, and two rollers meeting the same target should not be
 	 * worth two of them in the same tick.
+	 *
+	 * <p>Only called on a tick the roller actually moved — being run over means being run over.
 	 */
 	private static void runOver(ServerLevel level, Player player, WeaponTuning tuning, PaintColor color) {
 		float damage = tuning.floatValue(Param.ROLL_DAMAGE);

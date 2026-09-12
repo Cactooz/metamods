@@ -127,12 +127,23 @@ public final class WeaponTuning {
 		/** Charger: ink a release costs at no charge, and at a full one. Rounded. */
 		CHARGE_INK_MIN("charge_ink_min", 0.0, 100.0),
 		CHARGE_INK_FULL("charge_ink_full", 0.0, 100.0),
-		/** Charger: hearts off whoever stops the line, at no charge and at a full one. */
+		/**
+		 * Charger: hearts off whoever stops the line — at no charge, at the top of a partial charge, and
+		 * at a full one. The first two interpolate; the third is a step, because a charger that is held to
+		 * the top is meant to be a splat and one let go a moment early is meant not to be.
+		 */
 		CHARGE_DAMAGE_MIN("charge_damage_min", 0.0, 40.0),
+		CHARGE_DAMAGE_PARTIAL("charge_damage_partial", 0.0, 40.0),
 		CHARGE_DAMAGE_FULL("charge_damage_full", 0.0, 40.0),
 		/** The splat bomb: ink one throw costs, and the wait between two of them. Rounded. */
 		SPECIAL_INK("special_ink", 0.0, 100.0),
 		SPECIAL_COOLDOWN("special_cooldown", 0.0, 600.0),
+		/**
+		 * The splat bomb's own post-throw wait before own paint refills the tank — the bomb's
+		 * {@code ink_recovery_cooldown} rather than the weapon it was thrown from, because seventy ink
+		 * out of a hundred wants a beat of its own before it starts coming back. Rounded.
+		 */
+		SPECIAL_REFILL_DELAY("special_refill_delay", 0.0, 200.0),
 		/** How far the bomb's splash reaches: 3 is 7×7. Rounded. */
 		SPECIAL_RADIUS("special_radius", 0.0, 6.0),
 		/** Hearts at the centre of the blast, at its edge, and how far the edge is. */
@@ -185,16 +196,25 @@ public final class WeaponTuning {
 	/** The charger's own, which only it reads. */
 	private static final List<Param> CHARGE_ONLY = List.of(Param.CHARGE_MIN, Param.CHARGE_FULL,
 			Param.RANGE_MIN, Param.RANGE_FULL, Param.CHARGE_INK_MIN, Param.CHARGE_INK_FULL,
-			Param.CHARGE_DAMAGE_MIN, Param.CHARGE_DAMAGE_FULL);
+			Param.CHARGE_DAMAGE_MIN, Param.CHARGE_DAMAGE_PARTIAL, Param.CHARGE_DAMAGE_FULL);
 
 	/** The roller's own: the roll, and the tap that tells a flick from the end of one. */
 	private static final List<Param> ROLL_ONLY = List.of(Param.ROLL_WIDTH, Param.ROLL_DAMAGE,
 			Param.ROLL_HIT_COOLDOWN, Param.ROLL_INK_EVERY, Param.ROLL_SPEED, Param.FLICK_TAP);
 
 	/**
+	 * Every parameter that belongs to a weapon simply because it is a weapon, rather than because of what
+	 * it throws. These are the ones the charger's whitelist has to name, and the list any new
+	 * every-weapon parameter has to join — {@code refill_delay} did not, and a charger that had just
+	 * fired went on refilling from its own paint because {@link nu.metacraft.rivals.PlayerTick} reads a
+	 * value the command would not show and the file would have thrown away.
+	 */
+	private static final List<Param> EVERY_WEAPON = List.of(Param.INK, Param.COOLDOWN, Param.REFILL_DELAY, Param.KICK);
+
+	/**
 	 * Does this parameter mean anything for this weapon? The charger throws no ball and no splat bomb, so
 	 * none of those numbers reach it; nothing but the roller rolls, and nothing but the charger charges.
-	 * Ink, cooldown and kick belong to all four. Only used for what the commands offer and accept —
+	 * {@link #EVERY_WEAPON} belongs to all four. Only used for what the commands offer and accept —
 	 * {@link #value} answers for any of them.
 	 */
 	public static boolean applies(Weapon weapon, Param param) {
@@ -203,9 +223,14 @@ public final class WeaponTuning {
 		// The charger's list is a whitelist, so the splat bomb's parameters fall outside it by
 		// construction: it has no bomb, and its left click fires the line instead.
 		if (weapon == Weapon.CHARGER) {
-			return charge || param == Param.INK || param == Param.COOLDOWN || param == Param.KICK;
+			return charge || EVERY_WEAPON.contains(param);
 		}
 		return !charge && (!roll || weapon == Weapon.ROLLER);
+	}
+
+	/** What every weapon reads whatever it fires. For the test that guards against the next omission. */
+	public static List<Param> everyWeapon() {
+		return EVERY_WEAPON;
 	}
 
 	/** The parameters a weapon shows and accepts, in declaration order. */
@@ -233,8 +258,8 @@ public final class WeaponTuning {
 	 * Today's numbers, read off the constants they were written as. The three ball weapons share one
 	 * shape — {@code count} balls, fanned by {@code fan_yaw} around the view and pitched by
 	 * {@code fan_pitch} — which the old per-weapon arms of {@code fire} spelled out separately: the
-	 * slosher's {@code {-15, -5, 5, 15}} is four balls ten degrees apart, and the shooter's single
-	 * ball is that same fan with one in it.
+	 * slosher's {@code {-4, 4}} is two pellets eight degrees apart, and the shooter's single ball is that
+	 * same fan with one in it.
 	 */
 	private static EnumMap<Weapon, EnumMap<Param, Double>> defaults() {
 		EnumMap<Weapon, EnumMap<Param, Double>> all = new EnumMap<>(Weapon.class);
@@ -282,9 +307,11 @@ public final class WeaponTuning {
 			values.put(Param.CHARGE_INK_MIN, (double) Weapon.CHARGE_BASE_COST);
 			values.put(Param.CHARGE_INK_FULL, (double) (Weapon.CHARGE_BASE_COST + Weapon.CHARGE_EXTRA_COST));
 			values.put(Param.CHARGE_DAMAGE_MIN, (double) Weapon.CHARGE_BASE_DAMAGE);
-			values.put(Param.CHARGE_DAMAGE_FULL, (double) (Weapon.CHARGE_BASE_DAMAGE + Weapon.CHARGE_EXTRA_DAMAGE));
+			values.put(Param.CHARGE_DAMAGE_PARTIAL, (double) Weapon.CHARGE_PARTIAL_DAMAGE);
+			values.put(Param.CHARGE_DAMAGE_FULL, (double) Weapon.CHARGE_FULL_DAMAGE);
 			values.put(Param.SPECIAL_INK, (double) Weapon.SPECIAL_INK);
 			values.put(Param.SPECIAL_COOLDOWN, (double) Weapon.SPECIAL_COOLDOWN);
+			values.put(Param.SPECIAL_REFILL_DELAY, (double) Weapon.SPECIAL_REFILL_DELAY);
 			values.put(Param.SPECIAL_RADIUS, (double) Weapon.SPECIAL_RADIUS);
 			values.put(Param.SPECIAL_DAMAGE, (double) Weapon.SPECIAL_DAMAGE);
 			values.put(Param.SPECIAL_EDGE_DAMAGE, (double) Weapon.SPECIAL_EDGE_DAMAGE);

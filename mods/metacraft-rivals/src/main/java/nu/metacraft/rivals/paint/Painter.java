@@ -46,8 +46,8 @@ public final class Painter {
 
 	/**
 	 * The same, over a square of side {@code 2 * radius + 1}: radius 0 paints only the struck face (a
-	 * sprayer droplet), radius 2 the slosher's 5x5. The ragged corners are what keeps a blob from
-	 * reading as a square, so there are none to drop at radius 0.
+	 * bounce's droplet), radius 2 the slosher's and the roller's flick's 5x5. The ragged corners are what
+	 * keeps a blob from reading as a square, so there are none to drop at radius 0.
 	 */
 	public static int splat(ServerLevel level, BlockPos struck, Direction face, PaintColor color, RandomSource random, int radius) {
 		int painted = 0;
@@ -248,9 +248,9 @@ public final class Painter {
 		int changed = splat(level, struck, face, color, random, radius);
 		Vec3 normal = Vec3.atLowerCornerOf(face.getUnitVec3i());
 		Vec3 from = impact.add(normal.scale(0.05));
-		// The burst is sized to the splat it goes with. A sprayer droplet paints one face and used to
-		// throw the same twenty-four grains as a slosher's bucketful, which up close is a wall of dust
-		// in front of the shooter; a single face now gets four small ones and no ray dust at all.
+		// The burst is sized to the splat it goes with. A single-face droplet used to throw the same
+		// twenty-four grains as a slosher's bucketful, which up close is a wall of dust in front of the
+		// shooter; a single face gets four small ones and no ray dust at all.
 		int weight = Math.max(0, Math.min(2, radius));
 		BlockParticleOption dust = crumbs(color);
 		// Half what the dust counts were: a crumb is a great deal bigger than a grain of dust, and the

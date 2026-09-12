@@ -48,10 +48,11 @@ public enum Weapon {
 	/** Relative pitch nudge on the shot, in degrees; negative is up. */
 	public final float kickPitch;
 	/**
-	 * Hearts off a direct hit on someone from another team, per projectile. The slosher throws four and
-	 * the roller's flick three, so a face full of either is worth rather more than the number here. The
+	 * Hearts off a direct hit on someone from another team, per projectile, before the falloff. The
+	 * slosher throws two and the roller's flick three, so a face full of either is worth rather more than
+	 * the number here — and every one of them lands in full, which is what {@link PaintDamage} is for. The
 	 * charger is 0 because it fires no projectile: its damage rides the charge, {@link #CHARGE_BASE_DAMAGE}
-	 * plus {@link #CHARGE_EXTRA_DAMAGE}, and is dealt by the hitscan at release.
+	 * through {@link #CHARGE_PARTIAL_DAMAGE} to {@link #CHARGE_FULL_DAMAGE}, dealt by the hitscan at release.
 	 */
 	public final float damage;
 
@@ -158,13 +159,16 @@ public enum Weapon {
 	public static final double CHARGE_BASE_RANGE = 9.0;
 	public static final double CHARGE_EXTRA_RANGE = 15.0;
 	/**
-	 * Charger: hearts off whoever stops the line, at no charge and what a full charge adds. Splatoon's
-	 * charger climbs 8 → 16 with the charge and then jumps to 32 at full, which is the one-shot splat
-	 * the weapon exists for; 8 → 32 here is that curve with the jump smoothed into it, and a full charge
-	 * is still more than a player has.
+	 * Charger: hearts off whoever stops the line. Splatoon's curve, and it is a curve with a step in it:
+	 * a partial charge climbs 8 → 16 with how long it was held, and a <em>full</em> charge jumps to 32,
+	 * which is more than a player has. That jump is the weapon — the whole point of a charger is that
+	 * holding it to the top is a splat and letting go a moment early is not — so it is a discontinuity on
+	 * purpose rather than a line from 8 to 32 that happens to pass through 16.
+	 * ({@code splat_charger.json}: 8 → 16 by charge, 32 at full.)
 	 */
 	public static final float CHARGE_BASE_DAMAGE = 8.0f;
-	public static final float CHARGE_EXTRA_DAMAGE = 24.0f;
+	public static final float CHARGE_PARTIAL_DAMAGE = 16.0f;
+	public static final float CHARGE_FULL_DAMAGE = 32.0f;
 
 	/**
 	 * The splat bomb: the special every weapon but the charger throws on a left click ({@code
@@ -182,6 +186,12 @@ public enum Weapon {
 	 */
 	public static final int SPECIAL_INK = 70;
 	public static final int SPECIAL_COOLDOWN = 80;
+	/**
+	 * The bomb's own wait before standing in your own ink starts refilling the tank — {@code
+	 * splat_bomb.json}'s {@code ink_recovery_cooldown}, which is the bomb's rather than the weapon it was
+	 * thrown from: seventy ink out of a hundred wants a beat of its own before it comes back.
+	 */
+	public static final int SPECIAL_REFILL_DELAY = 20;
 	/** How far the splash reaches: 3 is 7×7 on the face it lands on. */
 	public static final int SPECIAL_RADIUS = 3;
 	/** Hearts at the centre of the blast, and at its edge {@link #SPECIAL_BLAST} blocks out. */

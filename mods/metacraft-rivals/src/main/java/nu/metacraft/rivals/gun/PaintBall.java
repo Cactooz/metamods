@@ -52,12 +52,13 @@ import java.util.Optional;
  * along on an {@link EntityAttachment}, squashing and stretching as it flies. Paints whatever it
  * hits; never hurts anything.
  *
- * <p>Two knobs on top of v2's straight flight. {@code bounces} lets a shot reflect off the face it
- * struck at the firing weapon's {@code restitution} of its speed and keep going (the shooter's balls
- * bounce twice by default, pancaking against each face and throwing off droplets);
- * {@code lifetime} makes a ball that has not hit anything splash the ground under itself and
- * vanish, which is what turns the same entity into a short-range sprayer droplet — and into the
- * spray a bounce throws off.
+ * <p>The flight has Splatoon's shape: straight and fast for {@code straight_blocks}, then a step down to
+ * {@code decayed_speed} with gravity under it, and a damage that falls off with time in the air (see
+ * {@link #setFlight} and {@link #damageNow}). On top of that, {@code bounces} lets a shot reflect off
+ * the face it struck at the firing weapon's {@code restitution} of its speed and keep going (a
+ * shooter's ball bounces once, pancaking against the face and throwing off droplets), and
+ * {@code lifetime} makes a ball that has not hit anything splash the ground under itself and vanish —
+ * which is what turns the same entity into the short-lived spray a bounce throws off.
  */
 public final class PaintBall extends Snowball implements PolymerEntity {
 	public static final EntityType<PaintBall> TYPE = EntityType.Builder.<PaintBall>of(PaintBall::new, MobCategory.MISC)
@@ -271,8 +272,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 
 	/**
 	 * Whether this ball is spray thrown off someone else's bounce. Droplets never throw droplets of their
-	 * own: two per bounce off a ball that bounces twice is four, but a droplet that spawned droplets would
-	 * be a chain with no end to it.
+	 * own: a droplet that spawned droplets would be a chain with no end to it.
 	 */
 	public boolean isDroplet() {
 		return droplet;

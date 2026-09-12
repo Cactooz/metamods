@@ -33,10 +33,11 @@ layout(location = 0) out vec4 fragColor;
 const float BAND = 0.08;
 const float MIDDLE = 0.30;
 /**
- * Sampling step as a share of the screen height. The LED comes out about 2.5% of the height tall and
- * 1.1% of the width across at 16:9, so a 0.6% step cannot step over it in either axis; at 1920x1080 that
- * is 6 px, and the whole search is 96 x 14 = 1344 samples for the frame (one fetch each; the
- * confirmation fetch only happens once something matches).
+ * Sampling step as a share of the screen height. The LED comes out about 1.9% of the height tall and
+ * 0.86% of the width across at 16:9 — 20 px by 16 px at 1920x1080 — and the step is taken on the height
+ * and used on both axes, so at 0.6% it is 6 px and cannot step over the LED in either direction: two
+ * columns and three rows land inside it at the worst alignment. The whole search is 96 x 14 = 1344
+ * samples for the frame (one fetch each; the confirmation fetch only happens once something matches).
  */
 const float STEP_SHARE = 0.006;
 /** The confirmation sample's distance, a share of the height: well inside the LED, whatever the step is. */

@@ -350,9 +350,11 @@ public final class PlayerTick {
 					ItemStack stack = player.getItemInHand(hand);
 					// A weapon that has just fired is still recovering and takes nothing: Splatcraft's
 					// ink_recovery_cooldown, which is why holding a shooter down over your own paint is
-					// not free.
-					if (!(stack.getItem() instanceof PaintWeapon gun)) continue;
-					if (Ink.recovering(stack, now, WeaponTuning.get(gun.weapon()).intValue(Param.REFILL_DELAY))) continue;
+					// not free. How long the wait is was decided by whoever fired — a splat bomb waits
+					// its own, not the weapon it was thrown from — so all this has to ask is whether it
+					// is over.
+					if (!(stack.getItem() instanceof PaintWeapon)) continue;
+					if (Ink.recovering(stack, now)) continue;
 					Ink.add(stack, gain);
 				}
 			}

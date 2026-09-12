@@ -249,7 +249,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			return false;
 		}
 		splatBomb(level, player, color, tuning);
-		spend(level, gun, cost);
+		// The bomb's own wait, not the weapon's: seventy ink of a hundred is not a shooter's shot, and
+		// Splatcraft gives splat_bomb.json an ink_recovery_cooldown of its own for exactly that reason.
+		spend(level, gun, cost, tuning.intValue(Param.SPECIAL_REFILL_DELAY));
 		SPECIAL_READY.put(player.getUUID(), now + wait);
 		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 		return true;
@@ -296,6 +298,22 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		int held = gun.getUseDuration(using, player) - player.getUseItemRemainingTicks();
 		// A full charge in no ticks at all would divide by zero; one tick is the shortest charge there is.
 		return Math.min(1.0f, held / (float) Math.max(1, WeaponTuning.get(Weapon.CHARGER).intValue(Param.CHARGE_FULL)));
+	}
+
+	/**
+	 * What a charger shot at this charge is worth, which is Splatoon's curve and has a step in it: a
+	 * partial charge runs {@code charge_damage_min} up to {@code charge_damage_partial} in proportion to
+	 * how long it was held, and a <em>full</em> one jumps to {@code charge_damage_full}, which is more
+	 * than a player has.
+	 *
+	 * <p>The step is the weapon. A charger held to the top splats and one let go a moment early does not,
+	 * and that is the whole of what makes charging a decision — a straight line from 8 to 32 would make
+	 * every fraction of a charge worth its fraction of a kill, which is a different and much duller gun.
+	 */
+	public static float chargeDamage(WeaponTuning tuning, float charge) {
+		if (charge >= 1.0f) return tuning.floatValue(Param.CHARGE_DAMAGE_FULL);
+		float min = tuning.floatValue(Param.CHARGE_DAMAGE_MIN);
+		return min + (tuning.floatValue(Param.CHARGE_DAMAGE_PARTIAL) - min) * Math.max(0.0f, charge);
 	}
 
 	/** What a charger shot at this charge costs: {@code charge_ink_min} to {@code charge_ink_full}. */
@@ -384,7 +402,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	/**
 	 * One shot, if the weapon's own cooldown has run out and the tank can cover it. The item cooldown is
 	 * the rate limiter and the thing the player can see; an empty tank starts the refill, exactly as a
-	 * click on an empty tank always did. Returns whether a shot left the barrel.
+	 * click on an empty tank does. Returns whether a shot left the barrel.
 	 */
 	private boolean fireIfReady(ServerLevel level, Player player, ItemStack gun, PaintColor color) {
 		if (player.getCooldowns().isOnCooldown(gun)) return false;
@@ -507,9 +525,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 * at no charge to its {@code *_full} at a full one. The shot itself is hitscan: one clip along the
 	 * view, a line of paint on the floor under it, and a splash where it stops — under the feet of
 	 * whoever was standing in the way, if anyone was, and otherwise on the block face it ran into.
-	 * Whoever stopped it also takes the charge's share of {@code charge_damage_min}..{@code
-	 * charge_damage_full}, unless they are on the shooter's own team. Every one of those numbers is read
-	 * off {@link WeaponTuning} here, at the shot, so {@code /rivals tune} lands on the next one.
+	 * Whoever stopped it also takes {@link #chargeDamage}, unless they are on the shooter's own team.
+	 * Every one of those numbers is read off {@link WeaponTuning} here, at the shot, so
+	 * {@code /rivals tune} lands on the next one.
 	 */
 	public boolean chargerShot(ServerLevel serverLevel, Player player, ItemStack stack, float charge) {
 		if (weapon != Weapon.CHARGER) return false;
@@ -550,8 +568,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			// The one weapon whose damage rides the charge: a full-charge line is the hardest hit in the
 			// game, a barely-held one is a poke. Attributed to the player, so a kill goes on their name.
 			if (PaintBall.hostile(color, inTheWay.getEntity())) {
-				float damageMin = tuning.floatValue(Param.CHARGE_DAMAGE_MIN);
-				float hurt = damageMin + (tuning.floatValue(Param.CHARGE_DAMAGE_FULL) - damageMin) * charge;
+				float hurt = chargeDamage(tuning, charge);
 				if (PaintDamage.hurt(serverLevel, inTheWay.getEntity(),
 						serverLevel.damageSources().indirectMagic(player, player), hurt)) {
 					InkOnScreen.hit(inTheWay.getEntity(), color, hurt);
@@ -598,9 +615,14 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 * {@code refill_delay}. Every path that fires goes through here, so there is one place the two are
 	 * kept together and no way to spend ink without starting the wait.
 	 */
-	private static void spend(ServerLevel level, ItemStack gun, int cost) {
+	private static void spend(ServerLevel level, ItemStack gun, int cost, int refillDelay) {
 		Ink.add(gun, -cost);
-		Ink.noteShot(gun, level.getServer().getTickCount());
+		Ink.noteShot(gun, level.getServer().getTickCount(), refillDelay);
+	}
+
+	/** The same, for a shot that waits this weapon's own {@code refill_delay}, which is most of them. */
+	private void spend(ServerLevel level, ItemStack gun, int cost) {
+		spend(level, gun, cost, WeaponTuning.get(weapon).intValue(Param.REFILL_DELAY));
 	}
 
 	/** An empty tank: start the refill, and hold the gun on cooldown until it is done. */

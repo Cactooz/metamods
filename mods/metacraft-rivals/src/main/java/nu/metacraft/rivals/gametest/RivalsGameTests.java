@@ -1531,20 +1531,40 @@ public final class RivalsGameTests {
 			helper.assertTrue(Math.abs(0.5 * (left + right) - 0.5) < 0.002, where + " — not centred");
 			helper.assertTrue(left > 0.5 - halfHotbar && right < 0.5 + halfHotbar, where + " — outside the hotbar's width");
 			helper.assertTrue(top < hotbarTop, where + " — pokes out above the hotbar");
+			// And with room to spare under the hotbar's top edge. The hand pass is rotated by a tenth of
+			// the turn rate for the view bob, which this arithmetic takes as zero; a couple of pixels of
+			// headroom at 1080p is what stops a fast flick putting the LED on screen for a frame.
+			helper.assertTrue(hotbarTop - top > 2.0 / 1080.0,
+					where + " — no headroom under the hotbar for the view bob");
 			// And it is worth something to the probe: too small and the scan grid steps over it. The probe's
-			// step is 0.6% of the height, and it needs two samples in a row.
+			// step is 0.6% of the height, and it needs two samples in a row. The bottom of the box runs off
+			// the bottom of the screen, which costs nothing but has to be counted out of the height.
 			helper.assertTrue(top - Math.max(bottom, 0.0) > 0.012, where + " — too small for the probe's 0.6% step");
+			// The probe's box is the bottom 8% by the middle 30%: the whole LED has to be inside it, or the
+			// scan would find part of a reading and miss the rest.
+			helper.assertTrue(top < 0.08 && left > 0.5 - 0.15 && right < 0.5 + 0.15,
+					where + " — outside the box ink_probe.fsh scans");
 		}
 		helper.succeed();
 	}
 
+	/** The same, on the 16:9 an assertion about the hotbar wants to be read against. */
+	private static double[] firstPersonScreen(double[] modelPixel, JsonObject display) {
+		return firstPersonScreen(modelPixel, display, 16.0 / 9.0);
+	}
+
 	/**
 	 * One model-pixel coordinate through 26.3's first-person right-hand chain, as a share of the screen:
-	 * x from the left, y from the <em>bottom</em>. Null when the point is behind the eye. Resolution- and
-	 * aspect-independent by construction: the horizontal share divides out the aspect the projection
-	 * multiplied in, and the vertical one only ever sees the fixed 70° hand FOV.
+	 * x from the left, y from the <em>bottom</em>. Null when the point is behind the eye.
+	 *
+	 * <p>The vertical share is resolution- and aspect-independent, because the projection only ever
+	 * divides it by the fixed 70° hand FOV. The horizontal one is <em>not</em>: {@code setPerspective}
+	 * divides x by {@code aspect · tan}, so the same camera-space x is a smaller share of a wider screen.
+	 * It very nearly did not matter here — the LED is solved to camera-space x = 0, which is the middle
+	 * at every aspect — but the width of the box is what the hotbar assertion is measured against, and
+	 * measuring it against the height made it look nearly twice as wide as it is.
 	 */
-	private static double[] firstPersonScreen(double[] modelPixel, JsonObject display) {
+	private static double[] firstPersonScreen(double[] modelPixel, JsonObject display, double aspect) {
 		JsonArray translation = display.getAsJsonArray("translation");
 		JsonArray rotation = display.getAsJsonArray("rotation");
 		JsonArray scale = display.getAsJsonArray("scale");
@@ -1563,9 +1583,7 @@ public final class RivalsGameTests {
 		double z = v.z + translation.get(2).getAsDouble() / 16.0 - 0.72;
 		if (z >= -1.0e-6) return null;
 		double tan = Math.tan(Math.toRadians(70.0) / 2.0);
-		// The aspect the projection multiplies into x is the same aspect the viewport divides back out, so
-		// the share of the width is free of it.
-		return new double[] {(x / tan) / -z * 0.5 + 0.5, (y / tan) / -z * 0.5 + 0.5};
+		return new double[] {(x / (aspect * tan)) / -z * 0.5 + 0.5, (y / tan) / -z * 0.5 + 0.5};
 	}
 
 	/** A fresh gun holds 40 ink, a shot costs one, an empty gun refills after the delay, own paint tops it up. */
@@ -2569,9 +2587,9 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * Running someone over. The head sweeps in front of the roller whether or not the feet moved, so
-	 * walking into a held roller is as bad as being chased by one — and it lands once per victim per
-	 * {@code roll_hit_cooldown} ticks, so it is a hit rather than a grinder.
+	 * Running someone over. The head sweeps in front of a roller that is <em>moving</em> — a roller held
+	 * down on the spot is not a wall of damage anyone who walks past is splatted by — and it lands once
+	 * per victim per {@code roll_hit_cooldown} ticks, so it is a hit rather than a grinder.
 	 */
 	@GameTest
 	public void rollerRunsOverAHostile(GameTestHelper helper) {
@@ -2599,13 +2617,20 @@ public final class RivalsGameTests {
 			float damage = 5.0f;
 			WeaponTuning.get(Weapon.ROLLER).set(Param.ROLL_DAMAGE, damage);
 			float full = victim.getHealth();
+			// The first tick of a roll has no previous position to measure against, so it does nothing at
+			// all; and a tick that measures no movement does nothing either.
 			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+			helper.assertValueEqual(victim.getHealth(), full,
+					"a roller held down on the spot runs nobody over: it is a charge, not a hazard");
+			rollStep(helper, player, gun);
 			helper.assertValueEqual(victim.getHealth(), full - damage, "the head runs them over for the roll's damage");
-			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+			rollStep(helper, player, gun);
 			helper.assertValueEqual(victim.getHealth(), full - damage, "and not again inside its own window");
 			// The window is per victim and kept here, so clearing it is the same as waiting it out.
 			Roll.clearAll();
-			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA); // the measurement starts again
+			rollStep(helper, player, gun);
 			helper.assertValueEqual(victim.getHealth(), full - 2 * damage, "once the window is past, the head hits again");
 			// And the second hit was a whole hit, not the excess over the first: that is PaintDamage's
 			// doing, and it is what makes a weapon that lands more than one thing at a time work at all.
@@ -2613,11 +2638,23 @@ public final class RivalsGameTests {
 			helper.getLevel().getScoreboard().addPlayerToTeam(victim.getScoreboardName(), team(helper, PaintColor.DATA));
 			Roll.clearAll();
 			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+			rollStep(helper, player, gun);
 			helper.assertValueEqual(victim.getHealth(), full - 2 * damage, "a teammate is not run over");
 		});
 		victim.discard();
 		Roll.stop(player);
 		helper.succeed();
+	}
+
+	/**
+	 * One tick of a roll that actually rolls: a short step along the facing, then the tick. The roll
+	 * paints and runs people over only where the roller is pushed, so a test that wants either has to
+	 * push it — and the step is small enough that the head keeps sweeping the same place.
+	 */
+	private static void rollStep(GameTestHelper helper, Player player, ItemStack gun) {
+		Vec3 at = player.position();
+		player.setPos(at.x, at.y, at.z + 0.1);
+		Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
 	}
 
 	/**
@@ -2681,8 +2718,9 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * One click of the slosher throws four balls in a fan: four distinct horizontal directions, a 5x5
-	 * splat radius each, and the slosher is the one weapon whose use swings the arm.
+	 * One click of the slosher throws two pellets in a fan — Splatoon's slosher throws two, eight degrees
+	 * apart — each with a 5x5 splat radius and flat damage, and the slosher is the one weapon whose use
+	 * swings the arm and the one that is still a click rather than a hold.
 	 */
 	@GameTest
 	public void slosherThrowsTwoPelletsInAFan(GameTestHelper helper) {
@@ -3321,11 +3359,24 @@ public final class RivalsGameTests {
 					"so its floor is its damage");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("straight_blocks"), 0.0,
 					"and it falls from the moment it leaves");
-			// The post-shot wait before own paint refills, per weapon.
+			// The post-shot wait before own paint refills, per weapon — and every weapon has to be able to
+			// show and take it. The charger's arm of applies() is a whitelist, so a parameter that every
+			// weapon reads has to be named in it; refill_delay was not, and a charger's was a number the
+			// command would not show and the config file would have thrown away on the next save.
 			for (Weapon weapon : Weapon.values()) {
 				helper.assertValueEqual(WeaponTuning.get(weapon).value("refill_delay"), (double) weapon.refillDelay,
 						weapon.commandId() + " refill delay");
+				for (Param shared : WeaponTuning.everyWeapon()) {
+					helper.assertTrue(WeaponTuning.applies(weapon, shared),
+							weapon.commandId() + " must show and take " + shared.id + ": every weapon reads it");
+				}
 			}
+			// The splat bomb waits its own rather than the weapon it was thrown from — seventy ink of a
+			// hundred is not a shooter's shot — so the charger, which has no bomb, does not take it.
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("special_refill_delay"),
+					(double) Weapon.SPECIAL_REFILL_DELAY, "the bomb's own refill delay");
+			helper.assertFalse(WeaponTuning.applies(Weapon.CHARGER, Param.SPECIAL_REFILL_DELAY),
+					"the charger throws no bomb, so it has no bomb's wait to tune");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("splat_radius"), (double) Painter.RADIUS, "shooter splat radius");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("count"), (double) Weapon.ROLLER_FLICK_BALLS, "roller flick drops");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("fan_yaw"), (double) Weapon.ROLLER_FAN_YAW, "roller flick fan");
@@ -3336,7 +3387,7 @@ public final class RivalsGameTests {
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("gravity"), Weapon.SLOSHER_GRAVITY, "slosher gravity");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("fan_pitch"), (double) Weapon.SLOSHER_PITCH, "slosher lob");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("splat_radius"), (double) Weapon.SLOSHER_SPLAT_RADIUS, "slosher 5x5");
-			// fan_yaw is the hand-written fan {-15, -5, 5, 15} as one number: four balls, ten degrees apart.
+			// fan_yaw is the hand-written fan {-4, 4} as one number: two pellets, eight degrees apart.
 			double step = WeaponTuning.get(Weapon.SLOSHER).value("fan_yaw");
 			for (int i = 0; i < Weapon.SLOSHER_FAN.length; i++) {
 				helper.assertValueEqual((double) Weapon.SLOSHER_FAN[i], (i - (Weapon.SLOSHER_FAN.length - 1) / 2.0) * step,
@@ -3351,7 +3402,9 @@ public final class RivalsGameTests {
 					"charger range at a full charge");
 			helper.assertValueEqual(charger.value("charge_ink_full"), (double) (Weapon.CHARGE_BASE_COST + Weapon.CHARGE_EXTRA_COST),
 					"charger ink at a full charge");
-			helper.assertValueEqual(charger.value("charge_damage_full"), (double) (Weapon.CHARGE_BASE_DAMAGE + Weapon.CHARGE_EXTRA_DAMAGE),
+			helper.assertValueEqual(charger.value("charge_damage_partial"), (double) Weapon.CHARGE_PARTIAL_DAMAGE,
+					"charger damage at the top of a partial charge");
+			helper.assertValueEqual(charger.value("charge_damage_full"), (double) Weapon.CHARGE_FULL_DAMAGE,
 					"charger damage at a full charge");
 			// Splatoon's charger: 9 blocks to 24, 2 ink to 18, 8 damage to a one-shot splat at full.
 			helper.assertValueEqual(charger.value("range_min"), 9.0, "a snap shot reaches nine blocks");
@@ -3359,8 +3412,18 @@ public final class RivalsGameTests {
 			helper.assertValueEqual(charger.value("charge_ink_min"), 2.0, "a snap shot costs two");
 			helper.assertValueEqual(charger.value("charge_ink_full"), 18.0, "a full charge costs eighteen");
 			helper.assertValueEqual(charger.value("charge_damage_min"), 8.0, "a snap shot is worth a shooter's shot");
-			helper.assertTrue(charger.value("charge_damage_full") > 20.0,
-					"and a full charge is a splat: " + charger.value("charge_damage_full"));
+			helper.assertValueEqual(charger.value("charge_damage_partial"), 16.0, "a nearly-full charge is worth two");
+			helper.assertValueEqual(charger.value("charge_damage_full"), 32.0, "and a full charge is a splat outright");
+			// Splatoon's curve, with the step in it that is the whole weapon: 8 → 16 in proportion to the
+			// hold, and then a jump to 32 the moment it is full. A straight 8 → 32 would make every
+			// fraction of a charge worth its fraction of a kill, which is a duller gun.
+			helper.assertValueEqual(PaintWeapon.chargeDamage(charger, 0.0f), 8.0f, "no charge is the floor");
+			helper.assertValueEqual(PaintWeapon.chargeDamage(charger, 0.5f), 12.0f, "half way is half way up the partial");
+			helper.assertTrue(PaintWeapon.chargeDamage(charger, 0.99f) < 16.0f,
+					"a charge a hair short of full is still a partial: " + PaintWeapon.chargeDamage(charger, 0.99f));
+			helper.assertValueEqual(PaintWeapon.chargeDamage(charger, 1.0f), 32.0f, "and full is the splat");
+			helper.assertTrue(PaintWeapon.chargeDamage(charger, 1.0f) > 20.0f,
+					"which is more than a player has, so it is one shot");
 			helper.assertFalse(WeaponTuning.applies(Weapon.SLOSHER, Param.RANGE_FULL), "the slosher has no charge to tune");
 			helper.assertFalse(WeaponTuning.applies(Weapon.CHARGER, Param.BOUNCES), "the charger throws nothing to bounce");
 			// The roll belongs to the roller alone, as the charge belongs to the charger.
