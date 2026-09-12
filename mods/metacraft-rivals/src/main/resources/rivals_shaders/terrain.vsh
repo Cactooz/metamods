@@ -18,12 +18,14 @@ out float cylindricalVertexDistance;
 out vec4 vertexColor;
 out vec2 texCoord0;
 out vec3 viewPos;
+out vec3 chunkPos;
 
 void main() {
 	vec3 pos = Position + (ChunkPosition - CameraBlockPos) + CameraOffset;
 	vec4 view = ModelViewMat * vec4(pos, 1.0);
 	gl_Position = ProjMat * view;
 	viewPos = view.xyz;
+	chunkPos = Position;
 
 	sphericalVertexDistance = fog_spherical_distance(pos);
 	cylindricalVertexDistance = fog_cylindrical_distance(pos);

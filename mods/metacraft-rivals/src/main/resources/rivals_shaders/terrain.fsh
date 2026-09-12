@@ -11,6 +11,7 @@ in float cylindricalVertexDistance;
 in vec4 vertexColor;
 in vec2 texCoord0;
 in vec3 viewPos;
+in vec3 chunkPos;
 
 out vec4 fragColor;
 
@@ -98,13 +99,24 @@ void main() {
 	// RIVALS_GLOSS: paint texels carry alpha 229/255 = 0.898 as a marker; the window admits 228..230
 	// (three steps, filtering tolerance) and stays five steps clear of the nearest vanilla value (224).
 	if (abs(tex.a - 0.898) < 0.004) {
+		// RIVALS_GLOSS: wet-paint look, not chrome. A tight white glint reads as a liquid highlight,
+		// a broad colour-tinted sheen and fresnel rim keep the paint saturated instead of bleaching it,
+		// and a small animated bump on the normal (driven by view-space position + GameTime) ripples
+		// the surface like a skin of liquid rather than a static polished plate.
 		vec3 n = normalize(cross(dFdx(viewPos), dFdy(viewPos)));
 		vec3 v = normalize(-viewPos);
+		vec3 p = chunkPos;
 		float t = GameTime * 1200.0;
+		n = normalize(n + 0.06 * vec3(sin(p.x * 7.0 + t), 0.0, cos(p.z * 7.0 + t * 1.3)));
 		vec3 l = normalize(vec3(0.3 + 0.15 * sin(t), 0.8, 0.5 + 0.15 * cos(t)));
-		float spec = pow(max(dot(reflect(-l, n), v), 0.0), 24.0) * 0.55;
-		float fresnel = pow(1.0 - max(dot(n, v), 0.0), 3.0) * 0.25;
-		color.rgb += spec + fresnel;
+		vec3 lightened = mix(color.rgb, vec3(1.0), 0.35);
+		float glint = pow(max(dot(reflect(-l, n), v), 0.0), 90.0) * 0.75;
+		float sheen = pow(max(dot(reflect(-l, n), v), 0.0), 5.0) * 0.12;
+		float fresnel = pow(1.0 - max(dot(n, v), 0.0), 4.0) * 0.18;
+		color.rgb = mix(color.rgb, vec3(1.0), glint);
+		color.rgb = mix(color.rgb, lightened, sheen);
+		color.rgb = mix(color.rgb, lightened, fresnel);
+		color.rgb *= 0.97 + 0.03 * dot(n, v);
 		color.a = 1.0;
 	}
 	fragColor = apply_fog(color, sphericalVertexDistance, cylindricalVertexDistance, FogEnvironmentalStart, FogEnvironmentalEnd, FogRenderDistanceStart, FogRenderDistanceEnd, FogColor);
