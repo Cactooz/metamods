@@ -61,6 +61,7 @@ import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
+import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -225,7 +226,12 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** The tally counts faces per colour from the cells it tracks, and reset removes them. */
+	/**
+	 * The tally counts faces per colour from the cells it tracks, and reset removes them. Every count here
+	 * is a delta against a snapshot taken first: {@code count} folds in the whole level's display quads,
+	 * and game tests in the same level run side by side, so the absolute figures are not this test's to
+	 * predict.
+	 */
 	@GameTest
 	public void tallyCountsFacesAndResets(GameTestHelper helper) {
 		helper.setBlock(new BlockPos(2, 1, 2), Blocks.STONE);
@@ -238,20 +244,27 @@ public final class RivalsGameTests {
 				.setValue(MultifaceBlock.getFaceProperty(Direction.NORTH), true));
 		helper.setBlock(limeCell, PaintBlocks.of(PaintColor.LIME).defaultBlockState()
 				.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true));
+		// count() folds in the level's display quads, which belong to whatever else is running: take the
+		// baseline first and read every figure below as this test's own contribution on top of it.
+		Map<PaintColor, Integer> quads = PaintDisplays.of(helper.getLevel()).count(helper.getLevel());
 		PaintTally tally = new PaintTally();
 		tally.track(helper.absolutePos(magentaCell));
 		tally.track(helper.absolutePos(limeCell));
 		tally.track(helper.absolutePos(new BlockPos(0, 5, 0))); // air: must be dropped, not counted
 		Map<PaintColor, Integer> counts = tally.count(helper.getLevel());
-		helper.assertValueEqual(counts.get(PaintColor.MAGENTA), 2, "magenta faces");
-		helper.assertValueEqual(counts.get(PaintColor.LIME), 1, "lime faces");
-		helper.assertValueEqual(counts.get(PaintColor.CYAN), 0, "cyan faces");
+		Map<PaintColor, Integer> mine = new EnumMap<>(PaintColor.class);
+		for (PaintColor color : PaintColor.values()) mine.put(color, counts.get(color) - quads.get(color));
+		helper.assertValueEqual(mine.get(PaintColor.MAGENTA), 2, "magenta faces");
+		helper.assertValueEqual(mine.get(PaintColor.LIME), 1, "lime faces");
+		helper.assertValueEqual(mine.get(PaintColor.CYAN), 0, "cyan faces");
 		helper.assertValueEqual(tally.cells(), 2, "the air cell was dropped");
-		helper.assertTrue(Math.abs(PaintTally.share(counts, PaintColor.LIME) - 1f / 3f) < 1e-6, "lime share is a third");
+		helper.assertTrue(Math.abs(PaintTally.share(mine, PaintColor.LIME) - 1f / 3f) < 1e-6, "lime share is a third");
+		int quadsBefore = PaintDisplays.of(helper.getLevel()).holders(); // reset clears the level's quads too
 		int removed = tally.reset(helper.getLevel());
-		helper.assertValueEqual(removed, 2, "reset removed both cells");
+		helper.assertValueEqual(removed - quadsBefore, 2, "reset removed both cells");
 		helper.assertTrue(helper.getBlockState(magentaCell).isAir() && helper.getBlockState(limeCell).isAir(), "cells are air after reset");
 		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.MAGENTA), 0, "nothing left to count");
+		helper.assertValueEqual(tally.cells(), 0, "and no cells left to count it from");
 		helper.succeed();
 	}
 
@@ -475,7 +488,10 @@ public final class RivalsGameTests {
 
 	/**
 	 * A stair top takes paint as display quads: tracked, counted in the colour, dropped when the surface
-	 * goes (waterlogged stairs included), removed by reset.
+	 * goes (waterlogged stairs included), removed by reset. Holder counts are deltas against a snapshot
+	 * taken first, since {@link PaintDisplays} is per level and other tests in the same level hold quads
+	 * of their own; the two figures that are absolute are the post-conditions of a level-wide clear,
+	 * which is what {@code reset} is.
 	 */
 	@GameTest
 	public void stairTakesDisplayPaint(GameTestHelper helper) {
@@ -509,7 +525,7 @@ public final class RivalsGameTests {
 		PaintTally tally = new PaintTally();
 		helper.assertTrue(tally.count(helper.getLevel()).get(PaintColor.CYAN) >= 1, "the tally counts the quads as cyan faces");
 		int removed = tally.reset(helper.getLevel()); // a reset clears the level's display quads too
-		helper.assertTrue(removed >= 1 && displays.holders() == 0, "clear removed the quads");
+		helper.assertTrue(removed >= 1 && displays.holders() == before, "clear removed the quads");
 		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.CYAN), 0, "nothing left to count");
 		// A surface that only changes shape keeps its position, so every check above still passes, but the
 		// quads were cut to the old shape and now hang over nothing: the cell must be dropped.
@@ -522,7 +538,7 @@ public final class RivalsGameTests {
 		displays.count(helper.getLevel()); // the sweep
 		helper.assertTrue(displays.colorAt(helper.absolutePos(turned.above())) == null,
 				"turning the stair under the quads dropped the cell");
-		helper.assertValueEqual(displays.holders(), 0, "no holders left");
+		helper.assertValueEqual(displays.holders(), before, "no holders left");
 		helper.succeed();
 	}
 
@@ -725,6 +741,43 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
+	/**
+	 * The same climb up a wall that is not a full cube. A pane's paint is display quads in the player's
+	 * own cell rather than a paint block face, so this is the other half of {@code paintedWallBeside}:
+	 * the quads must carry the face pointing back from the pane at the player.
+	 */
+	@GameTest
+	public void squidWallSwimUpAPane(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.GLASS_PANE);
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		player.setPos(at.x, at.y, at.z);
+		BlockPos feet = helper.absolutePos(new BlockPos(3, 2, 2));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(3, 1, 2)), Direction.UP, PaintColor.MAGENTA); // floor under
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 2)), Direction.WEST, PaintColor.MAGENTA),
+				"the pane took paint");
+		PaintDisplays displays = PaintDisplays.of(helper.getLevel());
+		helper.assertTrue(displays.colorAt(feet) == PaintColor.MAGENTA && displays.faceAt(feet) == Direction.WEST,
+				"a pane's paint is quads in the player's own cell, facing back at the pane");
+		player.setShiftKeyDown(true);
+		player.horizontalCollision = true;
+		player.setDeltaMovement(0.1, 0, 0);
+		PlayerTick.tick(player, 0);
+		helper.assertTrue(SquidState.isSquid(player), "squid");
+		helper.assertTrue(player.getDeltaMovement().y > 0.2, "lifted up the inked pane, dy=" + player.getDeltaMovement().y);
+		// The quads are the only thing holding the climb up: take the pane away and the cell's quads die
+		// with it, so the same push must go nowhere.
+		helper.setBlock(new BlockPos(4, 2, 2), Blocks.AIR);
+		displays.count(helper.getLevel()); // the sweep that drops cells whose surface is gone
+		player.horizontalCollision = true;
+		player.setDeltaMovement(0.1, 0, 0);
+		PlayerTick.tick(player, 1);
+		helper.assertTrue(player.getDeltaMovement().y < 0.2, "not lifted once the pane is gone, dy=" + player.getDeltaMovement().y);
+		helper.succeed();
+	}
+
 	/** Enemy ink drips: 1 damage every 20 ticks in survival, never below 1 health. */
 	@GameTest
 	public void enemyInkDripDamage(GameTestHelper helper) {
@@ -764,10 +817,28 @@ public final class RivalsGameTests {
 		ball.setPos(at.x, at.y, at.z);
 		ball.setDeltaMovement(0, -0.8, 0);
 		helper.getLevel().addFreshEntity(ball);
+		// The impact tick is not known in advance, so sample every tick: the last downward reading before
+		// the bounce is the incoming speed, the first upward one is what the bounce gave back.
+		double[] falling = {0};
+		double[] reflected = {0};
+		for (int tick = 1; tick <= 5; tick++) {
+			helper.runAfterDelay(tick, () -> {
+				double dy = ball.getDeltaMovement().y;
+				if (reflected[0] == 0 && dy < 0) falling[0] = dy;
+				if (reflected[0] == 0 && dy > 0) reflected[0] = dy;
+			});
+		}
 		helper.runAfterDelay(6, () -> {
 			helper.assertTrue(!ball.isRemoved(), "still flying after the first impact");
 			helper.assertValueEqual(ball.bouncesLeft(), 0, "one bounce used");
 			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.CYAN)), "first impact painted");
+			// Neither reading is the instant of the bounce — the ball was still accelerating when the last
+			// downward one was taken, and drag and gravity had already run when the upward one was — so
+			// the ratio lands near BOUNCE_RESTITUTION rather than on it.
+			helper.assertTrue(reflected[0] > 0, "the bounce sends the ball back up, dy=" + reflected[0]);
+			double kept = reflected[0] / -falling[0];
+			helper.assertTrue(Math.abs(kept - PaintBall.BOUNCE_RESTITUTION) < 0.10,
+					"the bounce keeps about " + PaintBall.BOUNCE_RESTITUTION + " of the incoming speed, kept " + kept);
 		});
 		helper.runAfterDelay(40, () -> {
 			helper.assertTrue(ball.isRemoved(), "gone after the second impact");
@@ -825,6 +896,8 @@ public final class RivalsGameTests {
 			helper.assertValueEqual(drop.splatRadius(), 0, "droplets paint a single face");
 		}
 		helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)), Ink.MAX - Weapon.SPRAYER.inkPerShot, "ink cost");
+		helper.assertTrue(player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)),
+				"the sprayer goes on cooldown: the fire rate is the cooldown");
 		drops.forEach(Entity::discard);
 		helper.succeed();
 	}
@@ -858,6 +931,8 @@ public final class RivalsGameTests {
 			}
 		}
 		helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)), Ink.MAX - Weapon.SLOSHER.inkPerShot, "ink cost");
+		helper.assertTrue(player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)),
+				"the slosher goes on cooldown: the fire rate is the cooldown");
 		balls.forEach(Entity::discard);
 		helper.succeed();
 	}
