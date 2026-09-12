@@ -9,7 +9,9 @@ Players need only the auto-served resource pack. Design: `docs/superpowers/specs
 paint, ink), `docs/superpowers/specs/2026-09-12-metacraft-rivals-v3-design.md` (v3: gloss that
 actually renders, real squid form, blobby bouncing shots, three more weapons) and
 `docs/superpowers/specs/2026-09-12-metacraft-rivals-v4-connected-paint-design.md` (v4: two teams,
-connected paint, the shader-drawn border); the gun's design sheet is next to the v1 spec.
+connected paint, the shader-drawn border); the gun's design sheet is next to the v1 spec. v6 added the
+two visual features described below: paint on non-full blocks as block displays of the real paint
+state, and ink on the screen from damage taken.
 
 **Standalone.** This module is not bundled into the `dist` jar (root `build.gradle`, `standaloneMods`):
 its pack retextures sculk vein, resin clump, tripwire and redstone wire as paint, which only a
@@ -134,16 +136,30 @@ dedicated Rivals server wants.
   grains hang in the middle of the camera. The shooter gets three small ones at the barrel tip
   instead, offset right and down out of the crosshair. The charger's trail starts its dust 1.5
   blocks along the shot for the same reason; the paint under the line still starts at the eyes.
-- Paint blocks only ever sit on a full face — the same attach rule vanilla's own multiface blocks
-  use, and exactly the rule paint wants. A face that isn't full (stairs, slabs, fences, panes, walls, glass
-  panes) instead gets a set of flat paint-quad item displays that wrap the block's own outline
-  shape (not its collision box, so paint on a fence sits on top of the post, not floating at
-  collision height). At most three quads per cell, the largest boxes on the struck side, so a
-  wall post with four arms doesn't put a dozen item displays in one cell. These quads aren't
-  blocks, so nothing tells them to fall on their own: they are dropped, and stop being counted,
-  once their surface is destroyed, replaced, buried, or merely changes shape (a stair turned
-  under them), or once its chunk unloads — a chunk unload takes the paint with it, and unlike a
-  paint block it does not come back when the chunk reloads.
+- **Paint on other shapes.** Paint blocks only ever sit on a full face — the same attach rule
+  vanilla's own multiface blocks use, and exactly the rule paint wants. A face that isn't full
+  (stairs, slabs, fences, panes, walls, glass panes) instead gets a set of flat quads that wrap the
+  block's own outline shape (not its collision box, so paint on a fence sits on top of the post, not
+  floating at collision height). Each quad is a Polymer **block display carrying the paint state
+  itself** — `PaintStates.connected(colour, attach, bits)`, the very client state a painted cell
+  carries — so a quad on a slab is the same material as the paint block beside it, borders against it,
+  and is drawn by the same shader code (below). Placing one needs no rotation: the paint state's attach
+  direction already puts the model's single quad against the right side of the display's unit cube, so
+  it is the box's face plane on the face axis and the box's own extent on the other two. The
+  connection nibble counts both kinds of neighbour — paint blocks through
+  `ConnectedPaintBlock.neighbourBits`, and neighbouring quad cells of the same colour on the same face
+  — and because nothing sends a block display a neighbour update, `Painter` re-states the quads around
+  every cell it paints, so a newly painted neighbour opens their border within the tick. (The reverse
+  does not hold: a paint *block*'s own bits come from block states alone, so it leaves its edge closed
+  against a quad.) At most three quads per cell, the largest boxes on the struck side, so a wall post
+  with four arms doesn't put a dozen displays in one cell. These quads aren't blocks, so nothing tells
+  them to fall on their own: they are dropped, and stop being counted, once their surface is destroyed,
+  replaced, buried, or merely changes shape (a stair turned under them), or once its chunk unloads — a
+  chunk unload takes the paint with it, and unlike a paint block it does not come back when the chunk
+  reloads. Entity lighting is one sample with no ambient occlusion, so a quad is lit a little more
+  flatly than the block paint around it. (Before v6 these were item displays of a white sprite tinted
+  with the team colour: the right silhouette, but a different material from the block paint and no way
+  to border against it.)
 - Paint on a full block face is drawn by the pack's own art and the shader (below), not a Kenney
   silhouette. Per colour there are 16 uniform 16×16 textures — the paint colour, alpha 235 (the
   gloss shader's marker: the window 233..237 is the one band in 200..254 that no vanilla block texture
@@ -156,13 +172,8 @@ dedicated Rivals server wants.
   donor's whole vanilla blockstate file, so those unused states render *nothing at all* — a sculk
   vein, resin clump, tripwire or redstone dust a player places in an arena is invisible under the
   pack, and so is powered redstone dust, wiring and all.
-  The display quads use one generated 16×16 sprite (`paint_quad`), white and dye-tinted per shooter,
-  for the flat quads `PaintDisplays` hangs on faces that aren't full blocks (stairs, slabs, fences,
-  panes). It is the silhouette an *isolated* paint cell has, derived rather than drawn: a full square
-  inset one texel with the corners rounded at 0.28 blocks, which is the shader's own rounded box with
-  all four sides unconnected, evaluated once per texel centre so the corners come out stepped exactly
-  the way the shader's do. The eight Kenney silhouettes it replaces were 32 px with soft edges of
-  their own and read as decals from another game beside the block paint.
+  The display quads need no art of their own: they show a paint state, so they resolve to the same
+  wrapper model and the same bit-carrying texture a painted cell does.
 - The pack also overrides `assets/minecraft/shaders/core/terrain.vsh`/`terrain.fsh` — the pair that
   actually draws chunk geometry in 26.3 — inside a guard on that alpha marker. It reads the four
   bits back out of the texel's red channel, works out the face's two in-plane axes from
@@ -181,6 +192,49 @@ dedicated Rivals server wants.
   into `block.vsh`/`block.fsh`, which chunk terrain never runs through, so the gloss never rendered;
   those overrides are gone.) Known limit: a shader pack (e.g. Iris) replaces the core shaders
   wholesale and loses the gloss.
+- The pack overrides `assets/minecraft/shaders/core/item.vsh`/`item.fsh` as well, with the same gloss
+  block behind the same marker guard, because that is the pair that draws the display quads: both
+  display kinds render block models through `Sheets.cutoutBlockItemSheet()`, which is
+  `RenderPipelines.ITEM_CUTOUT`, which is `core/item` — not terrain, not entity. The delta over
+  vanilla's item pair is two varyings. `viewPos` is the view-space position, for the normal (from its
+  derivatives) and the view vector. `paintPos` is the *world* position, because `Position` in the item
+  pair is camera-relative render space rather than model space: it is rebuilt as
+  `Position - CameraOffset + CameraBlockPos`, wrapped to 1024 blocks so float precision holds while
+  `fract()` — the in-cell coordinate the border is cut from — is left exactly alone. A quad's border is
+  therefore cut on the very same 1/16-block grid as the paint block next to it, and the wobble crawls on
+  the same clock: `Globals` is bound for every ITEM pipeline (`ITEM_SNIPPET` builds on
+  `MATRICES_FOG_LIGHT_DIR_SNIPPET`, which builds on `GLOBALS_SNIPPET`), so `GameTime` is there to read.
+  Held items, dropped items and the inventory come through untouched: no texture in either atlas an
+  item pipeline draws — blocks and items — carries an alpha anywhere in the 233..237 the guard admits.
+- **Ink on your screen.** Taking enemy paint in the face throws ink over the player's view: blobs in
+  the enemy's colour at fixed pseudo-random places, growing and dripping as the meter fills, edges
+  wobbling on `GameTime`, every edge snapped to a 4-pixel grid for the pixel-art look, and the middle
+  of the screen left clear so the reticle stays readable. At full it covers about 45% of the screen.
+  `InkOnScreen` keeps the meter server-side: 25 per point of damage from an enemy weapon (the victim's
+  screen, in the shooter's colour), 2 a tick standing in enemy ink, 4 a tick off, clamped to 0..255,
+  and cleared outright on nought, on death, on spectating, on leaving the teams and on logging out.
+  All five numbers are constants at the top of that class.
+
+  It is drawn by a post effect, which is where the interesting part is. A server-side mod cannot run
+  client code, but 26.3's `GameRenderer.update` asks for the post effect `minecraft:end_of_frame`
+  *every single frame* and drops the request silently when no pack defines it — so a pack that does
+  define it gets one full-screen pass per frame, with nothing to trigger and nothing to switch on. It
+  cannot set a uniform either, so the number is written into the frame the shader reads: every player
+  with ink on screen is held on a title made of one glyph of the mod's own two-by-two white `data`
+  font, coloured `(255, team, amount)` — red at full with green under 16 is the signature, green's low
+  nibble picks which ink to draw, blue is the amount. The title is set up once with no fade and a
+  million ticks of stay, so it neither animates nor expires, and the text is only re-sent when the
+  value changes and at most every other tick.
+
+  The chain's first pass renders to a **one-by-one** target, so the hunt for that pixel — a band around
+  the middle of the screen, which is where a title lands whatever the GUI scale is, checking two
+  samples a step apart so a lone red pixel in the world is never mistaken for it — runs once a frame
+  rather than once a pixel. It hands the amount, the team and the marker's position to the ink pass,
+  which paints ink over the marker and its drop shadow, so the player never sees the number they are
+  being told. Known limits: the pass runs every frame whether there is ink or not (two full-screen
+  passes' worth of work); the players' "text background" option, if they switch it on for everything,
+  draws a backdrop behind the marker, which the ink patch is sized to cover; and a shader pack that
+  replaces the post chain loses the effect, exactly as it loses the gloss.
 - The guns' 3D models live under `assets/metacraft-rivals/models/item/`; each tank is dye-tinted
   to the team colour. The shooter (`paint_gun.json`) is Kenney's `blaster-b`, the sprayer is
   `blaster-o`, and the charger is `blaster-p` (all CC0, Blaster Kit), each converted into a
