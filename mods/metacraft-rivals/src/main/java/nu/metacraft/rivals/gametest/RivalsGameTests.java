@@ -704,6 +704,9 @@ public final class RivalsGameTests {
 		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.898") && fsh.contains("0.004"), "fragment shader guards on the marker alpha");
 		helper.assertTrue(fsh.contains("sampleRGSS") && fsh.contains("#ifdef ALPHA_CUTOUT"), "vanilla terrain sampling and cutout kept");
 		helper.assertTrue(vsh.contains("out vec3 viewPos") && vsh.contains("ChunkPosition"), "vertex shader exports the view position from the chunk-relative position");
+		// The in-plane cell coordinate the border is cut from: the pair has to agree or the paint is untextured.
+		helper.assertTrue(vsh.contains("out vec3 chunkPos"), "vertex shader exports the chunk-relative position");
+		helper.assertTrue(fsh.contains("in vec3 chunkPos"), "fragment shader reads the chunk-relative position");
 		helper.assertTrue(RivalsPack.class.getResource("/rivals_shaders/block.fsh") == null, "the block shader override is gone");
 		helper.succeed();
 	}
@@ -1385,19 +1388,33 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** One face per connected cell, popcount per splat cell. */
+	/**
+	 * One face per connected cell, popcount per splat cell — read off the three cells this test paints
+	 * rather than off a level-global before/after delta. {@link PaintTally#count} folds in every display
+	 * quad in the level, so a delta here answers for whatever else the structure happens to hold; the
+	 * face masks of our own cells answer only for us.
+	 */
 	@GameTest
 	public void tallyCountsConnectedAndSplat(GameTestHelper helper) {
 		ServerLevel level = helper.getLevel();
 		PaintTally tally = new PaintTally();
-		Map<PaintColor, Integer> before = tally.count(level);
 		for (int x = 1; x <= 3; x++) helper.setBlock(new BlockPos(x, 1, 2), Blocks.STONE);
 		helper.setBlock(new BlockPos(2, 2, 1), Blocks.STONE);
 		for (int x = 1; x <= 3; x++) Painter.paintFace(level, helper.absolutePos(new BlockPos(x, 1, 2)), Direction.UP, PaintColor.DATA);
 		Painter.paintFace(level, helper.absolutePos(new BlockPos(2, 2, 1)), Direction.SOUTH, PaintColor.DATA);
-		for (int x = 1; x <= 3; x++) tally.track(helper.absolutePos(new BlockPos(x, 2, 2)));
-		Map<PaintColor, Integer> after = tally.count(level);
-		helper.assertValueEqual(after.get(PaintColor.DATA) - before.get(PaintColor.DATA), 4, "three floor faces plus one wall face");
+		int faces = 0;
+		for (int x = 1; x <= 3; x++) {
+			BlockPos cell = helper.absolutePos(new BlockPos(x, 2, 2));
+			tally.track(cell);
+			BlockState state = level.getBlockState(cell);
+			helper.assertTrue(state.getBlock() instanceof Paint, "paint at " + cell + ", not " + state);
+			Paint paint = (Paint) state.getBlock();
+			helper.assertValueEqual(paint.color(), PaintColor.DATA, "DATA paint at " + cell);
+			faces += Integer.bitCount(paint.faceMask(state));
+		}
+		helper.assertValueEqual(faces, 4, "three floor faces plus the wall face on the middle cell");
+		helper.assertValueEqual(tally.cells(), 3, "three cells tracked");
+		helper.assertTrue(tally.count(level).get(PaintColor.DATA) >= faces, "the tally sees at least our own faces");
 		helper.succeed();
 	}
 

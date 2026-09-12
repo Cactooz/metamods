@@ -114,16 +114,30 @@ public final class PlayerTick {
 	 * <p>Paint under the feet means the cell's down face, the one lying on the floor the player stands
 	 * on. A cell whose only paint is on a wall face is paint beside them, not under them — that is
 	 * {@link #paintedWallBeside}'s business, and it is what holds squid form on during a wall climb.
+	 * Display quads obey the same rule from the other side: their cell records the face of the
+	 * <em>surface</em> they cover, so floor quads are the ones painted on a surface's {@link
+	 * Direction#UP} face — quads on the side of a pane are a wall, not a floor, and must not count as
+	 * paint underfoot.
 	 */
 	public static @Nullable PaintColor paintUnder(Player player) {
 		if (!(player.level() instanceof ServerLevel level)) return null;
 		BlockPos feet = player.blockPosition();
 		BlockState state = level.getBlockState(feet);
 		if (state.getBlock() instanceof Paint paint && (paint.faceMask(state) & 1 << Direction.DOWN.ordinal()) != 0) return paint.color();
-		PaintColor quads = PaintDisplays.of(level).colorAt(feet);
+		PaintDisplays displays = PaintDisplays.of(level);
+		PaintColor quads = floorQuads(displays, feet);
 		if (quads != null) return quads;
 		if (state.isCollisionShapeFullBlock(level, feet)) return null;
-		return PaintDisplays.of(level).colorAt(feet.above());
+		return floorQuads(displays, feet.above());
+	}
+
+	/**
+	 * The colour of the display quads lying face-up in {@code cell}, or null. {@link PaintDisplays}
+	 * keys a cell by the surface face its quads cover, so {@link Direction#UP} is the floor case: the
+	 * top of a slab, a stair tread or a fence post. Any other face is paint on a wall or a ceiling.
+	 */
+	private static @Nullable PaintColor floorQuads(PaintDisplays displays, BlockPos cell) {
+		return displays.faceAt(cell) == Direction.UP ? displays.colorAt(cell) : null;
 	}
 
 	/**
@@ -276,7 +290,8 @@ public final class PlayerTick {
 	/**
 	 * The shared scan. With an empty {@code move} every horizontal neighbour counts, at any distance
 	 * the player's own cell can reach — that is the cling, and the test that keeps squid form on. With a
-	 * direction, only a wall the player is pushing into (within 45° of it) and hugging counts.
+	 * direction, only a wall the player is pushing into (within 60° of it, i.e. {@code dot > 0.5}) and
+	 * hugging counts.
 	 */
 	private static @Nullable Direction paintedWall(Player player, PaintColor own, Vec3 move) {
 		if (!(player.level() instanceof ServerLevel level)) return null;
@@ -317,13 +332,15 @@ public final class PlayerTick {
 	}
 
 	/**
-	 * Has the climbed wall run out? The cell beyond the player's head in the wall direction having no
-	 * collision at all means there is nothing left up there to press into — a pane or fence still
-	 * counts as wall, so a climb up one is not cut short a block early.
+	 * Has the climbed wall run out? The cell two above the player's feet is still beside their head, so
+	 * the question is about the one above <em>that</em>: no collision there means the next tick of the
+	 * climb has nothing left to press into. Asking a block lower fires the hop while the wall is still
+	 * there and shoves the squid off it. A pane or fence still counts as wall, so a climb up one is not
+	 * cut short either.
 	 */
 	private static boolean topsOut(Player player, Direction side) {
 		if (!(player.level() instanceof ServerLevel level)) return false;
-		BlockPos above = player.blockPosition().above(2).relative(side);
+		BlockPos above = player.blockPosition().above(3).relative(side);
 		return level.getBlockState(above).getCollisionShape(level, above).isEmpty();
 	}
 

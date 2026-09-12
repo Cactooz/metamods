@@ -35,6 +35,8 @@ import java.util.stream.Collectors;
  */
 public final class PaintArt {
 	public static final int SIZE = 16;
+	/** Connection-bit patterns per colour: one texture (and one wrapper per face) each. */
+	public static final int BITS = 16;
 	private static final Direction[] DIRECTIONS = Direction.values();
 	/** How far off the attach face a quad sits, in sixteenths, as in vanilla's own multiface models. */
 	private static final double OFFSET = 0.1;
@@ -182,6 +184,11 @@ public final class PaintArt {
 	 * The empty model a donor state paint does not use points at: no geometry, and a {@code particle}
 	 * only because every model needs one — vanilla gives even {@code block/air.json} a particle texture,
 	 * and a model without one is a "missing texture references" line in the client's log on every join.
+	 *
+	 * <p>The particle texture is borrowed from the first colour's all-connected paint, so the one place
+	 * it shows is the one place an unused donor state can make particles: breaking a stray sculk vein,
+	 * resin clump, tripwire or redstone dust a player placed in an arena puffs that colour's paint
+	 * crumbs. A harmless tell, and a cheaper one than shipping a texture nothing else uses.
 	 */
 	static JsonObject emptyModel() {
 		JsonObject textures = new JsonObject();

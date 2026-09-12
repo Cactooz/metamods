@@ -102,8 +102,10 @@ dedicated Rivals server wants.
   attach direction, each 0.1/16 off the face like the multiface donors. A blockstate `variants` file
   per donor block maps every one of its states to either a wrapper model (a connected cell's face
   quad with its (colour, bits) texture) or a mask model (a corner cell's quad-per-face, all on the
-  all-connected texture); states paint doesn't use point at an empty model, so a stray vanilla sculk
-  vein or tripwire a player places shows nothing extra beyond that block's own normal rendering.
+  all-connected texture); states paint doesn't use point at an empty model. The override replaces the
+  donor's whole vanilla blockstate file, so those unused states render *nothing at all* — a sculk
+  vein, resin clump, tripwire or redstone dust a player places in an arena is invisible under the
+  pack, and so is powered redstone dust, wiring and all.
   Kenney's Splat Pack (CC0) now only supplies the display-quad art: eight silhouettes, kept as
   opaque white masks and dye-tinted per shooter, for the flat quads `PaintDisplays` hangs on faces
   that aren't full blocks (stairs, slabs, fences, panes) — the item icon still uses one variant too.
