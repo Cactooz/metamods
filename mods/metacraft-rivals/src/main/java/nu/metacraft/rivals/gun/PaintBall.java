@@ -123,8 +123,8 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	}
 
 	/**
-	 * Override the fall rate for this ball. Read through {@link #getDefaultGravity}, so it must be set
-	 * before the ball is added to the level — a heavier ball is a different arc, not a mid-flight change.
+	 * Override the fall rate for this ball. Read back through {@link #getDefaultGravity} every tick, so it
+	 * can be set at any point in the ball's life; the slosher sets it once, before the throw.
 	 */
 	public void setGravity(double gravity) {
 		this.gravity = gravity;
@@ -141,8 +141,9 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	}
 
 	/**
-	 * The item the entity carries. Clients never see the entity itself any more, but the stack still
-	 * drives the vanilla impact particles and reads as a coloured ball anywhere the stack is inspected.
+	 * The item the entity carries. Clients never see it — {@link #sendPacketsTo} is false, so the entity
+	 * and the item-break event vanilla would fire on impact never reach anyone — but the stack is still
+	 * what the ball reads as anywhere it is inspected server-side, and it carries the colour.
 	 */
 	public static ItemStack blob(PaintColor color) {
 		ItemStack stack = new ItemStack(Items.FIREWORK_STAR);
@@ -221,12 +222,15 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	/**
 	 * {@link Snowball#onHit} discards the ball once the hit has been handled, so a bounce cannot go
 	 * through the usual {@link #onHitBlock} path: it has to answer the hit here and return before super
-	 * ever runs. Everything else — entity hits, and the block hit that spends the last bounce — falls
+	 * ever runs. Everything else — entity hits, a world-border hit (bouncing off the border would leave
+	 * the ball skimming a wall that is not there), and the block hit that spends the last bounce — falls
 	 * through to v2's behaviour (super dispatches to {@code onHitBlock}/{@code onHitEntity}, then discards).
 	 */
 	@Override
 	protected void onHit(HitResult result) {
-		if (bounces > 0 && result instanceof BlockHitResult hit && level() instanceof ServerLevel serverLevel) {
+		if (bounces > 0 && result instanceof BlockHitResult hit && !hit.isWorldBorderHit()
+				&& level() instanceof ServerLevel serverLevel) {
+			super.onHitBlock(hit); // the vanilla block-hit effects still belong to a bounce
 			Painter.splash(serverLevel, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, splatRadius, this);
 			bounces--;
 			Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getUnitVec3i());
@@ -255,10 +259,14 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		}
 	}
 
-	/** The blob is not an entity of its own: nothing else would ever take it down. */
+	/**
+	 * The blob is not an entity of its own: nothing else would ever take it down. Hooked on
+	 * {@code onRemoval} rather than {@code remove}, because {@link #setRemoved} is final and calls
+	 * {@code onRemoval} directly — a chunk unload takes that path and never goes through {@code remove}.
+	 */
 	@Override
-	public void remove(RemovalReason reason) {
-		super.remove(reason);
+	public void onRemoval(RemovalReason reason) {
+		super.onRemoval(reason);
 		if (blob != null) {
 			blob.destroy();
 			blob = null;
