@@ -40,6 +40,11 @@ public record OvvarConfig(boolean sewingMinigame, int stitches, DesignStoreConfi
 		return new OvvarConfig(on, stitches > 0 ? stitches : stitches(), designs);
 	}
 
+	/** Re-reads {@code config/ovvar.json}. */
+	public static void reload() {
+		CONTAINER.reload();
+	}
+
 	public static void modify(UnaryOperator<OvvarConfig> config) {
 		CONTAINER.replace(config.apply(CONTAINER.get()));
 	}

@@ -9,6 +9,7 @@ import metacraft.ovvar.content.OvveItem;
 import metacraft.ovvar.content.PatchItem;
 import metacraft.ovvar.content.Patches;
 import metacraft.ovvar.content.Spot;
+import metacraft.ovvar.store.OwnedSewing;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
@@ -118,7 +119,11 @@ public final class StandSewing {
 	}
 
 	private static void onSewFail(ServerLevel level, ServerPlayer player, Vec3 where) {
-		player.sendSystemMessage(FAILED); // We use chat since actionbar will get overwritten quickly.
+		onSewFail(level, player, where, FAILED.getString());
+	}
+
+	private static void onSewFail(ServerLevel level, ServerPlayer player, Vec3 where, String why) {
+		player.sendSystemMessage(Component.literal(why).withColor(TextColor.RED.getValue())); // chat: the action bar is overwritten quickly
 		level.sendParticles(new DustParticleOptions(16711680, 0.5f), where.x, where.y, where.z, 12, 0.15, 0.15, 0.15, 0.02);
 	}
 
@@ -149,11 +154,13 @@ public final class StandSewing {
 			Placement there = Looks.at(ovve, spot);
 			if (there == null && Spot.SEAT_CELLS.contains(spot)) { spot = Spot.SEAT; there = Looks.at(ovve, spot); }
 			if (there == null) return InteractionResult.PASS;
-			Looks.unpick(ovve, spot);
-			ItemStack back = new ItemStack(ModContent.patchItem(there.patch()));
-			if (!player.getInventory().add(back)) player.drop(back, false, Prediction.SERVER_ONLY);
-			celebrate(level, aimed.where(), false);
-			player.sendOverlayMessage(Component.literal(there.patch().name() + " unpicked"));
+			Vec3 where = aimed.where();
+			// The patch only comes back once the store has let go of it (an owned ovve is a view of the design).
+			OwnedSewing.unpick(ovve, spot, unpicked -> {
+				OwnedSewing.give(player, unpicked.patch());
+				celebrate(level, where, false);
+				player.sendOverlayMessage(Component.literal(unpicked.patch().name() + " unpicked"));
+			}, why -> onSewFail(level, player, where, why));
 			player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, true);
 			return InteractionResult.SUCCESS;
 		}
@@ -163,22 +170,24 @@ public final class StandSewing {
 	private static final Component FAILED = Component.literal("Cannot sew a patch on top of another patch!").withColor(TextColor.RED);
 
 	/**
-	 * Sews for real: the placement goes on the stand's ovve, the preview is dropped, one patch
-	 * leaves the hand (outside creative), particles at {@code where}.
+	 * Sews for real: one patch leaves the hand (outside creative) as the click lands, the placement
+	 * goes on the stand's ovve — through the owner's design in the store for an owned ovve, which
+	 * may say no, in which case the patch comes back — the preview is dropped, particles at {@code where}.
 	 */
 	static void finish(ServerPlayer player, ArmorStand stand, Placement placement, PatchItem patchItem, Vec3 where) {
 		ItemStack ovve = stand.getItemBySlot(EquipmentSlot.LEGS);
 		if (!(ovve.getItem() instanceof OvveItem)) throw new IllegalStateException("[ovvar] finishing a seam on a stand without an ovve");
-		boolean success = Looks.sew(ovve, placement);
-		if (success) {
+		boolean taken = !player.isCreative();
+		if (taken) player.getMainHandItem().shrink(1);
+		OwnedSewing.sew(ovve, placement, () -> {
 			Looks.setPreview(ovve, null);
 			AIMS.remove(player.getUUID());
-			if (!player.isCreative()) player.getMainHandItem().shrink(1);
 			celebrate(player.level(), where, true);
 			player.sendOverlayMessage(Component.literal(patchItem.patch.name() + " sewn on the " + placement.spot().label()));
-		} else {
-			onSewFail(player.level(), player, where);
-		}
+		}, why -> {
+			if (taken) OwnedSewing.give(player, patchItem.patch);
+			onSewFail(player.level(), player, where, why);
+		});
 	}
 
 	/** Where a patch lands when aimed at a cell: a seat patch aimed at either seat cell goes on the seat; else the cell, if it takes the patch. */

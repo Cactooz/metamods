@@ -69,16 +69,57 @@ traces each patch's outline from its opaque texels into `ovvar/outlines.json` (`
 `sewingLabelsFitTheirButtons` game test checks every label of every seam still measures what the
 client centres without scrolling. Mockups of the design are in `docs/mockups/sewing/`.
 
+## Designs: one look per player, on every server
+
+An ovve belongs to a player (`ovvar:owner`, set the first time a player's inventory ticks it, or
+by `/ovvar give`). Its sewn patches are that player's *design* for the chapter, kept in a store
+shared by all the servers, so someone who sewed on one server logs into another and wears the
+same ovve, and a recrafted ovve just shows the design again. Only the look travels: pockets,
+enchantments, the top being up or down stay with the item.
+
+A patch lives in exactly one place: as an item, or once in a design. The `ovvar:patches`
+component on an owned ovve is a copy for drawing, refreshed every tick and never a source: an
+unpick asks the store, so two ovves of one owner cannot hand the same patch back twice. Each
+design row carries a version and every write is a compare-and-set naming the version it saw
+(`Designs`); a write that lost the race fails, the cache refetches, and the player is told to try
+again. A patch leaves the hand when the click lands and is refunded if the store says no; an
+unpicked patch is handed out only after the store has let go of it. Ovves without an owner
+(`/ovvar stands`, showcase) keep their patches on the item as before.
+
+`config/ovvar.json` → `designs`:
+
+    backend                  file (default) | jdbc
+    file_directory           file backend: an absolute directory, "" = <world>/ovvar/designs
+    jdbc.url                 jdbc:mariadb://host:3306/db  or  jdbc:postgresql://host/db  (drivers bundled)
+    jdbc.user, jdbc.password, jdbc.password_env   the password from the file, or from the named environment variable
+    jdbc.table               created if missing: owner CHAR(36), chapter, version, patches (JSON), updated_at
+    jdbc.driver_class        force a driver class; "" lets the URL pick
+    jdbc.connect_timeout_seconds, jdbc.query_timeout_seconds
+    bind_on_pickup           an unowned ovve becomes the first holder's (default true)
+    sew_when_unreachable     store down: sew anyway and queue the write (default false: refuse, keep the patch)
+    unpick_when_unreachable  store down: hand the patch back anyway and queue the write (default false; the dupe direction)
+    retry_seconds            how often failed loads and queued writes are retried (default 15)
+    log_queries              log every load and store
+
+The file backend is fine for one server or a shared mount; a network of servers wants `jdbc`
+(MariaDB/MySQL and PostgreSQL drivers ship in the jar). Seat patches sewn at the smithing table
+are committed by the ovve's next inventory tick (`ovvar:pending_sew`), refunding the patch if the
+store refuses.
+
 ## Debug commands (gamemasters)
 
     /ovvar give [player] <chapter> [patches]   e.g. /ovvar give it all, /ovvar give data front_top_left.metacraft,seat.chapter
-    /ovvar patches <patches>                   re-sew the ovve in your main hand (all / none / cell.patch, bare ids)
+    /ovvar patches <patches>                   re-sew the ovve in your main hand (all / none / cell.patch, bare ids); owned: replaces the design
     /ovvar showcase <chapter>                  armour stands: top down, top up, each patch, every cell filled
     /ovvar stands <chapter>                    three posed stands in a plain ovve, for testing the sewing aim
     /ovvar minigame [on [stitches]|off]        the stitching minigame setting; saved to config/ovvar.json
     /ovvar aimlog on|off                       log every stand click and aim change with its numbers (server log)
     /ovvar stitch <cell.patch>                 open the stitching dialog on the nearest ovve stand, no aiming needed
     /ovvar reload                              (any player) the latest resource pack, now
+    /ovvar store status                        the design store: backend, cache, queued writes
+    /ovvar store show [player]                 a player's designs (chapter, version, patches)
+    /ovvar store reload [player]               drop and refetch a player's designs
+    /ovvar store reconnect                     re-read the config and reopen the store
 
 ## Building
 

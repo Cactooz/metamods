@@ -19,7 +19,8 @@
 			"metacraft.ovvar.Ovvar"
 		],
 		"fabric-gametest": [
-			"metacraft.ovvar.gametest.OvvarGameTests"
+			"metacraft.ovvar.gametest.OvvarGameTests",
+			"metacraft.ovvar.gametest.DesignStoreTests"
 		],
 		"fabric-datagen": [
 			"metacraft.ovvar.datagen.OvvarDataGenerator"

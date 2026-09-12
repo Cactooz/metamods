@@ -3,6 +3,7 @@ package metacraft.ovvar.recipe;
 import com.mojang.serialization.MapCodec;
 import metacraft.ovvar.Ovvar;
 import metacraft.ovvar.content.Looks;
+import metacraft.ovvar.content.ModComponents;
 import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
 import metacraft.ovvar.content.ModContent;
@@ -35,7 +36,9 @@ import java.util.Optional;
  * Refused (no result) when it is on already. Menu patches are placed on an armour stand instead
  * ({@link metacraft.ovvar.sewing.StandSewing}). One JSON, {@code data/ovvar/recipe/sew.json}, of
  * type {@code ovvar:sew}; the menu is vanilla's, and vanilla clients see the result because the
- * server fills the result slot.
+ * server fills the result slot. On an owned ovve the result only previews the sew: it is marked
+ * {@link ModComponents#PENDING_SEW} and the ovve's next inventory tick writes it to the owner's
+ * design (refunding the patch if the store refuses).
  */
 public final class SewRecipe implements SmithingRecipe {
 	public static final MapCodec<SewRecipe> MAP_CODEC = MapCodec.unit(SewRecipe::new);
@@ -60,7 +63,9 @@ public final class SewRecipe implements SmithingRecipe {
 	public ItemStack assemble(SmithingRecipeInput input) {
 		ItemStack out = input.base().copyWithCount(1);
 		Patches.Patch patch = ((PatchItem) input.addition().getItem()).patch;
-		Looks.sew(out, new Placement(Spot.SEAT, patch));
+		Placement placement = new Placement(Spot.SEAT, patch);
+		Looks.sew(out, placement);
+		if (OvveItem.owner(out) != null) out.set(ModComponents.PENDING_SEW, placement);
 		return out;
 	}
 
