@@ -4,6 +4,7 @@ import net.fabricmc.api.ModInitializer;
 import net.minecraft.resources.Identifier;
 import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintGun;
+import nu.metacraft.rivals.gun.Recoil;
 import nu.metacraft.rivals.paint.PaintBlocks;
 import nu.metacraft.rivals.pack.RivalsPack;
 import org.slf4j.Logger;
@@ -31,6 +32,7 @@ public class Rivals implements ModInitializer {
 		RivalsPack.init();
 		RivalsCommands.register();
 		ScoreBars.init();
+		Recoil.init();
 		LOGGER.info("[{}] ready", MOD_ID);
 	}
 }

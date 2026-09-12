@@ -33,6 +33,7 @@ import nu.metacraft.rivals.Rivals;
 import nu.metacraft.rivals.RivalsCommands;
 import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintGun;
+import nu.metacraft.rivals.gun.Recoil;
 import nu.metacraft.rivals.paint.PaintBlock;
 import nu.metacraft.rivals.paint.PaintBlocks;
 import nu.metacraft.rivals.paint.Painter;
@@ -429,6 +430,19 @@ public final class RivalsGameTests {
 			helper.assertTrue(!team.isAllowFriendlyFire(), "friendly fire off: " + color.id);
 			helper.assertTrue(team.getCollisionRule() == Team.CollisionRule.NEVER, "no collisions: " + color.id);
 		}
+		helper.succeed();
+	}
+
+	/** Recoil on a mock player (no connection) sends nothing and leaves nothing queued; a shot still succeeds. */
+	@GameTest
+	public void recoilIsSafeWithoutConnection(GameTestHelper helper) {
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.LIME));
+		int before = Recoil.pending();
+		InteractionResult result = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(result == InteractionResult.SUCCESS, "shot succeeds");
+		helper.assertValueEqual(Recoil.pending(), before, "no settle queued for a connectionless player");
+		helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).forEach(Entity::discard);
 		helper.succeed();
 	}
 }

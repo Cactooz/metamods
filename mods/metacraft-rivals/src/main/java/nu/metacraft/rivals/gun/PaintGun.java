@@ -6,6 +6,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
+import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.registries.Registries;
 import net.minecraft.network.chat.Component;
@@ -26,6 +27,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.Rivals;
@@ -45,8 +47,8 @@ import java.util.Optional;
 public final class PaintGun extends Item implements PolymerItem {
 	public static final Identifier ID = Rivals.id("paint_gun");
 	public static final int COOLDOWN_TICKS = 4;
-	public static final float VELOCITY = 1.5f;
-	public static final float INACCURACY = 1.0f;
+	public static final float VELOCITY = 1.8f;
+	public static final float INACCURACY = 2.0f;
 	public static PaintGun ITEM;
 
 	public PaintGun(Properties properties) {
@@ -70,7 +72,8 @@ public final class PaintGun extends Item implements PolymerItem {
 			}
 			return InteractionResult.FAIL;
 		}
-		shoot(serverLevel, player, color.get());
+		PaintBall ball = shoot(serverLevel, player, color.get());
+		feel(serverLevel, player, color.get());
 		player.getCooldowns().addCooldown(player.getItemInHand(hand), COOLDOWN_TICKS);
 		return InteractionResult.SUCCESS;
 	}
@@ -80,8 +83,19 @@ public final class PaintGun extends Item implements PolymerItem {
 		PaintBall ball = new PaintBall(level, shooter, color);
 		ball.shootFromRotation(shooter, shooter.getXRot(), shooter.getYRot(), 0.0f, VELOCITY, INACCURACY);
 		level.addFreshEntity(ball);
-		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SNOWBALL_THROW, SoundSource.PLAYERS, 0.6f, 0.8f);
 		return ball;
+	}
+
+	/** The chunk of a shot: camera kick, a nudge back, a muzzle burst in the team colour, two layered sounds. */
+	static void feel(ServerLevel level, Player shooter, PaintColor color) {
+		Recoil.kick(shooter);
+		Vec3 look = shooter.getLookAngle();
+		shooter.push(-look.x * 0.06, 0, -look.z * 0.06);
+		shooter.hurtMarked = true;
+		Vec3 muzzle = shooter.getEyePosition().add(look.scale(0.9));
+		level.sendParticles(new DustParticleOptions(color.rgb, 1.2f), muzzle.x, muzzle.y, muzzle.z, 10, 0.1, 0.1, 0.1, 0.02);
+		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SNOWBALL_THROW, SoundSource.PLAYERS, 0.7f, 0.7f);
+		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SLIME_BLOCK_PLACE, SoundSource.PLAYERS, 0.5f, 1.4f);
 	}
 
 	/**
