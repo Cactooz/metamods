@@ -257,14 +257,16 @@ dedicated Rivals server wants.
   Held items, dropped items and the inventory come through untouched: no texture in either atlas an
   item pipeline draws — blocks and items — carries an alpha anywhere in the 233..237 the guard admits at
   mip 0 (a handful average to 236 at mip 3, which is noted in the shader).
-- **Ink on your screen.** Taking enemy paint in the face throws ink over the player's view: blobs in
-  the enemy's colour at fixed pseudo-random places, growing and dripping as the meter fills, edges
-  wobbling on `GameTime`, every edge snapped to a 4-pixel grid for the pixel-art look, and the middle
-  of the screen left clear so the reticle stays readable. At full it covers about 45% of the screen.
-  `InkOnScreen` keeps the meter server-side: 25 per point of damage from an enemy weapon (the victim's
-  screen, in the shooter's colour), 2 a tick standing in enemy ink, 4 a tick off on the ticks nothing
-  added any, clamped to 0..255, and cleared outright on nought, on death, on spectating, on leaving the
-  teams and on logging out. All five numbers are constants at the top of that class.
+- **Ink on your screen.** Enemy paint in the face throws ink over the player's view, and **how much
+  of it there is is how much health they have lost**: `255 × (maxHealth − health) / maxHealth`, floored,
+  0 at full health. The shader's four overlays are therefore quarters of your health gone — a quarter,
+  a half, three quarters, nearly dead — so the ink is a health bar the player cannot help reading, and
+  a bad fight ends with them squinting through a nearly full screen. There is no meter of its own: it
+  does not decay on a timer and nothing tops it up, so regenerating clears the ink by itself, a heal
+  wipes it on the next tick, and a respawn starts clean. What a hit decides is *whose* ink it is —
+  `InkOnScreen.hit` and `.standing` keep the colour of the last enemy paint to touch the player, and a
+  player no enemy has touched has no colour and so no ink, however far a fall took them. The ink is
+  cleared outright on death, on spectating, on leaving the teams and on logging out.
 
   It is drawn by a post effect, which is where the interesting part is. A server-side mod cannot run
   client code, but 26.3's `GameRenderer.update` asks for the post effect `minecraft:end_of_frame`

@@ -337,7 +337,8 @@ public final class PlayerTick {
 		if (inEnemy) {
 			keep(player, MobEffects.SLOWNESS, 1);
 			SquidState.applyEnemyInk(player);
-			// Wading through it splashes it up the visor, slowly: a hit is worth a couple of seconds of this.
+			// Wading through it splashes it up the visor: not more ink — how much there is is how much
+			// health is gone — but this team's ink, which is what the visor is coloured with.
 			InkOnScreen.standing(player, under);
 			// Never the killing blow: enemy ink leaves you at one heart for someone else to finish.
 			if (now % DRIP_EVERY == 0 && !player.isCreative() && player.getHealth() - DRIP_DAMAGE >= 1.0f
@@ -365,8 +366,8 @@ public final class PlayerTick {
 				}
 			}
 		}
-		// Last, because the ink this tick added has to be in before the decay and the packet: the meter
-		// runs down every tick nothing put anything on it.
+		// Last, because this tick's damage and healing have to be in before the LED is published: the
+		// ink on the screen is the health that is missing, and nothing else.
 		InkOnScreen.tick(player);
 	}
 

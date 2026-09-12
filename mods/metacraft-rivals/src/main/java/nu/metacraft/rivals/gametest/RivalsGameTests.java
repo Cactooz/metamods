@@ -1141,54 +1141,76 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * The ink meter: a hit from an enemy weapon throws {@link InkOnScreen#PER_DAMAGE} per point of damage
-	 * onto the screen in the shooter's colour, standing in enemy paint tops it up faster than it runs off,
-	 * and it clears itself once nothing is adding to it. A player off the teams has no meter at all.
+	 * Ink on the screen is the health the player has lost, in quarters: {@code ink_1} up to a quarter
+	 * gone, {@code ink_4} nearly dead. There is no meter of its own any more — nothing to top up and
+	 * nothing to drain — so healing wipes the ink, a respawn starts clean, and the overlay is a health
+	 * bar the player cannot help reading. What a hit still decides is <em>whose</em> ink it is: the
+	 * colour is the team of the last enemy paint that touched them, and a player no enemy has touched
+	 * has no colour and so no ink, however far a fall took them.
 	 */
 	@GameTest
-	public void inkOnScreenRisesOnHitAndDecays(GameTestHelper helper) {
+	public void inkOnScreenIsTheHealthYouHaveLost(GameTestHelper helper) {
 		ServerPlayer player = mockServerPlayer(helper, GameType.SURVIVAL);
 		PlayerTeam data = team(helper, PaintColor.DATA);
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), data);
 		InkOnScreen.forget(player);
-		helper.assertValueEqual(InkOnScreen.amount(player), 0, "a clean screen to start");
+		player.setHealth(player.getMaxHealth());
+		helper.assertValueEqual(InkOnScreen.amount(player), 0, "full health is a clean screen");
 		InkOnScreen.hit(player, PaintColor.IT, 4.0f);
-		helper.assertValueEqual(InkOnScreen.amount(player), 4 * InkOnScreen.PER_DAMAGE, "four damage of IT ink");
-		helper.assertTrue(InkOnScreen.color(player) == PaintColor.IT, "in the shooter's colour");
-		// Ink from the other team repaints the visor rather than mixing: one colour is all the shader draws.
-		InkOnScreen.hit(player, PaintColor.DATA, 1.0f);
-		helper.assertValueEqual(InkOnScreen.amount(player), 5 * InkOnScreen.PER_DAMAGE, "and one more point on top");
-		helper.assertTrue(InkOnScreen.color(player) == PaintColor.DATA, "the newest ink is the ink you see");
-		int full = InkOnScreen.amount(player);
+		helper.assertTrue(InkOnScreen.color(player) == PaintColor.IT, "the ink is the shooter's colour");
+		helper.assertValueEqual(InkOnScreen.amount(player), 0, "but a hit that cost no health is no ink");
 		InkOnScreen.tick(player);
-		helper.assertValueEqual(InkOnScreen.amount(player), full, "the tick a hit lands on does not also drain");
-		InkOnScreen.tick(player);
-		helper.assertValueEqual(InkOnScreen.amount(player), full - InkOnScreen.DECAY, "it runs off on the ticks after");
-		// The decay is skipped on a tick something added ink, so wading through enemy paint gains ground
-		// rather than fighting the drain.
-		int standing = InkOnScreen.amount(player);
+		helper.assertValueEqual(InkOnScreen.ledFor(player), InkOnScreen.IDLE, "and the LED stays dark");
+		// Twenty hit points and four overlays, so five lost is the top of state 1 and nineteen is deep
+		// in state 4. Floored, which is why a quarter gone is 63 and not 64.
+		InkOnScreen.hit(player, PaintColor.IT, 4.0f);
+		player.setHealth(15.0f);
+		helper.assertValueEqual(InkOnScreen.amount(player), 63, "five of twenty lost");
+		helper.assertValueEqual(inkState(InkOnScreen.amount(player)), 1, "which the shader draws as ink_1");
+		player.setHealth(10.0f);
+		helper.assertValueEqual(InkOnScreen.amount(player), 127, "ten of twenty lost");
+		helper.assertValueEqual(inkState(InkOnScreen.amount(player)), 2, "which the shader draws as ink_2");
+		player.setHealth(5.0f);
+		helper.assertValueEqual(InkOnScreen.amount(player), 191, "fifteen of twenty lost");
+		helper.assertValueEqual(inkState(InkOnScreen.amount(player)), 3, "which the shader draws as ink_3");
+		player.setHealth(1.0f);
+		helper.assertValueEqual(InkOnScreen.amount(player), 242, "nineteen of twenty lost");
+		helper.assertValueEqual(inkState(InkOnScreen.amount(player)), 4, "which the shader draws as ink_4");
+		// Ink from the other team repaints the visor rather than mixing: one colour is all the shader
+		// draws, and it is the newest enemy paint to touch the player.
 		InkOnScreen.standing(player, PaintColor.IT);
+		helper.assertTrue(InkOnScreen.color(player) == PaintColor.IT, "the ink it is standing in");
 		InkOnScreen.tick(player);
-		helper.assertValueEqual(InkOnScreen.amount(player), standing + InkOnScreen.STANDING_GAIN,
-				"standing in enemy ink raises the meter");
-		helper.assertTrue(InkOnScreen.color(player) == PaintColor.IT, "in the ink it is standing in");
+		helper.assertValueEqual(InkOnScreen.ledFor(player) & 0xFF, 242, "the published amount is the health lost");
+		helper.assertValueEqual(InkOnScreen.ledFor(player) >> 8 & 0xF, PaintColor.IT.ordinal(),
+				"in the last enemy's colour");
+		// A heal lowers the amount at once, and the LED catches up inside the send window.
+		player.setHealth(11.0f);
+		helper.assertValueEqual(InkOnScreen.amount(player), 114, "nine of twenty lost after the heal");
+		for (int i = 0; i < InkOnScreen.SEND_EVERY + 1; i++) InkOnScreen.tick(player);
+		helper.assertValueEqual(InkOnScreen.ledFor(player) & 0xFF, 114, "and the LED follows the health back up");
+		// Healed up: the ink goes by itself, colour and all. Nothing has to wipe it.
+		player.setHealth(player.getMaxHealth());
 		InkOnScreen.tick(player);
-		helper.assertValueEqual(InkOnScreen.amount(player), standing + InkOnScreen.STANDING_GAIN - InkOnScreen.DECAY,
-				"and the tick after, with nothing adding, it runs off again");
-		InkOnScreen.hit(player, PaintColor.IT, 100.0f);
-		helper.assertValueEqual(InkOnScreen.amount(player), InkOnScreen.MAX, "never more than the amount byte holds");
-		for (int i = 0; i < InkOnScreen.MAX / InkOnScreen.DECAY + 2; i++) InkOnScreen.tick(player);
-		helper.assertValueEqual(InkOnScreen.amount(player), 0, "and it clears itself with nothing adding to it");
+		helper.assertValueEqual(InkOnScreen.amount(player), 0, "back to full health is a clean screen");
 		helper.assertTrue(InkOnScreen.color(player) == null, "with no colour left behind");
-		// Not in a match: the meter goes, and with it the title the shader reads.
+		helper.assertValueEqual(InkOnScreen.ledFor(player), InkOnScreen.IDLE, "and a dark LED");
+		// Not in a match: no ink, however much health is missing.
 		InkOnScreen.hit(player, PaintColor.IT, 2.0f);
+		player.setHealth(10.0f);
 		helper.getLevel().getScoreboard().removePlayerFromTeam(player.getScoreboardName(), data);
 		InkOnScreen.tick(player);
-		helper.assertValueEqual(InkOnScreen.amount(player), 0, "no team, no ink on the screen");
-		// A hit on something that is not a player, and a hit that did nothing, are both no ink.
+		helper.assertTrue(InkOnScreen.color(player) == null, "no team, no ink on the screen");
+		helper.assertValueEqual(InkOnScreen.ledFor(player), InkOnScreen.IDLE, "and nothing on the LED either");
+		// A hit on something that is not a player, and a hit that did nothing, are both no ink at all.
 		InkOnScreen.hit(player, PaintColor.IT, 0.0f);
-		helper.assertValueEqual(InkOnScreen.amount(player), 0, "a hit for no damage leaves no ink");
+		helper.assertTrue(InkOnScreen.color(player) == null, "a hit for no damage is not paint in the face");
 		helper.succeed();
+	}
+
+	/** Which overlay the shader picks for an amount: 1-63, 64-127, 128-191, 192-255, as ink.fsh does it. */
+	private static int inkState(int amount) {
+		return Math.min(4, amount / 64 + 1);
 	}
 
 	/**
@@ -1223,12 +1245,13 @@ public final class RivalsGameTests {
 		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
 		helper.assertValueEqual(InkOnScreen.ledOf(gun), InkOnScreen.IDLE, "a clean screen leaves the LED dark");
 		InkOnScreen.hit(player, PaintColor.IT, 4.0f);
+		player.setHealth(10.0f);
 		InkOnScreen.tick(player);
 		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
-		int lit = InkOnScreen.led(PaintColor.IT, 4 * InkOnScreen.PER_DAMAGE);
+		int lit = InkOnScreen.led(PaintColor.IT, InkOnScreen.amount(player));
 		helper.assertValueEqual(InkOnScreen.ledOf(gun), lit, "the first tick with ink lights the LED");
 		// Every change is an item-slot sync, so the value is held still for a tick or two.
-		InkOnScreen.hit(player, PaintColor.IT, 1.0f);
+		player.setHealth(4.0f);
 		InkOnScreen.tick(player);
 		weapon.inventoryTick(gun, helper.getLevel(), player, EquipmentSlot.MAINHAND);
 		helper.assertValueEqual(InkOnScreen.ledOf(gun), lit, "and not again within the send window");

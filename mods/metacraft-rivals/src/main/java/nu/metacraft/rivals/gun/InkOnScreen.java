@@ -18,18 +18,27 @@ import java.util.UUID;
 
 /**
  * Ink on your screen: how much enemy paint is in the player's face, and the one number the post effect
- * that draws it needs. A hit from an enemy weapon throws {@link #PER_DAMAGE} per point of damage onto
- * the glass and standing in enemy ink adds {@link #STANDING_GAIN} a tick, while {@link #DECAY} runs off
- * on every tick nothing added any — the decay is skipped on the ticks something did, so wading through
- * enemy paint fills the screen slowly rather than fighting the drain, and a hit blinds for a couple of
- * seconds and then clears itself.
+ * that draws it needs.
+ *
+ * <p><b>The amount is the health you have lost</b>, not a meter of its own:
+ * {@code 255 * (maxHealth - health) / maxHealth}, floored, and 0 at full health. So the four overlays the
+ * shader picks between are quarters of your health gone — {@code ink_1} is up to a quarter lost,
+ * {@code ink_2} about half, {@code ink_3} about three quarters, {@code ink_4} nearly dead — and the ink
+ * is a health bar the player cannot help reading, which is what it is for. It is floored rather than
+ * rounded so that losing exactly a quarter is the top of state 1 rather than the bottom of state 2.
+ *
+ * <p>Nothing decays and nothing is topped up: regenerating clears the ink by itself, a heal wipes it on
+ * the next tick, and a respawn starts clean. {@link #hit} and {@link #standing} are still here, but only
+ * to say <em>whose</em> ink it is: the colour on the glass is the team of the last enemy paint that
+ * touched the player, and a player no enemy has touched has no colour and so no ink, however much health
+ * they have lost to a fall.
  *
  * <p>Getting the number to the shader is the interesting half. A server-side mod cannot send a uniform
  * to a vanilla client's post effect, so it writes the number into the frame the shader reads — and it
  * has to be in the frame <em>before</em> the effect runs: 26.3's {@code GameRenderer.render} calls
  * {@code renderLevel()}, then {@code applyPostEffects()}, and only then {@code GuiRenderer.render()},
  * so nothing on the HUD (a title, the action bar) is on the target the effect samples. What is on it is
- * the held item, drawn inside {@code renderLevel} by {@code renderItemInHand}. So the meter rides the
+ * the held item, drawn inside {@code renderLevel} by {@code renderItemInHand}. So the number rides the
  * weapon: every paint weapon model carries a one-pixel <em>data LED</em> whose faces are the only thing
  * in the item pipelines' atlases at alpha {@link nu.metacraft.rivals.pack.InkArt#LED_ALPHA}, tinted by
  * {@code custom_model_data} colour 0 — which this class writes:
@@ -43,7 +52,7 @@ import java.util.UUID;
  *
  * <p>With no ink the value is {@link #IDLE}, a dark grey that matches no part of the signature, so the
  * shader sees nothing and the pip reads as an indicator that is simply off. The published value only
- * changes when the meter changes and at most every {@link #SEND_EVERY} ticks, because every change is an
+ * changes when the health does, and at most every {@link #SEND_EVERY} ticks, because every change is an
  * item-slot sync to the client; {@link PaintWeapon#inventoryTick} is the one place it reaches the stacks.
  *
  * <p>The value only ever goes to the holder's own client: {@link PaintWeapon#ledForViewer} hands every
@@ -51,21 +60,15 @@ import java.util.UUID;
  * the probe would find it on their third-person weapon and splatter the finder's screen.
  *
  * <p>Consequences worth knowing: in third person, with an empty hand, or with the weapon in the off-hand
- * out of view, there is no LED on the frame and therefore no ink, however full the meter is. The meter
- * itself keeps running, so the ink comes back the moment the weapon is in view again.
+ * out of view, there is no LED on the frame and therefore no ink, however much health is missing — and
+ * the ink comes back the moment the weapon is in view again.
  */
 public final class InkOnScreen {
 	/** The most ink a screen can hold; the shader's amount byte is 0..{@code MAX}. */
 	public static final int MAX = 255;
-	/** Ink per point of damage taken from an enemy weapon. Four hearts of charger fills the screen. */
-	public static final int PER_DAMAGE = 25;
-	/** Ink a tick while standing in enemy paint. */
-	public static final int STANDING_GAIN = 2;
-	/** Ink that runs off on a tick nothing added any. */
-	public static final int DECAY = 4;
 	/**
 	 * The fewest ticks between two changes of the published LED value for the same player. Counted down
-	 * rather than compared against a clock: the meter is fed from several places and the two clocks a
+	 * rather than compared against a clock: the value is published from a tick and the two clocks a
 	 * server has — the level's game time and the server's tick count — are not the same number, so a
 	 * timestamp written by one and tested against the other blocked the LED forever on any world that had
 	 * been played before.
@@ -78,15 +81,16 @@ public final class InkOnScreen {
 	/** The stack-data key holding whose meter the LED is showing, beside the tank's own keys. */
 	static final String OWNER = "rivals_led_owner";
 
-	/** One player's meter. {@code written} is the value the weapons are told to carry, {@link #IDLE} for none. */
+	/**
+	 * One player's ink. There is no amount here: that is read off the player's health. What a meter
+	 * holds is whose ink is on the glass and what the weapons were last told to carry ({@link #IDLE} for
+	 * nothing), so a player with a meter is exactly a player some enemy paint has reached.
+	 */
 	private static final class Meter {
-		private int amount;
 		private PaintColor color;
 		private int written = IDLE;
 		/** Ticks still to wait before the published value may change again. */
 		private int hold;
-		/** Whether anything added ink this tick; set by {@link #add}, cleared by {@link #tick}. */
-		private boolean topped;
 
 		private Meter(PaintColor color) {
 			this.color = color;
@@ -104,10 +108,16 @@ public final class InkOnScreen {
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> METERS.clear());
 	}
 
-	/** How much ink is on {@code player}'s screen, 0 when there is none. */
+	/**
+	 * How much ink is on {@code player}'s screen: the share of their health they have lost, as the
+	 * shader's 0..{@link #MAX} byte. Full health is 0, and the shader reads 0 as nothing to draw.
+	 */
 	public static int amount(Player player) {
-		Meter meter = METERS.get(player.getUUID());
-		return meter == null ? 0 : meter.amount;
+		float max = player.getMaxHealth();
+		float lost = max - player.getHealth();
+		if (max <= 0.0f || lost <= 0.0f) return 0;
+		// Floored: a quarter of your health gone is the top of state 1, not the bottom of state 2.
+		return Math.min(MAX, (int) (MAX * lost / max));
 	}
 
 	/** Whose ink it is, or null when the screen is clean. */
@@ -118,48 +128,46 @@ public final class InkOnScreen {
 
 	/**
 	 * A hit landed. {@code by} is the shooter's colour, which is the ink that ends up on the victim's
-	 * screen; anything that is not a player takes no ink, and neither does a hit that did no damage.
+	 * screen; anything that is not a player takes no ink, and neither does a hit that did no damage. How
+	 * much ink there is comes from the health the hit took, not from this call.
 	 */
 	public static void hit(Entity victim, PaintColor by, float damage) {
 		if (!(victim instanceof Player player) || damage <= 0) return;
-		add(player, by, Math.round(damage * PER_DAMAGE));
+		paint(player, by);
 	}
 
-	/** Ink for a tick spent standing in {@code enemy}'s paint. */
+	/** A tick spent standing in {@code enemy}'s paint: the visor takes that team's colour too. */
 	public static void standing(Player player, PaintColor enemy) {
-		add(player, enemy, STANDING_GAIN);
+		paint(player, enemy);
 	}
 
-	private static void add(Player player, PaintColor color, int ink) {
-		if (ink <= 0) return;
+	private static void paint(Player player, PaintColor color) {
 		Meter meter = METERS.computeIfAbsent(player.getUUID(), key -> new Meter(color));
 		// The newest ink is the ink you see: a DATA hit on a screen full of IT turns it red.
 		meter.color = color;
-		meter.amount = Math.min(MAX, meter.amount + ink);
-		meter.topped = true;
 	}
 
 	/**
-	 * One tick of a player's meter: the decay on a tick nothing added to it, and a new published value if
-	 * the one the weapons are carrying is out of date. Called from {@link nu.metacraft.rivals.PlayerTick}
-	 * last, once the tick has had its chance to add ink.
+	 * One tick of a player's ink: a new published value if the one the weapons are carrying is out of
+	 * date, and nothing at all once the health is back. Called from {@link nu.metacraft.rivals.PlayerTick}
+	 * last, once the tick has had its chance to hurt or heal the player.
 	 */
 	public static void tick(Player player) {
 		Meter meter = METERS.get(player.getUUID());
 		if (meter == null) return;
 		if (meter.hold > 0) meter.hold--;
-		// Not in a match, not alive, not playing: no meter, and the LED goes dark.
+		// Not in a match, not alive, not playing: no ink, and the LED goes dark.
 		if (player.isSpectator() || !player.isAlive() || PaintColor.byTeam(player.getTeam()).isEmpty()) {
 			clear(player);
 			return;
 		}
-		if (!meter.topped) meter.amount = Math.max(0, meter.amount - DECAY);
-		meter.topped = false;
-		if (meter.amount == 0) {
+		// Healed up, regenerated, or never hurt: no lost health, no ink, and the LED goes dark.
+		int amount = amount(player);
+		if (amount == 0) {
 			clear(player);
 			return;
 		}
-		int value = led(meter.color, meter.amount);
+		int value = led(meter.color, amount);
 		// Every change is an item-slot sync to the client, so the value is held still for a tick or two.
 		if (value == meter.written || meter.hold > 0) return;
 		meter.written = value;
@@ -167,7 +175,7 @@ public final class InkOnScreen {
 	}
 
 	/**
-	 * The value the player's weapons should be carrying: the published meter, or {@link #IDLE} when there
+	 * The value the player's weapons should be carrying: the published value, or {@link #IDLE} when there
 	 * is nothing to say. {@link PaintWeapon#inventoryTick} puts it on the stacks, in the same place and
 	 * the same way it keeps the tank's dye up to date — one writer, so a weapon that was stowed while the
 	 * screen was full cannot come back out still carrying a live number.
@@ -178,7 +186,7 @@ public final class InkOnScreen {
 	}
 
 	/**
-	 * The LED's colour for a meter: red at full as the signature, green the enemy team's index, blue the
+	 * The LED's colour for an amount: red at full as the signature, green the enemy team's index, blue the
 	 * amount. The item shader hands this straight to the frame, unlit and unmodulated, so what the probe
 	 * reads back is this value byte for byte.
 	 */
@@ -223,17 +231,17 @@ public final class InkOnScreen {
 		return color == null ? IDLE : color;
 	}
 
-	/** Wipe the meter; the weapons' LEDs go dark on their next inventory tick. */
+	/** Wipe the ink; the weapons' LEDs go dark on their next inventory tick. */
 	public static void clear(Player player) {
 		METERS.remove(player.getUUID());
 	}
 
-	/** Drop a player's meter without touching their weapon: a disconnect, a server stop. */
+	/** Drop a player's ink without touching their weapon: a disconnect, a server stop. */
 	public static void forget(Player player) {
 		METERS.remove(player.getUUID());
 	}
 
-	/** For tests: no meters anywhere. */
+	/** For tests: no ink anywhere. */
 	public static void clearAll() {
 		METERS.clear();
 	}
