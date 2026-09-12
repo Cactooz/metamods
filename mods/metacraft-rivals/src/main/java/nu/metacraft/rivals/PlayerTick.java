@@ -6,6 +6,7 @@ import net.fabricmc.fabric.api.networking.v1.ServerPlayConnectionEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
+import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
@@ -44,7 +45,10 @@ import java.util.UUID;
  * so they are exact and do not show up in the client's effect list; only invisibility is still a
  * potion effect, because there is no attribute for it. Entering squid form from a stand is a dive: a
  * horizontal shove along the player's look direction and a quiet splash, gated by a short per-player
- * cooldown so it fires once per dive rather than every tick spent in the paint.
+ * cooldown so it fires once per dive rather than every tick spent in the paint. A swimming squid
+ * leaves a wake — a couple of ink specks at its feet every tick it is actually moving, a soft swim
+ * note every six — and the dive throws a ring of them; a squid that has stopped leaves nothing, so
+ * the trail reads as movement rather than as a permanent marker saying "someone is here".
  *
  * <p>Standing in another colour is a trap rather than an inconvenience: Slowness II, no jump at all,
  * and a point of damage every second (never the last one — enemy ink wears you down, it does not kill
@@ -69,9 +73,21 @@ public final class PlayerTick {
 	/** No repeat surge for a re-entry (e.g. a brief unshift) within this many ticks of the last one. */
 	private static final int DIVE_SURGE_COOLDOWN = 10;
 
+	/** Below this many blocks per tick of horizontal movement a squid is holding still, not swimming. */
+	private static final double RIPPLE_SPEED = 0.05;
+	/** Ink specks per swimming tick. */
+	private static final int RIPPLE_PARTICLES = 3;
+	/** Ticks between two swim notes. */
+	private static final int SWIM_SOUND_EVERY = 6;
+	/** Specks thrown in a ring on the dive, and how far out they land. */
+	private static final int DIVE_RING_PARTICLES = 8;
+	private static final double DIVE_RING_RADIUS = 0.5;
+
 	/** Server tick of each player's last dive surge, so a flicker in and out of squid form does not
 	 * re-trigger it every tick. Cleared alongside the squid bookkeeping on disconnect and server stop. */
 	private static final Map<UUID, Long> LAST_DIVE = new HashMap<>();
+	/** Where each squid was last tick, because a real player's server-side delta is not its speed. */
+	private static final Map<UUID, Vec3> LAST_POS = new HashMap<>();
 
 	private PlayerTick() {}
 
@@ -83,6 +99,7 @@ public final class PlayerTick {
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
 			SquidState.clearAll();
 			LAST_DIVE.clear();
+			LAST_POS.clear();
 		});
 		// A player who logs out mid-squid (or standing in enemy ink) is never ticked again, so nothing
 		// would ever take the state off them: the UUID would stay in the squid set, and a rejoin would
@@ -91,6 +108,7 @@ public final class PlayerTick {
 			SquidState.exit(handler.getPlayer());
 			SquidState.clearEnemyInk(handler.getPlayer());
 			LAST_DIVE.remove(handler.getPlayer().getUUID());
+			LAST_POS.remove(handler.getPlayer().getUUID());
 		});
 	}
 
@@ -173,6 +191,7 @@ public final class PlayerTick {
 			SquidState.enter(player);
 			if (!wasSquid) diveSurge(player, now);
 			keep(player, MobEffects.INVISIBILITY, 0);
+			wake(player, own.get(), now);
 			// Swimming up a wall is a shove, not an attribute: set the velocity directly and mark the
 			// movement dirty so the server tells the client about it this tick. Pushing into the wall
 			// climbs it; otherwise the squid clings rather than sliding back down.
@@ -193,6 +212,7 @@ public final class PlayerTick {
 			}
 		} else {
 			SquidState.exit(player);
+			LAST_POS.remove(player.getUUID());
 		}
 		if (inEnemy) {
 			keep(player, MobEffects.SLOWNESS, 1);
@@ -214,6 +234,38 @@ public final class PlayerTick {
 	}
 
 	/**
+	 * The swimming squid's wake, once a tick. The speed is measured between this tick's position and
+	 * last tick's rather than read off {@code getDeltaMovement()}: for a real player the server's delta
+	 * comes from the move packets and is zero most ticks, so a squid that is plainly moving would leave
+	 * nothing. The first tick of a swim has no previous position and so leaves nothing either, which is
+	 * a tick, not a problem.
+	 */
+	private static void wake(Player player, PaintColor own, long now) {
+		if (!(player.level() instanceof ServerLevel level)) return;
+		Vec3 at = player.position();
+		Vec3 last = LAST_POS.put(player.getUUID(), at);
+		Vec3 moved = last == null ? Vec3.ZERO : at.subtract(last);
+		if (ripples(level, player, own, moved) > 0 && now % SWIM_SOUND_EVERY == 0) {
+			level.playSound(null, at.x, at.y, at.z, SoundEvents.PLAYER_SWIM, SoundSource.PLAYERS, 0.25f, 1.6f);
+		}
+	}
+
+	/**
+	 * Ink specks at the squid's feet, if it is moving horizontally at all. Returns how many were sent —
+	 * the only thing a server-side test can see, since particles leave no trace in the level.
+	 *
+	 * <p>Everyone gets them, the squid included: three small specks down at foot level are under the
+	 * camera of a half-height squid, and leaving your own wake out is what makes squid form feel like
+	 * nothing is happening.
+	 */
+	public static int ripples(ServerLevel level, Player player, PaintColor color, Vec3 velocity) {
+		if (velocity.horizontalDistance() <= RIPPLE_SPEED) return 0;
+		level.sendParticles(new DustParticleOptions(color.rgb, 1.0f), player.getX(), player.getY() + 0.05,
+				player.getZ(), RIPPLE_PARTICLES, 0.35, 0.02, 0.35, 0.0);
+		return RIPPLE_PARTICLES;
+	}
+
+	/**
 	 * A snappy dive: the tick squid form is entered from not-squid, push the player along their look
 	 * direction and play a quiet splash. Cooldown-gated on {@link #LAST_DIVE} so a flicker in and out
 	 * of squid form (e.g. a one-tick unshift at the edge of the paint) does not surge every re-entry.
@@ -227,6 +279,15 @@ public final class PlayerTick {
 		player.hurtMarked = true;
 		if (player.level() instanceof ServerLevel level) {
 			level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_SPLASH, SoundSource.PLAYERS, 0.4f, 1.5f);
+			// A ring of ink thrown outwards, so the dive lands with a splat rather than a shove.
+			PaintColor.byTeam(player.getTeam()).ifPresent(color -> {
+				for (int i = 0; i < DIVE_RING_PARTICLES; i++) {
+					double angle = i * 2.0 * Math.PI / DIVE_RING_PARTICLES;
+					level.sendParticles(new DustParticleOptions(color.rgb, 1.0f),
+							player.getX() + Math.cos(angle) * DIVE_RING_RADIUS, player.getY() + 0.05,
+							player.getZ() + Math.sin(angle) * DIVE_RING_RADIUS, 1, 0.0, 0.0, 0.0, 0.0);
+				}
+			});
 		}
 	}
 

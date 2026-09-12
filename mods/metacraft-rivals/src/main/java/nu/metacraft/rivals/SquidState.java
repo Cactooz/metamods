@@ -1,14 +1,21 @@
 package nu.metacraft.rivals;
 
+import com.mojang.datafixers.util.Pair;
 import net.minecraft.core.Holder;
+import net.minecraft.network.protocol.game.ClientboundSetEquipmentPacket;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.Attribute;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.AttributeModifier;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.item.ItemStack;
 
+import java.util.ArrayList;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Set;
 import java.util.UUID;
 
@@ -24,6 +31,15 @@ import java.util.UUID;
  * makes it a trap rather than an inconvenience. The modifiers are transient, so they are never
  * written to the player's save data; the set of squids only exists to keep {@link #enter} and
  * {@link #exit} idempotent and to answer {@link #isSquid} without reading attributes back.
+ *
+ * <p>Squid form also hides the held items from everyone else. Vanilla invisibility hides the body but
+ * not what the body is holding, so an invisible squid swimming through the ink reads to an enemy as a
+ * gun floating across the floor — the one thing it must not give away. There is no server-side way to
+ * hide equipment from some viewers and not others, so this lies to the trackers directly: an empty
+ * {@link ClientboundSetEquipmentPacket} every squid tick to the players tracking this one (never to
+ * the squid itself, which still wants to see its own gun), and the real equipment once on the way
+ * out. Re-sent every tick because anything that makes vanilla's own {@code ServerEntity} resend the
+ * slot — a hotbar change, a re-track — would otherwise put the gun back for good.
  */
 public final class SquidState {
 	public static final Identifier SCALE_ID = Rivals.id("squid/scale");
@@ -36,6 +52,9 @@ public final class SquidState {
 	public static final Identifier NO_JUMP_ID = Rivals.id("ink/no_jump");
 
 	private static final Set<UUID> SQUIDS = new HashSet<>();
+	/** The slots squid form lies about: the hands, plus the armour a painted-up player might wear. */
+	private static final EquipmentSlot[] HIDDEN = {EquipmentSlot.MAINHAND, EquipmentSlot.OFFHAND,
+			EquipmentSlot.HEAD, EquipmentSlot.CHEST, EquipmentSlot.LEGS, EquipmentSlot.FEET};
 
 	private SquidState() {}
 
@@ -51,6 +70,7 @@ public final class SquidState {
 	 */
 	public static void enter(Player player) {
 		SQUIDS.add(player.getUUID());
+		broadcast(player, hiddenEquipment(player));
 		modifier(player, Attributes.SCALE, SCALE_ID, -0.5, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
 		modifier(player, Attributes.MOVEMENT_SPEED, SPEED_ID, 0.8, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
 		modifier(player, Attributes.JUMP_STRENGTH, JUMP_ID, 0.33, AttributeModifier.Operation.ADD_VALUE);
@@ -66,9 +86,14 @@ public final class SquidState {
 		modifier(player, Attributes.GRAVITY, GRAVITY_ID, -0.15, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
 	}
 
-	/** Back to a player. {@link #remove} is a no-op when the modifier is absent, so this is safe to call unconditionally. */
+	/**
+	 * Back to a player. {@link #remove} is a no-op when the modifier is absent, so this is safe to call
+	 * unconditionally — which {@link nu.metacraft.rivals.PlayerTick} does, every tick, for everyone who
+	 * is not a squid. The equipment packet is the one thing here that is not free, so it only goes out
+	 * on the tick the player actually stops being a squid.
+	 */
 	public static void exit(Player player) {
-		SQUIDS.remove(player.getUUID());
+		if (SQUIDS.remove(player.getUUID())) broadcast(player, realEquipment(player));
 		remove(player, Attributes.SCALE, SCALE_ID);
 		remove(player, Attributes.MOVEMENT_SPEED, SPEED_ID);
 		remove(player, Attributes.JUMP_STRENGTH, JUMP_ID);
@@ -76,6 +101,30 @@ public final class SquidState {
 		remove(player, Attributes.SNEAKING_SPEED, SNEAK_ID);
 		remove(player, Attributes.SAFE_FALL_DISTANCE, SAFE_FALL_ID);
 		remove(player, Attributes.GRAVITY, GRAVITY_ID);
+	}
+
+	/** Every slot a squid shows other players: none of them, whatever it is really carrying. */
+	public static List<Pair<EquipmentSlot, ItemStack>> hiddenEquipment(Player player) {
+		List<Pair<EquipmentSlot, ItemStack>> slots = new ArrayList<>();
+		for (EquipmentSlot slot : HIDDEN) slots.add(Pair.of(slot, ItemStack.EMPTY));
+		return slots;
+	}
+
+	/** What the player is really carrying, for the tick they stop being a squid. */
+	public static List<Pair<EquipmentSlot, ItemStack>> realEquipment(Player player) {
+		List<Pair<EquipmentSlot, ItemStack>> slots = new ArrayList<>();
+		for (EquipmentSlot slot : HIDDEN) slots.add(Pair.of(slot, player.getItemBySlot(slot).copy()));
+		return slots;
+	}
+
+	/**
+	 * Tell everyone tracking {@code player} — and only them, never the player — what is in these slots.
+	 * 26.2 calls this {@code sendToTrackingPlayers}; the self-including variant beside it would take the
+	 * squid's own gun off its own screen.
+	 */
+	private static void broadcast(Player player, List<Pair<EquipmentSlot, ItemStack>> slots) {
+		if (!(player.level() instanceof ServerLevel level)) return;
+		level.getChunkSource().sendToTrackingPlayers(player, new ClientboundSetEquipmentPacket(player.getId(), slots));
 	}
 
 	/** Standing in someone else's ink: no jumping out of it. */

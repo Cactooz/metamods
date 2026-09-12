@@ -1,5 +1,6 @@
 package nu.metacraft.rivals.gametest;
 
+import com.mojang.datafixers.util.Pair;
 import eu.pb4.polymer.core.api.block.PolymerBlock;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
@@ -848,6 +849,54 @@ public final class RivalsGameTests {
 	 * a player standing on the slab has {@code blockPosition()} at the slab's own cell, one below that.
 	 * {@code paintUnder} must still find it by falling back to the cell above the feet.
 	 */
+	/**
+	 * A swimming squid leaves a wake and a still one does not. Particles leave nothing behind on the
+	 * server to assert on, so {@link PlayerTick#ripples} answers with how many it sent.
+	 */
+	@GameTest
+	public void squidSwimLeavesRipples(GameTestHelper helper) {
+		Player player = gunner(helper);
+		ServerLevel level = helper.getLevel();
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.2, 0, 0)), 3, "swimming east leaves a wake");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.IT, new Vec3(0, 0, -0.2)), 3, "swimming north too");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, Vec3.ZERO), 0, "a still squid leaves nothing");
+		// Only horizontal movement counts: falling is not swimming, and a crawl under the threshold is
+		// the squid holding position rather than moving.
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0, -0.8, 0)), 0, "falling is not swimming");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.01, 0, 0.01)), 0, "a crawl is not swimming");
+		helper.succeed();
+	}
+
+	/**
+	 * Invisibility hides the body but not the gun, so squid form lies to everyone else's client about
+	 * what is in the hands. The lie and the truth are built here; the broadcast itself needs a second
+	 * tracking player, which a game test has no way to make.
+	 */
+	@GameTest
+	public void squidHidesHeldItemsFromOthers(GameTestHelper helper) {
+		Player player = gunner(helper);
+		player.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.STICK));
+		List<Pair<EquipmentSlot, ItemStack>> hidden = SquidState.hiddenEquipment(player);
+		helper.assertTrue(!hidden.isEmpty(), "the lie covers some slots");
+		Set<EquipmentSlot> lied = new HashSet<>();
+		for (Pair<EquipmentSlot, ItemStack> slot : hidden) {
+			helper.assertTrue(slot.getSecond().isEmpty(), "hidden " + slot.getFirst() + " is empty");
+			lied.add(slot.getFirst());
+		}
+		helper.assertTrue(lied.contains(EquipmentSlot.MAINHAND) && lied.contains(EquipmentSlot.OFFHAND), "both hands are hidden");
+		List<Pair<EquipmentSlot, ItemStack>> real = SquidState.realEquipment(player);
+		helper.assertValueEqual(real.size(), hidden.size(), "the truth covers the same slots as the lie");
+		ItemStack mainhand = ItemStack.EMPTY;
+		ItemStack offhand = ItemStack.EMPTY;
+		for (Pair<EquipmentSlot, ItemStack> slot : real) {
+			if (slot.getFirst() == EquipmentSlot.MAINHAND) mainhand = slot.getSecond();
+			if (slot.getFirst() == EquipmentSlot.OFFHAND) offhand = slot.getSecond();
+		}
+		helper.assertTrue(mainhand.getItem() instanceof PaintWeapon, "the truth still carries the paint gun, not " + mainhand);
+		helper.assertValueEqual(offhand.getItem(), Items.STICK, "and whatever is in the off hand");
+		helper.succeed();
+	}
+
 	@GameTest
 	public void squidDetectsPaintOnSlabTread(GameTestHelper helper) {
 		BlockPos slab = new BlockPos(4, 2, 4);

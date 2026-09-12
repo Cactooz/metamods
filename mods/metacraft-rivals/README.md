@@ -48,6 +48,16 @@ dedicated Rivals server wants.
   state that has a face, which would make paint glow. The v1 caveat still applies, now for four
   blocks instead of one: real sculk veins, resin clumps, tripwire and redstone dust a player places
   in an arena render as paint too.
+- A swimming squid leaves a wake: a few specks of its own ink at its feet on every tick it is
+  actually moving (measured between ticks, because a real player's server-side delta is zero most
+  ticks), a soft swim note every sixth such tick, and a ring of specks thrown outwards on the dive. A
+  squid holding still leaves nothing, so the trail reads as movement rather than as a marker saying
+  where someone is hiding.
+- Squid form also hides the held items from everyone else. Vanilla invisibility hides the body but not
+  what it is carrying, so without this a squid reads to an enemy as a gun floating across the floor.
+  Every squid tick sends the players tracking that squid — never the squid itself, which still wants
+  to see its own gun — an equipment packet with empty hands and armour; the tick it stops being a
+  squid sends the real one back.
 - One colour per cell: a hit in another colour wipes the cell and starts it over as a single
   connected face in the new colour, even if the old cell held paint on more than one face.
 - Four weapons, one item class (`PaintWeapon`) parameterised by a `Weapon` enum, given with
