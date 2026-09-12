@@ -26,6 +26,8 @@ import org.joml.Matrix3f;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
+import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.EnumMap;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -44,8 +46,19 @@ import java.util.Map;
 public final class PaintDisplays {
 	private static final Map<ResourceKey<Level>, PaintDisplays> ALL = new HashMap<>();
 	private static final double LIFT = 0.01;
+	/**
+	 * How many quads one cell may hold. A complex shape (a wall post plus four arms, a pane cross) can
+	 * report a dozen outline boxes, and a quad per box is a dozen item displays in one cell for every
+	 * client in range; three of them, the largest on the struck side, already read as a splat.
+	 */
+	static final int MAX_QUADS_PER_CELL = 3;
 
-	private record Painted(PaintColor color, ElementHolder holder, int quads, BlockPos surface, Direction face) {}
+	/**
+	 * A painted cell. {@code state} is the surface's block state at paint time: the quads are cut to
+	 * that shape, so a surface that changes shape under them (a stair turned, a slab filled to a double
+	 * slab) leaves them wrong and they are dropped rather than moved.
+	 */
+	private record Painted(PaintColor color, ElementHolder holder, int quads, BlockPos surface, Direction face, BlockState state) {}
 
 	private final Map<BlockPos, Painted> cells = new HashMap<>();
 
@@ -91,11 +104,14 @@ public final class PaintDisplays {
 	 * Whether this cell still holds real paint. Polymer destroys every attachment in a chunk when the chunk
 	 * unloads, which nulls the holder's attachment and leaves the entry scoring for quads nobody can see; a
 	 * broken or replaced surface leaves the quads hanging in the air; and a block built into the cell buries
-	 * them. A full face is gone too: that side takes a paint block now, not quads.
+	 * them. A full face is gone too: that side takes a paint block now, not quads. The surface must also be
+	 * the very same state it was painted on — block states are interned, so reference equality is the test —
+	 * because a shape change (a stair turned, a slab doubled) moves the faces out from under the quads.
 	 */
 	private boolean alive(ServerLevel level, BlockPos cell, Painted painted) {
 		if (painted.holder.getAttachment() == null) return false;
 		BlockState surface = level.getBlockState(painted.surface);
+		if (surface != painted.state) return false;
 		if (!Painter.paintable(surface)) return false;
 		if (Block.isFaceFull(surface.getCollisionShape(level, painted.surface), painted.face)) return false;
 		return free(level.getBlockState(cell));
@@ -135,7 +151,7 @@ public final class PaintDisplays {
 		// on top of it would float half a block over the post.
 		VoxelShape shape = state.getShape(level, surface);
 		if (shape.isEmpty()) shape = state.getCollisionShape(level, surface);
-		List<AABB> boxes = shape.toAabbs();
+		List<AABB> boxes = largestFaces(shape.toAabbs(), face);
 		if (boxes.isEmpty()) return false;
 		if (existing != null) existing.holder.destroy();
 		ElementHolder holder = new ElementHolder();
@@ -146,8 +162,23 @@ public final class PaintDisplays {
 			quads++;
 		}
 		ChunkAttachment.of(holder, level, origin);
-		cells.put(cell, new Painted(color, holder, quads, surface.immutable(), face));
+		cells.put(cell, new Painted(color, holder, quads, surface.immutable(), face, state));
 		return true;
+	}
+
+	/** At most {@link #MAX_QUADS_PER_CELL} boxes, the ones showing the most of themselves on {@code face}. */
+	private static List<AABB> largestFaces(List<AABB> boxes, Direction face) {
+		if (boxes.size() <= MAX_QUADS_PER_CELL) return boxes;
+		List<AABB> sorted = new ArrayList<>(boxes);
+		sorted.sort(Comparator.comparingDouble((AABB box) -> faceArea(box, face)).reversed());
+		return sorted.subList(0, MAX_QUADS_PER_CELL);
+	}
+
+	/** The area of {@code box}'s {@code face} side, with the same in-plane axes {@link #quad} uses. */
+	private static double faceArea(AABB box, Direction face) {
+		double w = face.getAxis() == Direction.Axis.X ? box.getZsize() : box.getXsize();
+		double h = face.getAxis() == Direction.Axis.Y ? box.getZsize() : box.getYsize();
+		return w * h;
 	}
 
 	/** One splat quad on the {@code face} side of {@code box} (box coordinates are local to the surface block). */

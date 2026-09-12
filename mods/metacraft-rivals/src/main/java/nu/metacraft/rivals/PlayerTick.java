@@ -1,5 +1,6 @@
 package nu.metacraft.rivals;
 
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Holder;
@@ -41,6 +42,9 @@ public final class PlayerTick {
 			long now = server.getTickCount();
 			for (ServerPlayer player : server.getPlayerList().getPlayers()) tick(player, now);
 		});
+		// The set is keyed by UUID and lives past the server it was filled from; a single-process
+		// restart (a dev run, an integrated server) would otherwise start with everyone still a squid.
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> SQUIDS.clear());
 	}
 
 	public static boolean isSquid(Player player) {
@@ -55,6 +59,10 @@ public final class PlayerTick {
 	 * standing on that tread has {@code blockPosition()} equal to the tread's own cell, not the cell
 	 * above it. So when the feet cell has nothing, the cell above is checked for quads only (a full
 	 * paint block can't occupy the space a player's feet are standing in one cell below it).
+	 *
+	 * <p>That fallback only applies when the block at the feet cell is not a full cube. A player
+	 * standing on a full block has their feet in the cell above it, and the cell above <em>that</em> is
+	 * head height: paint on the wall beside a player's head is not paint they are standing in.
 	 */
 	public static @Nullable PaintColor paintUnder(Player player) {
 		if (!(player.level() instanceof ServerLevel level)) return null;
@@ -63,6 +71,7 @@ public final class PlayerTick {
 		if (state.getBlock() instanceof PaintBlock paint) return paint.color;
 		PaintColor quads = PaintDisplays.of(level).colorAt(feet);
 		if (quads != null) return quads;
+		if (state.isCollisionShapeFullBlock(level, feet)) return null;
 		return PaintDisplays.of(level).colorAt(feet.above());
 	}
 
@@ -78,6 +87,9 @@ public final class PlayerTick {
 	}
 
 	public static void tick(Player player, long now) {
+		// A spectator flies through the paint blocks they are "standing in"; giving them invisibility,
+		// speed or slowness for it is noise, and their gun (if any) is not usable anyway.
+		if (player.isSpectator()) return;
 		PaintColor under = paintUnder(player);
 		Optional<PaintColor> own = PaintColor.byTeam(player.getTeam());
 		boolean squid = under != null && own.isPresent() && under == own.get() && player.isShiftKeyDown();

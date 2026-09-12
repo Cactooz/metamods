@@ -1,5 +1,6 @@
 package nu.metacraft.rivals.gun;
 
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.minecraft.network.protocol.game.ClientboundPlayerRotationPacket;
 import net.minecraft.server.level.ServerPlayer;
@@ -39,6 +40,10 @@ public final class Recoil {
 			}
 			SETTLE_QUEUE.removeAll(due);
 		});
+		// The queue is static and holds ServerPlayer references and absolute tick numbers, both of which
+		// belong to the server that is going away: keeping them would leak the players and, since the
+		// tick count restarts at 0, hold entries that never come due.
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> SETTLE_QUEUE.clear());
 	}
 
 	public static void kick(Player shooter) {

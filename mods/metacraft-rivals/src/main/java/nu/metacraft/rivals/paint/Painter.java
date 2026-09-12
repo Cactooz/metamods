@@ -119,16 +119,23 @@ public final class Painter {
 	}
 
 	/**
-	 * A full impact: the 3×3 blob on the struck face, then fourteen short rays from the impact point that
-	 * paint whatever face they hit (so a floor shot beside a wall also paints the wall and the corner),
-	 * with a coloured dust burst and a wet sound. Returns how many cells changed.
+	 * A full impact: the 3×3 blob on the struck face, then the rays that leave the surface — of the
+	 * fourteen directions, the ones that do not point back into the struck face — painting whatever
+	 * face they hit (so a floor shot beside a wall also paints the wall and the corner), with a
+	 * coloured dust burst and a wet sound. Returns how many cells changed.
+	 *
+	 * <p>A ray pointing into the surface would clip straight back through the block that was just hit
+	 * and paint its far side, so paint appears behind a wall the shooter never saw. Rays lying in the
+	 * plane of the face (dot 0) still fire: those are the ones that reach the wall beside a floor shot.
 	 */
 	public static int splash(ServerLevel level, Vec3 impact, BlockPos struck, Direction face, PaintColor color,
 			RandomSource random, @Nullable Entity source) {
 		int changed = splat(level, struck, face, color, random);
-		Vec3 from = impact.add(Vec3.atLowerCornerOf(face.getUnitVec3i()).scale(0.05));
+		Vec3 normal = Vec3.atLowerCornerOf(face.getUnitVec3i());
+		Vec3 from = impact.add(normal.scale(0.05));
 		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.6f);
 		for (Vec3 ray : RAY_DIRECTIONS) {
+			if (ray.dot(normal) < 0) continue;
 			Vec3 to = from.add(ray.scale(RAY_LENGTH));
 			ClipContext context = source != null
 					? new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, source)

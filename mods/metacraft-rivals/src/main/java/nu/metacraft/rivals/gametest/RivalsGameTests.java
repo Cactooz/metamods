@@ -5,12 +5,14 @@ import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
+import net.minecraft.ChatFormatting;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.chat.TextColor;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
@@ -21,11 +23,13 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.item.component.FireworkExplosion;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.MultifaceBlock;
+import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
@@ -493,6 +497,59 @@ public final class RivalsGameTests {
 		int removed = tally.reset(helper.getLevel()); // a reset clears the level's display quads too
 		helper.assertTrue(removed >= 1 && displays.holders() == 0, "clear removed the quads");
 		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.CYAN), 0, "nothing left to count");
+		// A surface that only changes shape keeps its position, so every check above still passes, but the
+		// quads were cut to the old shape and now hang over nothing: the cell must be dropped.
+		BlockPos turned = new BlockPos(6, 1, 6);
+		helper.setBlock(turned, Blocks.STONE_STAIRS.defaultBlockState()); // default facing is north
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(turned), Direction.UP, PaintColor.LIME),
+				"the stair took paint");
+		helper.assertTrue(displays.colorAt(helper.absolutePos(turned.above())) == PaintColor.LIME, "turned stair's cell is lime");
+		helper.setBlock(turned, Blocks.STONE_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.SOUTH));
+		displays.count(helper.getLevel()); // the sweep
+		helper.assertTrue(displays.colorAt(helper.absolutePos(turned.above())) == null,
+				"turning the stair under the quads dropped the cell");
+		helper.assertValueEqual(displays.holders(), 0, "no holders left");
+		helper.succeed();
+	}
+
+	/**
+	 * The display quads' item assets are generated for every shape, and the three files agree: the item
+	 * definition names the model, the model names the texture, and the dye tint reaches a tinted face.
+	 */
+	@GameTest
+	public void quadItemAssetsAreGenerated(GameTestHelper helper) {
+		Map<String, byte[]> files = SplatArt.packFiles();
+		for (String shape : SplatArt.SHAPES) {
+			String name = "splat_quad_" + shape;
+			String itemPath = "assets/metacraft-rivals/items/" + name + ".json";
+			String modelPath = "assets/metacraft-rivals/models/item/" + name + ".json";
+			String texturePath = "assets/metacraft-rivals/textures/item/" + name + ".png";
+			for (String path : new String[] {itemPath, modelPath, texturePath}) {
+				helper.assertTrue(files.containsKey(path), "in pack: " + path);
+			}
+			JsonObject definition = JsonParser.parseString(new String(files.get(itemPath), StandardCharsets.UTF_8)).getAsJsonObject();
+			JsonObject modelDef = definition.getAsJsonObject("model");
+			String model = modelDef.get("model").getAsString(); // metacraft-rivals:item/splat_quad_xx
+			String modelFile = "assets/metacraft-rivals/models/" + model.substring(model.indexOf(':') + 1) + ".json";
+			helper.assertValueEqual(modelFile, modelPath, name + ": the definition points at the generated model");
+			helper.assertTrue(files.containsKey(modelFile), "model in pack: " + modelFile);
+			// Without the dye tint the quad renders white, whatever colour the display element carries.
+			helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(),
+					"minecraft:dye", name + ": dye tint");
+			JsonObject modelJson = JsonParser.parseString(new String(files.get(modelFile), StandardCharsets.UTF_8)).getAsJsonObject();
+			boolean tinted = false;
+			for (JsonElement element : modelJson.getAsJsonArray("elements")) {
+				for (var face : element.getAsJsonObject().getAsJsonObject("faces").entrySet()) {
+					JsonObject json = face.getValue().getAsJsonObject();
+					if (json.has("tintindex") && json.get("tintindex").getAsInt() == 0) tinted = true;
+				}
+			}
+			helper.assertTrue(tinted, name + ": some face carries tintindex 0, so the dye reaches it");
+			String texture = modelJson.getAsJsonObject("textures").get("splat").getAsString();
+			String textureFile = "assets/metacraft-rivals/textures/" + texture.substring(texture.indexOf(':') + 1) + ".png";
+			helper.assertValueEqual(textureFile, texturePath, name + ": the model points at the generated texture");
+			helper.assertTrue(files.containsKey(textureFile), "texture in pack: " + textureFile);
+		}
 		helper.succeed();
 	}
 
@@ -501,7 +558,11 @@ public final class RivalsGameTests {
 	public void glossShaderCarriesTheMarkerGuard(GameTestHelper helper) {
 		String fsh = new String(RivalsPack.shader("block.fsh"), StandardCharsets.UTF_8);
 		String vsh = new String(RivalsPack.shader("block.vsh"), StandardCharsets.UTF_8);
-		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.85") && fsh.contains("0.95"), "fragment shader guards on the marker alpha");
+		// A narrow window around 229/255, not a band: a wide one also catches vanilla texels (nether
+		// portals, frosted ice, stained-glass pane edges, tripwire) and makes them glossy for everyone.
+		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.898") && fsh.contains("0.004"),
+				"fragment shader guards on the marker alpha");
+		helper.assertTrue(!fsh.contains("tex.a > 0.85"), "the wide marker band is gone");
 		helper.assertTrue(fsh.contains("#ifdef ALPHA_CUTOUT"), "vanilla cutout path kept");
 		helper.assertTrue(vsh.contains("out vec3 viewPos"), "vertex shader exports the view position");
 		helper.succeed();
@@ -527,6 +588,15 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(Ink.get(gun), 11, "top-up adds");
 		Ink.add(gun, 100);
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "top-up clamps");
+		// A deadline saved before a restart: the server tick count starts again at 0, so what was
+		// "30 ticks from now" comes back as a deadline far in the future and would leave the gun
+		// refilling for the rest of the session. Written straight into the tag, as loading would.
+		Ink.set(gun, 0);
+		CustomData.update(DataComponents.CUSTOM_DATA, gun, tag -> tag.putLong("rivals_refill_until", now + 100000L));
+		helper.assertTrue(!Ink.isRefilling(gun, now), "a deadline from before a restart is not a refill in progress");
+		Ink.finishIfDue(gun, now);
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "the stale deadline completes the refill instead of bricking the gun");
+		helper.assertTrue(!Ink.isRefilling(gun, now), "and the deadline is gone");
 		helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).forEach(Entity::discard);
 		helper.succeed();
 	}
@@ -540,6 +610,11 @@ public final class RivalsGameTests {
 		helper.assertTrue(half.chars().filter(c -> c == '\u2588').count() == 5 && half.chars().filter(c -> c == '\u2591').count() == 5, "half bar: " + half);
 		helper.assertTrue(InkHud.bar(PaintColor.LIME, 0, true, false).getString().contains("REFILLING"), "refilling text");
 		helper.assertTrue(InkHud.bar(PaintColor.LIME, 5, false, true).getString().contains("SQUID"), "squid tag");
+		// No team is still a real tank: same text, grey instead of a team colour.
+		Component noTeam = InkHud.bar(null, Ink.MAX, false, false);
+		helper.assertValueEqual(noTeam.getString(), full, "the no-team bar reads the same");
+		helper.assertTrue(TextColor.fromLegacyFormat(ChatFormatting.GRAY).equals(noTeam.getStyle().getColor()),
+				"no team: the bar is grey, got " + noTeam.getStyle().getColor());
 		helper.succeed();
 	}
 
