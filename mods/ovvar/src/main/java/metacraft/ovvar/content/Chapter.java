@@ -49,6 +49,12 @@ public enum Chapter {
 		if (rollable && nercabbadOverlay == null) throw new IllegalStateException(id + " is rollable but has no nercabbad overlay");
 	}
 
+	/** The chapter with this id, or null. */
+	public static @Nullable Chapter byId(String id) {
+		for (Chapter chapter : values()) if (chapter.id.equals(id)) return chapter;
+		return null;
+	}
+
 	/** The item id path: {@code data_ovve}, {@code media_frack}. */
 	public String itemName() {
 		return id + "_" + garmentWord();

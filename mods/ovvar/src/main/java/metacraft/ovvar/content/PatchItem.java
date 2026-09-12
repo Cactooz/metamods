@@ -1,6 +1,11 @@
 package metacraft.ovvar.content;
 
 import eu.pb4.polymer.core.api.item.PolymerItem;
+import metacraft.ovvar.store.Stash;
+import net.minecraft.server.level.ServerLevel;
+import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.EquipmentSlot;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.HolderLookup;
@@ -36,10 +41,21 @@ public final class PatchItem extends Item implements PolymerItem {
 		return (ghost ? "ghost_" : "") + piece.key();
 	}
 
+	/** In a player's inventory on a server that banks patches (a minigame server): into their stash, at once. */
+	@Override
+	public void inventoryTick(ItemStack stack, ServerLevel level, Entity entity, EquipmentSlot slot) {
+		if (entity instanceof ServerPlayer player) Stash.bank(player, stack);
+	}
+
 	@Override
 	public void modifyClientTooltip(List<Component> tooltip, ItemStack stack, PacketContext context) {
 		tooltip.add(Component.literal(patch.seat() ? "Goes across the seat" : "Goes anywhere on an ovve").withStyle(ChatFormatting.GRAY));
-		tooltip.add(Component.literal("Aim it at an armour stand wearing an ovve, right-click to sew").withStyle(ChatFormatting.DARK_GRAY));
+		if (stack.has(ModComponents.SESSION)) {
+			tooltip.add(Component.literal("From your stash: aim at your ovve on the stand, right-click to sew").withStyle(ChatFormatting.DARK_GRAY));
+		} else {
+			tooltip.add(Component.literal("Aim it at an armour stand wearing an ovve, right-click to sew").withStyle(ChatFormatting.DARK_GRAY));
+			tooltip.add(Component.literal("Or keep it safe: /ovvar stash").withStyle(ChatFormatting.DARK_GRAY));
+		}
 	}
 
 	@Override

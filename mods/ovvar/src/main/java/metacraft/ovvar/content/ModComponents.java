@@ -64,6 +64,13 @@ public final class ModComponents {
 	public static final DataComponentType<UUID> OWNER = register("owner",
 			DataComponentType.<UUID>builder().persistent(UUIDUtil.CODEC));
 
+	/**
+	 * On the shears and the patch a stash session puts in the hotbar ({@link metacraft.ovvar.sewing.StashSession}):
+	 * not the player's, cannot be dropped or moved, swept out when the session ends (or on join, after a crash).
+	 */
+	public static final DataComponentType<Boolean> SESSION = register("session",
+			DataComponentType.<Boolean>builder().persistent(Codec.BOOL));
+
 	/** On a patch item stack used as a display entity: which piece of the art ({@link PatchPieces.Piece#key}), flat 1:1, instead of the inventory icon. Never saved. */
 	public static final DataComponentType<String> FLAT = register("flat",
 			DataComponentType.<String>builder().networkSynchronized(ByteBufCodecs.STRING_UTF8));
@@ -75,6 +82,6 @@ public final class ModComponents {
 	public static void init() {
 		// Registered types land in a synced registry; without this Fabric's registry sync kicks
 		// vanilla clients ("requires Fabric Loader"). Polymer hides them and never sends them.
-		PolymerComponent.registerDataComponent(PATCHES, PREVIEW, TOP_UP, FEET_CHANNEL, WRAPPED, WRAPPED_TOP, ON_STAND, OWNER, FLAT);
+		PolymerComponent.registerDataComponent(PATCHES, PREVIEW, TOP_UP, FEET_CHANNEL, WRAPPED, WRAPPED_TOP, ON_STAND, OWNER, SESSION, FLAT);
 	}
 }

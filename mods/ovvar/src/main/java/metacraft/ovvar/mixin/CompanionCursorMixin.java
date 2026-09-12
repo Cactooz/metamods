@@ -1,5 +1,6 @@
 package metacraft.ovvar.mixin;
 
+import metacraft.ovvar.content.ModComponents;
 import metacraft.ovvar.content.OvveTopItem;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.AbstractContainerMenu;
@@ -25,7 +26,8 @@ public abstract class CompanionCursorMixin {
 
 	@Inject(method = "clicked", at = @At("TAIL"))
 	private void ovvar$dropCompanionFromCursor(int slot, int button, ContainerInput input, Player player, CallbackInfo ci) {
-		if (getCarried().getItem() instanceof OvveTopItem) {
+		// Likewise a stash session's fake patch or shears: they live in their hotbar slots and nowhere else.
+		if (getCarried().getItem() instanceof OvveTopItem || getCarried().has(ModComponents.SESSION)) {
 			setCarried(ItemStack.EMPTY);
 		}
 	}

@@ -11,9 +11,11 @@ import metacraft.ovvar.content.*;
 import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.sewing.SewingGame;
 import metacraft.ovvar.sewing.StandSewing;
-import metacraft.ovvar.store.Design;
-import metacraft.ovvar.store.DesignKey;
-import metacraft.ovvar.store.Designs;
+import metacraft.ovvar.sewing.StashGui;
+import metacraft.ovvar.sewing.StashSession;
+import metacraft.ovvar.store.Stash;
+import metacraft.ovvar.store.Wardrobe;
+import metacraft.ovvar.store.Wardrobes;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.util.Prediction;
 import net.minecraft.commands.CommandSourceStack;
@@ -53,9 +55,13 @@ import java.util.stream.Stream;
  *   <li>{@code stands <chapter>} — three posed stands wearing a plain ovve, for testing the sewing aim;</li>
  *   <li>{@code minigame [on|off] [stitches]} — the stitching minigame setting, saved to config/ovvar.json;</li>
  *   <li>{@code aimlog on|off} — log every click on a stand and every aim change with the numbers behind it (server log);</li>
- *   <li>{@code store status|show [player]|reload [player]|reconnect} — the design store: what it is and
- *	   what is cached, one player's designs, drop and refetch them, or reopen the backend from the config.</li>
+ *   <li>{@code store status|show [player]|reload [player]|reconnect} — the wardrobe store: what it is and
+ *	   what is cached, one player's designs and stash, drop and refetch them, or reopen the backend from the config;</li>
+ *   <li>{@code patch give <targets> <patch> [count]} — a patch into the stash of every selected player (vanilla
+ *	   selectors), with the flourish and the explanation each.</li>
  * </ul>
+ * And for everyone: {@code stash} opens the stash, {@code stash done} ends a sewing session, {@code stash deposit}
+ * puts every held patch in.
  */
 public final class ModCommands {
 	private ModCommands() {}
@@ -78,6 +84,31 @@ public final class ModCommands {
 				dispatcher.register(Commands.literal(Ovvar.MOD_ID)
 						// Anyone: the latest resource pack, now (the one reload that is asked for).
 						.then(Commands.literal("reload").executes(ModCommands::reload))
+						// Anyone: their stash.
+						.then(Commands.literal("stash")
+								.executes(ctx -> {
+									StashGui.open(ctx.getSource().getPlayerOrException());
+									return 1;
+								})
+								.then(Commands.literal("done").executes(ctx -> {
+									ServerPlayer player = ctx.getSource().getPlayerOrException();
+									if (StashSession.of(player) == null) throw NOT_AN_OVVE.create("no sewing session to end");
+									StashSession.end(player, "Sewing session over");
+									return 1;
+								}))
+								.then(Commands.literal("deposit").executes(ctx -> {
+									ServerPlayer player = ctx.getSource().getPlayerOrException();
+									Stash.deposit(player, reply -> player.sendSystemMessage(Component.literal(reply)));
+									return 1;
+								})))
+						.then(Commands.literal("patch").requires(GAMEMASTER)
+								.then(Commands.literal("give")
+										.then(Commands.argument("targets", EntityArgument.players())
+												.then(Commands.argument("patch", StringArgumentType.word())
+														.suggests((ctx, builder) -> SharedSuggestionProvider.suggest(Patches.all().stream().map(Patches.Patch::id), builder))
+														.executes(ctx -> patchGive(ctx, 1))
+														.then(Commands.argument("count", IntegerArgumentType.integer(1, 64))
+																.executes(ctx -> patchGive(ctx, IntegerArgumentType.getInteger(ctx, "count"))))))))
 						.then(Commands.literal("give").requires(GAMEMASTER)
 								.then(chapterArg()
 										.executes(ctx -> give(ctx, ctx.getSource().getPlayerOrException(), ""))
@@ -185,16 +216,20 @@ public final class ModCommands {
 		Chapter chapter = chapter(ctx);
 		boolean down = spec.matches("(?s).*\\bdown\\b.*");   // "down" anywhere in the spec: top rolled down
 		List<Placement> patches = patches(spec.replaceAll("\\bdown\\b", " "));
+		String patchSpec = spec.replaceAll("\\bdown\\b", " ").trim();
 		ItemStack stack = ovve(chapter, !down, patches);
-		// Theirs: the patches become their design for the chapter (replacing what the store had).
+		// Theirs. With patches named, those become their design for the chapter (replacing what the
+		// store had); with none, the ovve simply shows the design they already have.
 		OvveItem.setOwner(stack, player.getUUID());
-		SpotPlacements design = fromList(patches);
-		Designs.update(new DesignKey(player.getUUID(), chapter), d -> d.withPatches(design), outcome ->
-				ctx.getSource().sendSuccess(() -> Component.literal("Design of " + player.getName().getString() + " (" + chapter.id + "): " + describe(outcome)), false));
+		if (!patchSpec.isEmpty()) {
+			SpotPlacements design = fromList(patches);
+			Wardrobes.update(player.getUUID(), w -> w.withDesign(chapter, design), outcome ->
+					ctx.getSource().sendSuccess(() -> Component.literal("Design of " + player.getName().getString() + " (" + chapter.id + "): " + describe(outcome)), false));
+		}
 		Looks.claimIfNeeded(player, stack);   // before the inventory takes it (an emptied stack reads as bare)
 		if (!player.getInventory().add(stack)) player.drop(stack, false, Prediction.SERVER_ONLY);
 		ctx.getSource().sendSuccess(() -> Component.literal("Gave " + player.getName().getString() + " a " + chapter.name
-				+ " " + chapter.garmentWord() + " with " + patches.size() + " patch(es)"), true);
+				+ " " + chapter.garmentWord() + (patchSpec.isEmpty() ? " (their stored design)" : " with " + patches.size() + " patch(es)")), true);
 		return 1;
 	}
 
@@ -225,16 +260,16 @@ public final class ModCommands {
 		if (!(held.getItem() instanceof OvveItem)) throw NOT_AN_OVVE.create(held.getItem().toString());
 		List<Placement> patches = patches(StringArgumentType.getString(ctx, "patches"));
 		SpotPlacements design = fromList(patches);
-		DesignKey key = OvveItem.designKey(held);
-		if (key != null) {
+		UUID owner = OvveItem.owner(held);
+		if (owner != null && held.getItem() instanceof OvveItem item) {
 			// An owned ovve is a view of the design: change that, and the item follows on its tick.
-			Designs.update(key, d -> d.withPatches(design), outcome -> {
-				if (outcome == Designs.Outcome.OK) {
+			Wardrobes.update(owner, w -> w.withDesign(item.chapter, design), outcome -> {
+				if (outcome == Wardrobes.Outcome.OK) {
 					OvveItem.refresh(held);
 					Looks.claimIfNeeded(player, held);
 				}
-				ctx.getSource().sendSuccess(() -> Component.literal("Design " + key + ": " + describe(outcome)
-						+ (outcome == Designs.Outcome.OK ? ", sewn: " + (patches.isEmpty() ? "nothing" : Placement.combo(patches)) : "")), false);
+				ctx.getSource().sendSuccess(() -> Component.literal("Design " + owner + "/" + item.chapter.id + ": " + describe(outcome)
+						+ (outcome == Wardrobes.Outcome.OK ? ", sewn: " + (patches.isEmpty() ? "nothing" : Placement.combo(patches)) : "")), false);
 			});
 			return 1;
 		}
@@ -358,50 +393,78 @@ public final class ModCommands {
 		return 1;
 	}
 
-	private static String describe(Designs.Outcome outcome) {
+	private static String describe(Wardrobes.Outcome outcome) {
 		return switch (outcome) {
 			case OK -> "written";
 			case CONFLICT -> "conflict, the store had a newer version (refetching; run it again)";
 			case UNREACHABLE -> "the store is unreachable, nothing written";
 			case NOT_LOADED -> "not loaded yet (fetching; run it again)";
+			case REJECTED -> "did not apply";
 		};
 	}
 
+	/** {@code patch give <targets> <patch> [count]}: into each player's stash, with the flourish. */
+	private static int patchGive(CommandContext<CommandSourceStack> ctx, int count) throws CommandSyntaxException {
+		String id = StringArgumentType.getString(ctx, "patch");
+		if (!Patches.exists(id)) throw UNKNOWN_PATCH.create(id);
+		Patches.Patch patch = Patches.get(id);
+		var targets = EntityArgument.getPlayers(ctx, "targets");
+		for (ServerPlayer target : targets) {
+			Stash.grant(target, patch, count, outcome -> {
+				if (outcome != Wardrobes.Outcome.OK) {
+					ctx.getSource().sendFailure(Component.literal(target.getName().getString() + ": " + describe(outcome)));
+				}
+			});
+		}
+		int n = targets.size();
+		ctx.getSource().sendSuccess(() -> Component.literal(count + " × " + patch.name() + " to the stash of " + n + " player(s)"), true);
+		return n;
+	}
+
 	private static int storeStatus(CommandContext<CommandSourceStack> ctx) {
-		ctx.getSource().sendSuccess(() -> Component.literal(Designs.status()), false);
+		StringBuilder out = new StringBuilder(Wardrobes.status());
+		var config = OvvarConfig.get().stash();
+		out.append("\nthis server: ").append(config.minigameServer() ? "minigame (view-only)" : "survival (sewing allowed)")
+				.append(", banks patch items: ").append(config.banksOnPickup()).append(", withdraw: ").append(config.canWithdraw())
+				.append(", any stand: ").append(config.anyStand());
+		for (String s : StashSession.describeAll(ctx.getSource().getServer())) out.append("\nsession: ").append(s);
+		ctx.getSource().sendSuccess(() -> Component.literal(out.toString()), false);
 		return 1;
 	}
 
 	private static int storeShow(CommandContext<CommandSourceStack> ctx, ServerPlayer player) {
 		UUID id = player.getUUID();
-		if (!Designs.loaded(id)) {
-			Designs.fetch(id);
-			ctx.getSource().sendSuccess(() -> Component.literal(player.getName().getString() + ": designs not loaded (fetching)"), false);
+		if (!Wardrobes.loaded(id)) {
+			Wardrobes.fetch(id);
+			ctx.getSource().sendSuccess(() -> Component.literal(player.getName().getString() + ": wardrobe not loaded (fetching)"), false);
 			return 0;
 		}
-		Map<Chapter, Design> designs = Designs.all(id);
-		StringBuilder out = new StringBuilder(player.getName().getString() + " (" + id + "): " + (designs.isEmpty() ? "no designs" : ""));
-		for (var entry : designs.entrySet()) {
-			List<Placement> list = SpotPlacements.asPlacementList(entry.getValue().placements());
-			out.append("\n  ").append(entry.getKey().id).append(" v").append(entry.getValue().version()).append(": ")
-					.append(list.isEmpty() ? "nothing" : Placement.combo(list))
-					.append(Designs.pending(new DesignKey(id, entry.getKey())) ? " (writes queued)" : "");
+		Wardrobe wardrobe = Wardrobes.current(id);
+		StringBuilder out = new StringBuilder(player.getName().getString() + " (" + id + ") v" + wardrobe.version()
+				+ (Wardrobes.pending(id) ? " (writes queued)" : "") + (wardrobe.isEmpty() ? ": nothing" : ""));
+		for (Map.Entry<Chapter, SpotPlacements> entry : wardrobe.designs().entrySet()) {
+			List<Placement> list = entry.getValue().asPlacementList();
+			out.append("\n  ").append(entry.getKey().id).append(": ").append(list.isEmpty() ? "nothing" : Placement.combo(list));
+		}
+		if (!wardrobe.stash().isEmpty()) {
+			out.append("\n  stash:");
+			wardrobe.stash().forEach((patch, n) -> out.append(" ").append(patch).append("×").append(n));
 		}
 		ctx.getSource().sendSuccess(() -> Component.literal(out.toString()), false);
-		return designs.size();
+		return wardrobe.designs().size();
 	}
 
 	private static int storeReload(CommandContext<CommandSourceStack> ctx, ServerPlayer player) {
-		Designs.refresh(player.getUUID());
-		ctx.getSource().sendSuccess(() -> Component.literal("Refetching " + player.getName().getString() + "'s designs"), false);
+		Wardrobes.refresh(player.getUUID());
+		ctx.getSource().sendSuccess(() -> Component.literal("Refetching " + player.getName().getString() + "'s wardrobe"), false);
 		return 1;
 	}
 
 	private static int storeReconnect(CommandContext<CommandSourceStack> ctx) {
 		OvvarConfig.reload();
-		Designs.open(ctx.getSource().getServer(), OvvarConfig.get().designs());
-		for (ServerPlayer online : ctx.getSource().getServer().getPlayerList().getPlayers()) Designs.fetch(online.getUUID());
-		ctx.getSource().sendSuccess(() -> Component.literal(Designs.status()), true);
+		Wardrobes.open(ctx.getSource().getServer(), OvvarConfig.get().designs());
+		for (ServerPlayer online : ctx.getSource().getServer().getPlayerList().getPlayers()) Wardrobes.fetch(online.getUUID());
+		ctx.getSource().sendSuccess(() -> Component.literal(Wardrobes.status()), true);
 		return 1;
 	}
 

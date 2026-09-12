@@ -3,9 +3,6 @@ package metacraft.ovvar.store;
 import com.google.gson.JsonParser;
 import com.mojang.serialization.JsonOps;
 import metacraft.ovvar.Ovvar;
-import metacraft.ovvar.content.Chapter;
-import metacraft.ovvar.content.Placement;
-import metacraft.ovvar.content.SpotPlacements;
 
 import java.io.IOException;
 import java.sql.Connection;
@@ -15,26 +12,25 @@ import java.sql.ResultSet;
 import java.sql.SQLException;
 import java.sql.SQLIntegrityConstraintViolationException;
 import java.sql.Statement;
-import java.util.EnumMap;
-import java.util.List;
-import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Designs in one table shared by every server:
+ * Wardrobes in one table shared by every server:
  * <pre>
- * owner CHAR(36), chapter VARCHAR(32), version BIGINT, patches TEXT (a JSON list of cell.patch keys),
- * updated_at BIGINT (epoch millis), PRIMARY KEY (owner, chapter)
+ * owner CHAR(36) PRIMARY KEY, version BIGINT, data TEXT (the wardrobe as JSON: designs per chapter
+ * and the stash), updated_at BIGINT (epoch millis)
  * </pre>
  * Standard SQL only, so MariaDB, MySQL, PostgreSQL, H2 and SQLite all take it. The compare-and-set
  * is an {@code INSERT} for a row that must not exist (a duplicate key is the conflict) or an
  * {@code UPDATE ... WHERE version = ?} whose row count says whether it won. One connection, reopened
  * after any failure; a single store thread means no pool is needed.
  */
-public final class JdbcBackend implements DesignBackend {
+public final class JdbcBackend implements WardrobeBackend {
 	private final DesignStoreConfig.Jdbc config;
 	private final String table;
 	private Connection connection;
+	private boolean connectedBefore;
 
 	public JdbcBackend(DesignStoreConfig.Jdbc config) {
 		this.config = config;
@@ -64,10 +60,11 @@ public final class JdbcBackend implements DesignBackend {
 		try (Statement statement = connection.createStatement()) {
 			statement.setQueryTimeout(config.queryTimeoutSeconds());
 			statement.executeUpdate("CREATE TABLE IF NOT EXISTS " + table + " ("
-					+ "owner CHAR(36) NOT NULL, chapter VARCHAR(32) NOT NULL, version BIGINT NOT NULL, "
-					+ "patches TEXT NOT NULL, updated_at BIGINT NOT NULL, PRIMARY KEY (owner, chapter))");
+					+ "owner CHAR(36) NOT NULL PRIMARY KEY, version BIGINT NOT NULL, data TEXT NOT NULL, updated_at BIGINT NOT NULL)");
 		}
-		Ovvar.LOGGER.info("[ovvar] design store connected: {}", describe());
+		if (connectedBefore) Ovvar.LOGGER.debug("[ovvar] wardrobe store reconnected: {}", describe());
+		else Ovvar.LOGGER.info("[ovvar] wardrobe store connected: {}", describe());
+		connectedBefore = true;
 		return connection;
 	}
 
@@ -88,77 +85,63 @@ public final class JdbcBackend implements DesignBackend {
 	}
 
 	@Override
-	public Map<Chapter, Design> loadAll(UUID owner) throws IOException {
-		try (PreparedStatement statement = prepare("SELECT chapter, version, patches FROM " + table + " WHERE owner = ?")) {
+	public Optional<Wardrobe> load(UUID owner) throws IOException {
+		try (PreparedStatement statement = prepare("SELECT version, data FROM " + table + " WHERE owner = ?")) {
 			statement.setString(1, owner.toString());
-			Map<Chapter, Design> out = new EnumMap<>(Chapter.class);
 			try (ResultSet rows = statement.executeQuery()) {
-				while (rows.next()) {
-					String chapterId = rows.getString(1);
-					Chapter chapter = null;
-					for (Chapter c : Chapter.values()) if (c.id.equals(chapterId)) chapter = c;
-					if (chapter == null) {
-						Ovvar.LOGGER.warn("[ovvar] design store: {} has a design for unknown chapter '{}', ignored", owner, chapterId);
-						continue;
-					}
-					out.put(chapter, new Design(decode(rows.getString(3)), rows.getLong(2)));
-				}
+				if (!rows.next()) return Optional.empty();
+				return Optional.of(decode(rows.getString(2)).withVersion(rows.getLong(1)));
 			}
-			return out;
 		} catch (SQLException e) {
 			closeQuietly();
-			throw new IOException("design store: " + e.getMessage(), e);
+			throw new IOException("wardrobe store: " + e.getMessage(), e);
 		}
 	}
 
 	@Override
-	public boolean store(DesignKey key, Design next, long expectedVersion) throws IOException {
-		String patches = encode(next);
+	public boolean store(UUID owner, Wardrobe next, long expectedVersion) throws IOException {
+		String data = encode(next);
 		long now = System.currentTimeMillis();
 		try {
 			if (expectedVersion == 0) {
-				try (PreparedStatement statement = prepare("INSERT INTO " + table + " (owner, chapter, version, patches, updated_at) VALUES (?, ?, ?, ?, ?)")) {
-					statement.setString(1, key.owner().toString());
-					statement.setString(2, key.chapter().id);
-					statement.setLong(3, next.version());
-					statement.setString(4, patches);
-					statement.setLong(5, now);
+				try (PreparedStatement statement = prepare("INSERT INTO " + table + " (owner, version, data, updated_at) VALUES (?, ?, ?, ?)")) {
+					statement.setString(1, owner.toString());
+					statement.setLong(2, next.version());
+					statement.setString(3, data);
+					statement.setLong(4, now);
 					statement.executeUpdate();
 					return true;
 				} catch (SQLIntegrityConstraintViolationException e) {
 					return false;   // the row exists: someone else wrote first
 				} catch (SQLException e) {
 					// PostgreSQL reports a duplicate key with SQLSTATE 23505 but not that subclass.
-					if ("23505".equals(e.getSQLState()) || (e.getSQLState() != null && e.getSQLState().startsWith("23"))) return false;
+					if (e.getSQLState() != null && e.getSQLState().startsWith("23")) return false;
 					throw e;
 				}
 			}
-			try (PreparedStatement statement = prepare("UPDATE " + table + " SET version = ?, patches = ?, updated_at = ? WHERE owner = ? AND chapter = ? AND version = ?")) {
+			try (PreparedStatement statement = prepare("UPDATE " + table + " SET version = ?, data = ?, updated_at = ? WHERE owner = ? AND version = ?")) {
 				statement.setLong(1, next.version());
-				statement.setString(2, patches);
+				statement.setString(2, data);
 				statement.setLong(3, now);
-				statement.setString(4, key.owner().toString());
-				statement.setString(5, key.chapter().id);
-				statement.setLong(6, expectedVersion);
+				statement.setString(4, owner.toString());
+				statement.setLong(5, expectedVersion);
 				return statement.executeUpdate() == 1;
 			}
 		} catch (SQLException e) {
 			closeQuietly();
-			throw new IOException("design store: " + e.getMessage(), e);
+			throw new IOException("wardrobe store: " + e.getMessage(), e);
 		}
 	}
 
-	private static String encode(Design design) throws IOException {
-		List<Placement> list = SpotPlacements.asPlacementList(design.placements());
-		return Placement.CODEC.listOf().encodeStart(JsonOps.INSTANCE, list).getOrThrow(IOException::new).toString();
+	private static String encode(Wardrobe wardrobe) throws IOException {
+		return Wardrobe.CODEC.encodeStart(JsonOps.INSTANCE, wardrobe).getOrThrow(IOException::new).toString();
 	}
 
-	private static SpotPlacements decode(String json) throws IOException {
+	private static Wardrobe decode(String json) throws IOException {
 		try {
-			List<Placement> list = Placement.CODEC.listOf().parse(JsonOps.INSTANCE, JsonParser.parseString(json)).getOrThrow(IOException::new);
-			return list.isEmpty() ? null : SpotPlacements.fromList(list).getOrThrow(IOException::new);
+			return Wardrobe.CODEC.parse(JsonOps.INSTANCE, JsonParser.parseString(json)).getOrThrow(IOException::new);
 		} catch (RuntimeException e) {
-			throw new IOException("design store: bad patches column " + json, e);
+			throw new IOException("wardrobe store: bad data column " + json, e);
 		}
 	}
 

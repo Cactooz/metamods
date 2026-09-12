@@ -9,7 +9,9 @@ import metacraft.ovvar.content.OvveItem;
 import metacraft.ovvar.content.PatchItem;
 import metacraft.ovvar.content.Patches;
 import metacraft.ovvar.content.Spot;
+import metacraft.ovvar.content.ModComponents;
 import metacraft.ovvar.store.OwnedSewing;
+import metacraft.ovvar.store.Stash;
 import net.fabricmc.fabric.api.event.lifecycle.v1.ServerTickEvents;
 import net.fabricmc.fabric.api.event.player.UseBlockCallback;
 import net.fabricmc.fabric.api.event.player.UseEntityCallback;
@@ -127,11 +129,29 @@ public final class StandSewing {
 		level.sendParticles(new DustParticleOptions(16711680, 0.5f), where.x, where.y, where.z, 12, 0.15, 0.15, 0.15, 0.02);
 	}
 
-	/** A right-click on a stand wearing an ovve, aimed as given: sew the held patch, or unpick with an empty hand. */
+	/**
+	 * A right-click on a stand wearing an ovve, aimed as given: sew the held patch, or unpick with
+	 * shears. A stash session's stand answers only to its player and to nothing but sewing; any
+	 * other stand only when the config allows sewing on any stand, and never on a minigame server.
+	 */
 	private static InteractionResult click(ServerPlayer player, ArmorStand stand, StandAim.Hit aimed) {
 		ItemStack ovve = stand.getItemBySlot(EquipmentSlot.LEGS);
 		ItemStack held = player.getMainHandItem();
 		ServerLevel level = player.level();
+		boolean session = StashSession.isSessionStand(stand);
+		boolean sewing = held.getItem() instanceof PatchItem || held.is(ConventionalItemTags.SHEAR_TOOLS);
+		if (session && !StashSession.mayUse(player, stand)) return InteractionResult.FAIL;   // someone else's stand
+		if (session && !sewing) return InteractionResult.FAIL;   // nothing else happens to a session stand (no taking the ovve)
+		if (sewing) {
+			String refusal = OwnedSewing.editingRefusal(player);
+			if (refusal == null && !session && OvveItem.owner(ovve) != null && !OvvarConfig.get().stash().anyStand()) {
+				refusal = "Sew on your own stand: /ovvar stash";
+			}
+			if (refusal != null) {
+				player.sendSystemMessage(Component.literal(refusal).withColor(TextColor.RED.getValue()));
+				return InteractionResult.FAIL;
+			}
+		}
 		if (held.getItem() instanceof PatchItem patchItem) {
 			Spot spot = aimed == null ? null : spotFor(aimed.spot(), patchItem.patch);
 			logAim("click " + patchItem.patch.id(), player, stand, aimed, spot);
@@ -155,11 +175,15 @@ public final class StandSewing {
 			if (there == null && Spot.SEAT_CELLS.contains(spot)) { spot = Spot.SEAT; there = Looks.at(ovve, spot); }
 			if (there == null) return InteractionResult.PASS;
 			Vec3 where = aimed.where();
-			// The patch only comes back once the store has let go of it (an owned ovve is a view of the design).
-			OwnedSewing.unpick(ovve, spot, unpicked -> {
-				OwnedSewing.give(player, unpicked.patch());
+			// Into the stash on a session stand (or by config), else back into the hand — either way only
+			// once the store has let go of it (an owned ovve is a view of the design).
+			boolean toStash = session || OvvarConfig.get().stash().unpickToStash();
+			OwnedSewing.unpick(ovve, spot, toStash, unpicked -> {
+				if (!unpicked.toStash()) Stash.give(player, unpicked.placement().patch(), 1);
 				celebrate(level, where, false);
-				player.sendOverlayMessage(Component.literal(unpicked.patch().name() + " unpicked"));
+				player.sendOverlayMessage(Component.literal(unpicked.placement().patch().name() + " unpicked" + (unpicked.toStash() ? ", back in your stash" : "")));
+				StashSession s = StashSession.of(player);
+				if (s != null) s.touched(player);
 			}, why -> onSewFail(level, player, where, why));
 			player.swing(InteractionHand.MAIN_HAND, SwingAnimation.DEFAULT, true);
 			return InteractionResult.SUCCESS;
@@ -170,22 +194,27 @@ public final class StandSewing {
 	private static final Component FAILED = Component.literal("Cannot sew a patch on top of another patch!").withColor(TextColor.RED);
 
 	/**
-	 * Sews for real: one patch leaves the hand (outside creative) as the click lands, the placement
-	 * goes on the stand's ovve — through the owner's design in the store for an owned ovve, which
-	 * may say no, in which case the patch comes back — the preview is dropped, particles at {@code where}.
+	 * Sews for real. A real patch item leaves the hand (outside creative) as the click lands and
+	 * goes straight onto the design; a stash session's fake patch stays and one leaves the stash
+	 * instead. Either way the owner's wardrobe in the store may say no, in which case a taken item
+	 * comes back. The preview is dropped, particles at {@code where}.
 	 */
 	static void finish(ServerPlayer player, ArmorStand stand, Placement placement, PatchItem patchItem, Vec3 where) {
 		ItemStack ovve = stand.getItemBySlot(EquipmentSlot.LEGS);
 		if (!(ovve.getItem() instanceof OvveItem)) throw new IllegalStateException("[ovvar] finishing a seam on a stand without an ovve");
-		boolean taken = !player.isCreative();
-		if (taken) player.getMainHandItem().shrink(1);
-		OwnedSewing.sew(ovve, placement, () -> {
+		ItemStack held = player.getMainHandItem();
+		boolean fromStash = held.has(ModComponents.SESSION);
+		boolean taken = !fromStash && !player.isCreative();
+		if (taken) held.shrink(1);
+		OwnedSewing.sew(ovve, placement, !fromStash, () -> {
 			Looks.setPreview(ovve, null);
 			AIMS.remove(player.getUUID());
 			celebrate(player.level(), where, true);
 			player.sendOverlayMessage(Component.literal(patchItem.patch.name() + " sewn on the " + placement.spot().label()));
+			StashSession s = StashSession.of(player);
+			if (s != null) s.touched(player);
 		}, why -> {
-			if (taken) OwnedSewing.give(player, patchItem.patch);
+			if (taken) Stash.give(player, patchItem.patch, 1);
 			onSewFail(player.level(), player, where, why);
 		});
 	}

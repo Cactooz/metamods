@@ -9,7 +9,8 @@ import metacraft.ovvar.content.Patches;
 import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.sewing.StandDisplays;
 import metacraft.ovvar.sewing.StandSewing;
-import metacraft.ovvar.store.Designs;
+import metacraft.ovvar.sewing.StashSession;
+import metacraft.ovvar.store.Wardrobes;
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +33,8 @@ public class Ovvar implements ModInitializer {
 		StandSewing.init();
 		StandDisplays.init();
 		Combos.init();
-		Designs.init();
+		Wardrobes.init();
+		StashSession.init();
 		ModCommands.init();
 
 		PolymerResourcePackUtils.addModAssets(MOD_ID);

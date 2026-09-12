@@ -6,12 +6,12 @@ import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.util.StringRepresentable;
 
 /**
- * The {@code designs} block of {@code config/ovvar.json}: where the players' designs (the sewn
- * patches, keyed by player and chapter) live, and what sewing does when that store cannot be
- * reached. Every key has a default, so an older file without the block still loads.
+ * The {@code designs} block of {@code config/ovvar.json}: where the players' wardrobes (their
+ * sewn patches per chapter and their stash of unsewn ones) live, and what sewing does when that
+ * store cannot be reached. Every key has a default, so an older file without the block still loads.
  *
  * @param backend				{@code file}: one JSON per design under {@link #fileDirectory}; {@code jdbc}: a table
- * @param fileDirectory		  for the file backend: an absolute directory, or "" for {@code <world>/ovvar/designs}
+ * @param fileDirectory		  for the file backend: an absolute directory, or "" for {@code <world>/ovvar/wardrobes}
  * @param jdbc				   the JDBC settings; only read when the backend is {@code jdbc}
  * @param bindOnPickup		   an ovve with no owner becomes owned by the first player whose inventory ticks it
  * @param sewWhenUnreachable	 with the store down, a sew still goes on the ovve and the write is queued
@@ -56,7 +56,7 @@ public record DesignStoreConfig(
 			int connectTimeoutSeconds, int queryTimeoutSeconds
 	) {
 		public static final Jdbc DEFAULT = new Jdbc("jdbc:mariadb://localhost:3306/metacraft", "metacraft", "", "OVVAR_DB_PASSWORD",
-				"ovve_designs", "", 5, 5);
+				"ovve_wardrobes", "", 5, 5);
 		public static final Codec<Jdbc> CODEC = RecordCodecBuilder.create(instance -> instance.group(
 				Codec.STRING.optionalFieldOf("url", DEFAULT.url).forGetter(Jdbc::url),
 				Codec.STRING.optionalFieldOf("user", DEFAULT.user).forGetter(Jdbc::user),

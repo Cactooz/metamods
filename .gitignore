@@ -21,6 +21,7 @@ bin/
 *.DS_Store
 # fabric
 run/
+run2/
 generated/
 # fabric j-unit
 mods/**/config/

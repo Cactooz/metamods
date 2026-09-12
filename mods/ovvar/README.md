@@ -68,30 +68,50 @@ traces each patch's outline from its opaque texels into `ovvar/outlines.json` (`
 `sewingLabelsFitTheirButtons` game test checks every label of every seam still measures what the
 client centres without scrolling. Mockups of the design are in `docs/mockups/sewing/`.
 
-## Designs: one look per player, on every server
+## Wardrobes: one look per player, on every server
 
 An ovve belongs to a player (`ovvar:owner`, set the first time a player's inventory ticks it, or
-by `/ovvar give`). Its sewn patches are that player's *design* for the chapter, kept in a store
-shared by all the servers, so someone who sewed on one server logs into another and wears the
-same ovve, and a recrafted ovve just shows the design again. Only the look travels: pockets,
+by `/ovvar give`). What they have sewn on it, and the patches they own but have not sewn (their
+*stash*), make up their *wardrobe*: one versioned row in a store shared by all the servers
+(`Wardrobe`, `Wardrobes`). Sew on one server, log into another and wear the same ovve; a
+recrafted ovve just shows the design again. Only the look and the patches travel: pockets,
 enchantments, the top being up or down stay with the item.
 
-A patch lives in exactly one place: as an item, or once in a design. The `ovvar:patches`
-component on an owned ovve is a copy for drawing, refreshed every tick and never a source: an
-unpick asks the store, so two ovves of one owner cannot hand the same patch back twice. Each
-design row carries a version and every write is a compare-and-set naming the version it saw
-(`Designs`); a write that lost the race fails, the cache refetches, and the player is told to try
-again. A patch leaves the hand when the click lands and is refunded if the store says no; an
-unpicked patch is handed out only after the store has let go of it. Ovves without an owner
-(`/ovvar stands`, showcase) keep their patches on the item as before.
+A patch lives in exactly one place: as an item in the world, in a stash, or on a design. The
+`ovvar:patches` component on an owned ovve is a copy for drawing, refreshed every tick and never a
+source. Every change is a compare-and-set naming the version it saw; a write that lost the race
+fails, the cache refetches, and the player is told to try again. A sew takes the patch (from the
+hand or the stash) as the click lands and it comes back if the store says no; an unpicked patch is
+handed out (to the hand or the stash) only after the store has let go of it. So two ovves of one
+owner, or two servers, cannot hand the same patch out twice. Ovves without an owner (`/ovvar
+stands`, showcase) keep their patches on the item as before.
 
-`config/ovvar.json` → `designs`:
+### The stash
+
+`/ovvar stash` is a chest menu of the patches you own (`StashGui`). On a survival server:
+
+- **left-click a patch** to sew it: a private armour stand named after you appears two blocks
+  ahead in a walking pose wearing your ovve; hotbar slot 9 gets the patch (as many as the stash
+  holds) and slot 8 a pair of shears, both fake and pinned there (`ovvar:session`: no dropping, no
+  moving). Aim and right-click to sew straight from the stash, shears to unpick back into it. Walk
+  away, idle, die, or `/ovvar stash done` and the stand goes and your two slots come back
+  (`StashSession`). Nobody else can touch your stand;
+- **right-click a patch** to take one out as an ordinary item, to trade or to sew on any stand
+  (config `any_stand`); the chest button puts every patch item you carry back in.
+
+On a **minigame server** (`stash.minigame_server`) the menu is view-only, no stand takes a patch,
+and any patch item that lands in an inventory is banked into the stash at once, so nothing is lost
+to a locked or wiped inventory. Sewing also needs a game mode in `sew_game_modes` (adventure is
+not one) and a score of 0 in the `ingame` objective. A patch earned (`/ovvar patch give`, or banked)
+plays the totem-of-undying flourish with the patch's art and explains the stash in chat.
+
+`config/ovvar.json` → `designs` (the store):
 
     backend                  file (default) | jdbc
-    file_directory           file backend: an absolute directory, "" = <world>/ovvar/designs
+    file_directory           file backend: an absolute directory, "" = <world>/ovvar/wardrobes
     jdbc.url                 jdbc:mariadb://host:3306/db  or  jdbc:postgresql://host/db  (drivers bundled)
     jdbc.user, jdbc.password, jdbc.password_env   the password from the file, or from the named environment variable
-    jdbc.table               created if missing: owner CHAR(36), chapter, version, patches (JSON), updated_at
+    jdbc.table               created if missing: owner CHAR(36) PRIMARY KEY, version, data (JSON), updated_at
     jdbc.driver_class        force a driver class; "" lets the URL pick
     jdbc.connect_timeout_seconds, jdbc.query_timeout_seconds
     bind_on_pickup           an unowned ovve becomes the first holder's (default true)
@@ -100,12 +120,26 @@ unpicked patch is handed out only after the store has let go of it. Ovves withou
     retry_seconds            how often failed loads and queued writes are retried (default 15)
     log_queries              log every load and store
 
+`config/ovvar.json` → `stash` (this server's rules):
+
+    minigame_server          true: view-only stash, no sewing or unpicking anywhere, patch items banked (default false)
+    sew_game_modes           game modes that may sew and take patches out (default survival, creative)
+    ingame_objective         scoreboard objective; a non-zero score means "in a game", no sewing (default "ingame", "" = off)
+    bank_on_pickup           minigame (default: only on a minigame server) | always | never
+    bank_in_creative         bank creative players' patch items too (default false)
+    unpick_to_stash          unpicking on an ordinary stand sends the patch to the stash instead of the hand (default false)
+    withdraw                 right-click in the stash takes a patch out as an item (default true; never on a minigame server)
+    any_stand                sew and unpick on any armour stand wearing an owned ovve, not only a session stand (default false)
+    session_reach            blocks a player may walk from their session stand (default 8)
+    session_seconds          idle time before a session ends (default 300)
+    explain_in_chat          the stash explanation when a patch is earned (default true)
+
 The file backend is fine for one server or a shared mount; a network of servers wants `jdbc`
 (MariaDB/MySQL and PostgreSQL drivers ship in the jar).
 
 ## Debug commands (gamemasters)
 
-    /ovvar give [player] <chapter> [patches]   e.g. /ovvar give it all, /ovvar give data front_top_left.metacraft,seat.chapter
+    /ovvar give [player] <chapter> [patches]   their stored design; with patches (all / cell.patch / ids) those replace it
     /ovvar patches <patches>                   re-sew the ovve in your main hand (all / none / cell.patch, bare ids); owned: replaces the design
     /ovvar showcase <chapter>                  armour stands: top down, top up, each patch, every cell filled
     /ovvar stands <chapter>                    three posed stands in a plain ovve, for testing the sewing aim
@@ -113,9 +147,11 @@ The file backend is fine for one server or a shared mount; a network of servers 
     /ovvar aimlog on|off                       log every stand click and aim change with its numbers (server log)
     /ovvar stitch <cell.patch>                 open the stitching dialog on the nearest ovve stand, no aiming needed
     /ovvar reload                              (any player) the latest resource pack, now
-    /ovvar store status                        the design store: backend, cache, queued writes
-    /ovvar store show [player]                 a player's designs (chapter, version, patches)
-    /ovvar store reload [player]               drop and refetch a player's designs
+    /ovvar patch give <targets> <patch> [n]    a patch into the stash of every selected player, with the flourish
+    /ovvar stash                               (any player) the stash menu; stash done ends a session; stash deposit banks held patches
+    /ovvar store status                        the wardrobe store: backend, cache, queued writes, this server's role, sessions
+    /ovvar store show [player]                 a player's wardrobe (version, designs per chapter, stash)
+    /ovvar store reload [player]               drop and refetch a player's wardrobe
     /ovvar store reconnect                     re-read the config and reopen the store
 
 ## Building

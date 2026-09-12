@@ -3,9 +3,8 @@ package metacraft.ovvar.content;
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import metacraft.ovvar.Ovvar;
 import metacraft.ovvar.OvvarConfig;
-import metacraft.ovvar.store.Design;
-import metacraft.ovvar.store.DesignKey;
-import metacraft.ovvar.store.Designs;
+import metacraft.ovvar.store.Wardrobe;
+import metacraft.ovvar.store.Wardrobes;
 import org.jspecify.annotations.Nullable;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.ChatFormatting;
@@ -45,9 +44,9 @@ import java.util.UUID;
  * bundle with our equipment asset, chosen per stack.
  *
  * An ovve belongs to a player ({@link ModComponents#OWNER}, set when a player first holds it) and
- * its patches are that player's design in the store ({@link Designs}); the component on the item
- * is a copy kept in step every tick, so a second ovve of the same owner looks the same and never
- * holds a patch of its own.
+ * its patches are that player's design in their wardrobe ({@link Wardrobes}); the component on the
+ * item is a copy kept in step every tick, so a second ovve of the same owner looks the same and
+ * never holds a patch of its own.
  */
 public final class OvveItem extends BundleItem implements PolymerItem {
 	public final Chapter chapter;
@@ -79,47 +78,44 @@ public final class OvveItem extends BundleItem implements PolymerItem {
 		else ovve.set(ModComponents.OWNER, owner);
 	}
 
-	/** Where this ovve's design is filed, or null for an unowned one. */
-	public static @Nullable DesignKey designKey(ItemStack ovve) {
-		UUID owner = owner(ovve);
-		return owner == null || !(ovve.getItem() instanceof OvveItem item) ? null : new DesignKey(owner, item.chapter);
-	}
-
 	/**
 	 * Copies the owner's cached design onto the ovve when it differs (the store is the truth; the
-	 * item only draws). Nothing happens for an unowned ovve or one whose owner is not loaded.
+	 * item only draws). Nothing happens for an unowned ovve, one whose owner is not loaded, or one
+	 * whose owner has no wardrobe at all yet (their first ovve's patches are adopted by their tick).
 	 */
 	public static void refresh(ItemStack ovve) {
-		DesignKey key = designKey(ovve);
-		if (key == null || !Designs.loaded(key.owner())) return;
-		Optional<Design> design = Designs.cached(key);
-		if (design.isEmpty()) return;   // no design yet: the holder's tick adopts what is on the item, once
-		if (!design.get().samePatches(Looks.sewn(ovve))) Looks.setSewn(ovve, design.get().patches());
+		UUID owner = owner(ovve);
+		if (owner == null || !(ovve.getItem() instanceof OvveItem item) || !Wardrobes.loaded(owner)) return;
+		Wardrobe wardrobe = Wardrobes.current(owner);
+		if (wardrobe.version() == 0 && !Wardrobes.pending(owner)) return;
+		Optional<SpotPlacements> design = wardrobe.design(item.chapter);
+		if (!design.equals(Looks.sewn(ovve))) Looks.setSewn(ovve, design.orElse(null));
 	}
 
 	/**
 	 * The store side of a player's inventory tick: bind an unowned ovve to this player, adopt the
-	 * patches on it as their first design if they have none, and keep the copy on the item in
-	 * step with the design.
+	 * patches on it as their first design if they have no wardrobe at all, and keep the copy on
+	 * the item in step with the design.
 	 */
 	public static void syncDesign(ServerPlayer player, ItemStack stack) {
 		if (owner(stack) == null) {
 			if (!OvvarConfig.get().designs().bindOnPickup()) return;
 			setOwner(stack, player.getUUID());
 		}
-		DesignKey key = designKey(stack);
-		if (key == null) return;
-		if (!Designs.loaded(key.owner())) {
-			Designs.fetch(key.owner());
+		UUID owner = owner(stack);
+		if (owner == null || !(stack.getItem() instanceof OvveItem item)) return;
+		if (!Wardrobes.loaded(owner)) {
+			Wardrobes.fetch(owner);
 			return;
 		}
-		if (Designs.cached(key).isEmpty() && !key.owner().equals(player.getUUID())) return;   // someone else's, not yet designed: leave it
-		if (Designs.cached(key).isEmpty()) {
+		Wardrobe wardrobe = Wardrobes.current(owner);
+		if (wardrobe.version() == 0 && owner.equals(player.getUUID()) && !Wardrobes.pending(owner)) {
 			// A first ovve with patches already on it (given by command, sewn while unowned): they become the design.
 			var sewn = Looks.sewn(stack);
-			if (sewn.isEmpty() || Designs.pending(key)) return;
-			Designs.update(key, d -> d.withPatches(sewn.get()), outcome -> {
-				if (outcome != Designs.Outcome.OK) Ovvar.LOGGER.warn("[ovvar] designs: adopting {}'s first design: {}", key, outcome);
+			if (sewn.isEmpty()) return;
+			Wardrobes.update(owner, w -> w.version() == 0 ? w.withDesign(item.chapter, sewn.get()) : null, outcome -> {
+				// A conflict or rejection here is a give that wrote the same design a moment earlier; the refetch settles it.
+				if (outcome != Wardrobes.Outcome.OK) Ovvar.LOGGER.debug("[ovvar] wardrobes: adopting {}'s first design: {}", owner, outcome);
 			});
 			return;
 		}
@@ -163,8 +159,8 @@ public final class OvveItem extends BundleItem implements PolymerItem {
 			Looks.claimIfNeeded(player, stack);
 		} else {
 			refresh(stack);   // on a stand or a mannequin: follow the owner's design (loaded on demand)
-			DesignKey key = designKey(stack);
-			if (key != null && !Designs.loaded(key.owner())) Designs.fetch(key.owner());
+			UUID owner = owner(stack);
+			if (owner != null && !Wardrobes.loaded(owner)) Wardrobes.fetch(owner);
 		}
 		if (slot == EquipmentSlot.LEGS && entity instanceof LivingEntity wearer) {
 			OvveTop.sync(wearer, stack);
