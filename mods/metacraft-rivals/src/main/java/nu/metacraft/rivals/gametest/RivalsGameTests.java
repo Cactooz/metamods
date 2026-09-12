@@ -1266,6 +1266,8 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(new HashSet<>(all).size(), all.size(), "client states are distinct");
 		for (BlockState state : all) {
 			helper.assertTrue(PaintStates.DONORS.contains(state.getBlock()), "a donor block: " + state);
+			helper.assertTrue(state.getBlock() != Blocks.GLOW_LICHEN, "glow lichen is not a donor: " + state);
+			helper.assertValueEqual(state.getLightEmission(), 0, "unlit: " + state);
 			if (state.hasProperty(BlockStateProperties.WATERLOGGED)) {
 				helper.assertFalse(state.getValue(BlockStateProperties.WATERLOGGED), "never waterlogged: " + state);
 			}
@@ -1278,6 +1280,20 @@ public final class RivalsGameTests {
 		// The same request always gives the same state, and popcount-1 splat masks fold into connected.
 		helper.assertValueEqual(PaintStates.connected(PaintColor.DATA, Direction.UP, 5), PaintStates.connected(PaintColor.DATA, Direction.UP, 5), "deterministic");
 		helper.assertValueEqual(PaintStates.splat(PaintColor.IT, 1 << Direction.NORTH.ordinal()), PaintStates.connected(PaintColor.IT, Direction.NORTH, 0), "single-face mask is a connected state");
+		// entry() inverts connected()/splat() for every colour, face/bits and every splat mask.
+		for (PaintColor color : PaintColor.values()) {
+			for (Direction face : Direction.values()) {
+				for (int bits = 0; bits < 16; bits++) {
+					PaintStates.Entry expected = new PaintStates.Entry(color, face, bits, 1 << face.ordinal());
+					helper.assertValueEqual(PaintStates.entry(PaintStates.connected(color, face, bits)), expected, "connected round-trip: " + color + " " + face + " " + bits);
+				}
+			}
+			for (int mask = 1; mask < 64; mask++) {
+				if (Integer.bitCount(mask) < 2) continue;
+				PaintStates.Entry expected = new PaintStates.Entry(color, null, 0, mask);
+				helper.assertValueEqual(PaintStates.entry(PaintStates.splat(color, mask)), expected, "splat round-trip: " + color + " " + mask);
+			}
+		}
 		helper.succeed();
 	}
 

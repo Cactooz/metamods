@@ -4,6 +4,7 @@ import net.minecraft.core.Direction;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.MultifaceBlock;
+import net.minecraft.world.level.block.RedStoneWireBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import nu.metacraft.rivals.PaintColor;
@@ -16,13 +17,16 @@ import java.util.List;
 /**
  * The client-state table (spec §2). A vanilla client can only be shown vanilla blockstates, and a
  * painted cell now needs to say which of its four in-plane neighbours are painted, so paint borrows
- * every state of four donor blocks that render whatever the pack says, have no collision and no
- * client-side behaviour: the three multiface blocks (63 usable states each: not waterlogged, at
- * least one face) and tripwire (128). Server states are numbered per colour — connected first
- * (face × bits, 96), then the multi-face splat masks (57) — and take the pool in donor order.
+ * every state of four donor blocks that render whatever the pack says, have no collision, emit no
+ * light and have no client-side behaviour: the two multiface blocks (63 usable states each: not
+ * waterlogged, at least one face), tripwire (128) and redstone wire at power 0 (81; its
+ * {@code animateTick} only spawns dust when powered). Glow lichen is deliberately not a donor:
+ * {@code GlowLichenBlock.emission} gives light 7 to every state with a face. Server states are
+ * numbered per colour — connected first (face × bits, 96), then the multi-face splat masks (57) —
+ * and take the pool in donor order.
  */
 public final class PaintStates {
-	public static final List<Block> DONORS = List.of(Blocks.SCULK_VEIN, Blocks.GLOW_LICHEN, Blocks.RESIN_CLUMP, Blocks.TRIPWIRE);
+	public static final List<Block> DONORS = List.of(Blocks.SCULK_VEIN, Blocks.RESIN_CLUMP, Blocks.TRIPWIRE, Blocks.REDSTONE_WIRE);
 	public static final int CONNECTED_PER_COLOR = 6 * 16;
 	public static final int SPLAT_PER_COLOR = 63 - 6;
 	private static final int PER_COLOR = CONNECTED_PER_COLOR + SPLAT_PER_COLOR;
@@ -42,6 +46,7 @@ public final class PaintStates {
 					for (Direction d : DIRECTIONS) any |= state.getValue(MultifaceBlock.getFaceProperty(d));
 					if (!any) continue;
 				}
+				if (donor == Blocks.REDSTONE_WIRE && state.getValue(RedStoneWireBlock.POWER) != 0) continue;
 				out.add(state);
 			}
 		}
