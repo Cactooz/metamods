@@ -149,6 +149,16 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		});
 	}
 
+	/**
+	 * Forget a player. Both maps are absolute server ticks keyed by UUID; a player who leaves would
+	 * otherwise keep their entries until the server stopped. Called from {@link
+	 * nu.metacraft.rivals.PlayerTick}'s disconnect hook, alongside the squid bookkeeping.
+	 */
+	public static void forget(Player player) {
+		SPECIAL_READY.remove(player.getUUID());
+		LAST_LEFT_CLICK.remove(player.getUUID());
+	}
+
 	private static boolean holdsWeapon(Player player) {
 		return player.getItemInHand(InteractionHand.MAIN_HAND).getItem() instanceof PaintWeapon;
 	}
@@ -186,7 +196,17 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		if (ready.isEmpty()) return false;
 		PaintColor color = ready.get();
 		WeaponTuning tuning = WeaponTuning.get(weapon);
-		if (weapon == Weapon.CHARGER) return chargerShot(level, player, gun, scopedCharge(player, gun, tuning));
+		if (weapon == Weapon.CHARGER) {
+			float charge = chargeOf(player);
+			// The ink is checked before the scope is let go: a shot refused for an empty tank leaves the
+			// player still aiming, rather than dropping them out of the scope for nothing.
+			if (Ink.get(gun) < chargeCost(tuning, Math.max(charge, 0.0f))) {
+				outOfInk(level, player, gun);
+				return false;
+			}
+			if (charge >= 0) player.stopUsingItem();
+			return chargerShot(level, player, gun, Math.max(charge, 0.0f), color);
+		}
 		long now = level.getServer().getTickCount();
 		int wait = tuning.intValue(Param.SPECIAL_COOLDOWN);
 		Long readyAt = SPECIAL_READY.get(player.getUUID());
@@ -236,16 +256,24 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	}
 
 	/**
-	 * How charged the charger is, and let go of the scope. A scoped player fires the charge they have
-	 * built; an unscoped one fires a snap shot at no charge at all, which is the minimum range, ink and
-	 * damage — worth having as a panic shot, never worth aiming with.
+	 * How charged the scoped charger in this player's hands is, from 0 to 1, or −1 when they are not
+	 * scoped with one at all. Read-only — the scope is let go by whoever fires — and shared with
+	 * {@link InkHud}, which is where the number is actually shown to the player.
 	 */
-	private float scopedCharge(Player player, ItemStack gun, WeaponTuning tuning) {
-		if (!player.isUsingItem() || player.getUseItem().getItem() != this) return 0.0f;
-		int held = getUseDuration(gun, player) - player.getUseItemRemainingTicks();
-		player.stopUsingItem();
+	public static float chargeOf(Player player) {
+		ItemStack using = player.getUseItem();
+		if (!player.isUsingItem() || !(using.getItem() instanceof PaintWeapon gun) || gun.weapon != Weapon.CHARGER) {
+			return -1.0f;
+		}
+		int held = gun.getUseDuration(using, player) - player.getUseItemRemainingTicks();
 		// A full charge in no ticks at all would divide by zero; one tick is the shortest charge there is.
-		return Math.min(1.0f, held / (float) Math.max(1, tuning.intValue(Param.CHARGE_FULL)));
+		return Math.min(1.0f, held / (float) Math.max(1, WeaponTuning.get(Weapon.CHARGER).intValue(Param.CHARGE_FULL)));
+	}
+
+	/** What a charger shot at this charge costs: {@code charge_ink_min} to {@code charge_ink_full}. */
+	private static int chargeCost(WeaponTuning tuning, float charge) {
+		double inkMin = tuning.value(Param.CHARGE_INK_MIN);
+		return (int) Math.round(inkMin + (tuning.value(Param.CHARGE_INK_FULL) - inkMin) * charge);
 	}
 
 	@Override
@@ -285,7 +313,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 * from {@link WeaponTuning} here, at the shot, so {@code /rivals tune} lands on the next click.
 	 */
 	public void fire(ServerLevel level, Player player, PaintColor color) {
-		if (weapon == Weapon.CHARGER) return; // the charger fires on release; see releaseUsing
+		if (weapon == Weapon.CHARGER) return; // the charger throws no ball; see chargerShot
 		WeaponTuning tuning = WeaponTuning.get(weapon);
 		int count = tuning.intValue(Param.COUNT);
 		float fanYaw = tuning.floatValue(Param.FAN_YAW);
@@ -342,12 +370,14 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 */
 	public boolean chargerShot(ServerLevel serverLevel, Player player, ItemStack stack, float charge) {
 		if (weapon != Weapon.CHARGER) return false;
-		WeaponTuning tuning = WeaponTuning.get(weapon);
 		Optional<PaintColor> ready = ready(serverLevel, player, stack);
-		if (ready.isEmpty()) return false;
-		PaintColor color = ready.get();
-		double inkMin = tuning.value(Param.CHARGE_INK_MIN);
-		int cost = (int) Math.round(inkMin + (tuning.value(Param.CHARGE_INK_FULL) - inkMin) * charge);
+		return ready.isPresent() && chargerShot(serverLevel, player, stack, charge, ready.get());
+	}
+
+	/** The shot itself, for a caller that has already asked {@link #ready} what colour it is firing. */
+	private boolean chargerShot(ServerLevel serverLevel, Player player, ItemStack stack, float charge, PaintColor color) {
+		WeaponTuning tuning = WeaponTuning.get(weapon);
+		int cost = chargeCost(tuning, charge);
 		if (Ink.get(stack) < cost) {
 			outOfInk(serverLevel, player, stack);
 			return false;
@@ -525,7 +555,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		tooltip.add(Component.literal(switch (weapon) {
 			case SHOOTER -> "Shoots paint in your team's colour";
 			case SPRAYER -> "Sprays a cone of droplets up close";
-			case CHARGER -> "Hold to charge, release for a long line of paint";
+			case CHARGER -> "Right click to aim, left click to fire a long line of paint";
 			case SLOSHER -> "Throws a bucketful in a wide fan";
 		}).withStyle(ChatFormatting.GRAY));
 	}

@@ -89,12 +89,12 @@ dedicated Rivals server wants.
   | charger | 4 + 8 × charge | 20 ticks | hold right click to aim (the spyglass scope; the charge builds for up to 20 ticks), left click to fire a hitscan line, stopped by the first block or player in it |
   | slosher | 15 | 14 ticks | 4 balls in a fan, gravity-heavy lob, 5×5 splat, no bounce |
 
-  **Controls.** Right click fires (hold for the shooter and sprayer; hold to charge the charger,
-  release to fire). Left click throws a splat bomb. The charger is the exception on both counts:
+  **Controls.** Right click fires (hold for the shooter and sprayer). Left click throws a splat
+  bomb. The charger is the exception on both counts:
   right click is its scope and letting go fires nothing, and left click is its trigger — the charge
   it has built if it is scoped, a snap shot at no charge if it is not. The splat bomb is a slow,
   fat, no-bounce lob that splashes a 7×7 patch where it lands and takes 6 hearts off anyone from
-  another team within two blocks of it, for 40 ink and a four-second wait of its own (separate from
+  another team within two blocks of it, for 25 ink and a four-second wait of its own (separate from
   the fire cooldown, so the trigger is never held up by it; all seven numbers are tunable as
   `special_*`). Server-side, a left click arrives as up to two packets in the same tick — an attack
   on the block or entity under the crosshair, then a swing — so Fabric's `AttackBlockCallback` and
@@ -196,12 +196,14 @@ dedicated Rivals server wants.
 - Ink: every gun holds 40 shots in one shared tank size, tracked in the stack's own data so it
   survives item moves. A shot costs the weapon's own ink (see the table above — 1 for the
   shooter/sprayer, 4 plus up to 8 more for the charger's charge, 15 for the slosher) and a splat
-  bomb costs 40, which is a full tank; trying to
+  bomb costs 25, most of a tank but not all of it; trying to
   fire on a tank that can't cover the shot starts a 30-tick refill (sound, cooldown) that fills
   the tank the moment the deadline passes. Standing in your own colour's paint tops the tank up
   over time, faster in squid form. An action-bar ammo bar in the team colour refreshes every 10
   ticks and after every shot, rounded to ten cells (`INK ██████░░░░ 24/40`), and reads
-  `REFILLING…` or adds `SQUID` as appropriate.
+  `REFILLING…` or adds `SQUID` as appropriate. A scoped charger adds its charge to the same line and
+  refreshes every tick instead of every ten (`INK ████░░ 26  CHARGE ▮▮▮▯▯▯ 48%`), in bold yellow at
+  100%: the spyglass zoom says you are aiming and nothing else said how long you had been at it.
 - Sneaking on your own colour's paint is squid form, and it's now a real mechanic rather than a
   cosmetic buff: half size, +80% movement speed with the vanilla sneak penalty lifted (net faster
   than sprinting), a big ~2.5-block hop with a floatier fall and no fall damage from it, and a
@@ -212,7 +214,10 @@ dedicated Rivals server wants.
   splash. Squid form also holds beside a wall face painted in your own colour even with no paint
   underfoot, so a climb off the floor paint doesn't drop you mid-wall: pushing into that wall
   swims you straight up it for as long as the ink goes, with a nudge over the lip at the top, and
-  easing off clings in place instead of sliding back down. "Pushing into" is your own movement keys
+  easing off clings in place instead of sliding back down. While the form is on, everyone else sees a
+  team-coloured blob riding your feet — the paint ball's own model, turned along the way you are going
+  and stretched by how fast — except when you are lying still in your own ink, which is how a squid
+  hides: then it shows nothing at all, and comes back the moment you move. You never see your own. "Pushing into" is your own movement keys
   rather than the server noticing a collision — walking into a wall is clipped client-side, so the
   server never sees one, which is why the climb used to stall a block up. Standing on an enemy
   colour's paint is a trap instead: Slowness II, no jumping at all, and half a heart of damage
@@ -282,7 +287,7 @@ before; taking the ovve off leaves you on the team you were on.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (59 of ours, plus vanilla's always_pass: 60 in total)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (68 of ours, plus vanilla's always_pass: 69 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so

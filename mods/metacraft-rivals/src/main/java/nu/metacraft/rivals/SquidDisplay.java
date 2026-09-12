@@ -33,6 +33,10 @@ import java.util.UUID;
  * per-viewer filter on an {@link EntityAttachment}, so the holder itself refuses to start watching its
  * own player — a viewer that never starts watching is never sent an entity to begin with.
  *
+ * <p>A squid that is holding still <em>in</em> its own ink shows nothing at all: lying motionless in the
+ * paint is how a squid hides, and a blob sitting on the surface would give the ambush away. The blob
+ * comes back the moment it moves, leaps or climbs — anything that would leave a wake anyway.
+ *
  * <p>The orientation and the stretch come from the movement {@link PlayerTick} measures between ticks
  * rather than from {@code getDeltaMovement()}, for the same reason everything else in the squid loop
  * does: for a real player the server's delta is a guess, and a blob oriented by it points the wrong
@@ -61,6 +65,8 @@ public final class SquidDisplay {
 	private static final int INTERPOLATION = 1;
 	/** Below this the measured movement has no direction worth turning to. */
 	private static final double ORIENT_EPSILON = 1.0e-4;
+	/** Below this much measured movement per tick, horizontal and vertical, the squid is holding still. */
+	private static final double STILL_SPEED = 0.02;
 
 	/** One blob per squid, by UUID: the same bookkeeping shape {@link SquidState} keeps. */
 	private static final Map<UUID, Blob> BLOBS = new HashMap<>();
@@ -69,6 +75,8 @@ public final class SquidDisplay {
 		private final ElementHolder holder;
 		private final ItemDisplayElement element;
 		private int color;
+		/** Whether the blob is currently showing; a still squid in its own ink shows nothing. */
+		private boolean shown = true;
 		/** The last direction worth facing, kept for the ticks the squid holds still. */
 		private Vec3 facing = new Vec3(0, 0, 1);
 		/** Ticks left of the landing squash. */
@@ -89,9 +97,14 @@ public final class SquidDisplay {
 			this.owner = owner;
 		}
 
+		/** The rule, on its own, so a test can ask it without a connection to ask it through. */
+		private boolean refuses(@Nullable UUID viewer) {
+			return owner.equals(viewer);
+		}
+
 		@Override
 		public boolean startWatching(ServerGamePacketListenerImpl connection) {
-			if (connection.player != null && owner.equals(connection.player.getUUID())) return false;
+			if (connection.player != null && refuses(connection.player.getUUID())) return false;
 			return super.startWatching(connection);
 		}
 	}
@@ -109,13 +122,20 @@ public final class SquidDisplay {
 	 * how fast the player is going. {@code moved} is the movement measured this tick, so a zero one is a
 	 * squid holding still rather than one with no information.
 	 */
-	public static void show(Player player, PaintColor color, Vec3 moved) {
+	public static void show(Player player, PaintColor color, Vec3 moved, boolean inOwnInk) {
 		if (!(player.level() instanceof ServerLevel)) return;
 		Blob blob = BLOBS.computeIfAbsent(player.getUUID(), uuid -> make(player, uuid, color));
-		if (blob.color != color.rgb) {
+		boolean hide = inOwnInk && new Vec3(moved.x, 0, moved.z).length() < STILL_SPEED
+				&& Math.abs(moved.y) < STILL_SPEED;
+		if (blob.color != color.rgb || blob.shown == hide) {
 			blob.color = color.rgb;
-			blob.element.setItem(blobStack(color));
+			blob.shown = !hide;
+			// An item display carrying nothing draws nothing, which is the whole of hiding: the element,
+			// its entity and every watcher stay exactly as they are, so showing it again is one item
+			// packet rather than a respawn.
+			blob.element.setItem(hide ? ItemStack.EMPTY : blobStack(color));
 		}
+		if (hide) return;
 		Vec3 along = new Vec3(moved.x, 0, moved.z);
 		if (along.lengthSqr() > ORIENT_EPSILON * ORIENT_EPSILON) blob.facing = along.normalize();
 		blob.element.setLeftRotation(new Quaternionf()
@@ -180,6 +200,22 @@ public final class SquidDisplay {
 	public static void clearAll() {
 		for (Blob blob : BLOBS.values()) blob.holder.destroy();
 		BLOBS.clear();
+	}
+
+	/** Is {@code player}'s blob showing? False for a still squid in its own ink, and for no blob at all. */
+	public static boolean isShown(Player player) {
+		Blob blob = BLOBS.get(player.getUUID());
+		return blob != null && blob.shown;
+	}
+
+	/**
+	 * Would the blob riding {@code player} be kept from a viewer with this id? The rule
+	 * {@code startWatching} applies, asked directly, because a game test has no second connection to
+	 * watch through.
+	 */
+	public static boolean hiddenFrom(Player player, UUID viewer) {
+		Blob blob = BLOBS.get(player.getUUID());
+		return blob != null && blob.holder instanceof OwnBlind blind && blind.refuses(viewer);
 	}
 
 	/** How many blobs are riding players. Tests read this. */

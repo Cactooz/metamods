@@ -30,7 +30,6 @@ import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -964,6 +963,15 @@ public final class RivalsGameTests {
 		helper.assertTrue(half.chars().filter(c -> c == '\u2588').count() == 5 && half.chars().filter(c -> c == '\u2591').count() == 5, "half bar: " + half);
 		helper.assertTrue(InkHud.bar(PaintColor.DATA, 0, true, false).getString().contains("REFILLING"), "refilling text");
 		helper.assertTrue(InkHud.bar(PaintColor.DATA, 5, false, true).getString().contains("SQUID"), "squid tag");
+		// The charger's charge rides the same line, and only when there is one to show.
+		String charging = InkHud.bar(PaintColor.DATA, 26, false, false, 0.48f).getString();
+		helper.assertTrue(charging.contains("CHARGE") && charging.contains("48%"), "the charge reads out: " + charging);
+		helper.assertTrue(charging.contains("▮") && charging.contains("▯"), "as a part-filled bar: " + charging);
+		helper.assertTrue(!full.contains("CHARGE"), "and is left off when nothing is charging: " + full);
+		Component charged = InkHud.bar(PaintColor.DATA, 26, false, false, 1.0f);
+		helper.assertTrue(charged.getString().contains("100%"), "a full charge reads 100%: " + charged.getString());
+		helper.assertTrue(!charged.getSiblings().isEmpty() && charged.getSiblings().getFirst().getStyle().isBold(),
+				"and stands out when it is full");
 		// No team is still a real tank: same text, grey instead of a team colour.
 		Component noTeam = InkHud.bar(null, Ink.MAX, false, false);
 		helper.assertValueEqual(noTeam.getString(), full, "the no-team bar reads the same");
@@ -1061,13 +1069,26 @@ public final class RivalsGameTests {
 		helper.assertTrue(holder != null, "a blob rides the squid");
 		helper.assertValueEqual(holder.getElements().size(), 1, "one blob element");
 		helper.assertTrue(holder.getAttachment() != null, "attached to the player");
-		// A second tick with the squid moved along keeps the one blob rather than making another.
+		// The squid's own player is never sent it: the holder refuses to start watching them, which is a
+		// per-viewer thing a game test has no second connection to see, so the rule is asked directly.
+		helper.assertTrue(SquidDisplay.hiddenFrom(player, player.getUUID()), "the squid never sees its own blob");
+		helper.assertTrue(!SquidDisplay.hiddenFrom(player, UUID.randomUUID()), "everybody else does");
+		// Lying still in its own ink is how a squid hides, so the blob is not drawn at all. The first tick
+		// has no measured movement, which is exactly that case.
+		helper.assertTrue(!SquidDisplay.isShown(player), "a still squid in its own ink shows nothing");
+		// A second tick with the squid moved along keeps the one blob rather than making another, and
+		// shows it: anything that leaves a wake is worth seeing.
 		Vec3 stepped = player.position().add(0.3, 0, 0);
 		player.setPos(stepped.x, stepped.y, stepped.z);
 		PlayerTick.tick(player, 1);
 		helper.assertTrue(SquidDisplay.holderOf(player) == holder, "the same blob, turned rather than replaced");
-		player.setShiftKeyDown(false);
+		helper.assertTrue(SquidDisplay.isShown(player), "a swimming squid is a blob");
+		// And stopping hides it again, without taking the holder down.
 		PlayerTick.tick(player, 2);
+		helper.assertTrue(!SquidDisplay.isShown(player), "holding still hides it again");
+		helper.assertTrue(SquidDisplay.holderOf(player) == holder, "the holder is not rebuilt for it");
+		player.setShiftKeyDown(false);
+		PlayerTick.tick(player, 3);
 		helper.assertTrue(SquidDisplay.holderOf(player) == null, "the blob goes with the form");
 		helper.assertTrue(holder.getAttachment() == null || holder.getAttachment().isRemoved(), "and its attachment with it");
 		player.discard();
@@ -1200,13 +1221,17 @@ public final class RivalsGameTests {
 		player.setYRot(-90f); // forward is +X, into the wall
 		player.setLastClientInput(PUSHING);
 		player.setDeltaMovement(0.1, 0, 0);
+		// The tick squid form is entered is the dive: the surge is that tick's one velocity packet, and a
+		// climb packet on top of it would overwrite the surge. The climb is the tick after.
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(SquidState.isSquid(player), "squid");
+		player.setDeltaMovement(0.1, 0, 0);
+		PlayerTick.tick(player, 1);
 		helper.assertTrue(player.getDeltaMovement().y > 0.2, "lifted up the inked wall, dy=" + player.getDeltaMovement().y);
 		// Only floor paint left: the wall itself carries no paint, so the squid must not climb it.
 		helper.setBlock(new BlockPos(4, 2, 2), Blocks.AIR);
 		player.setDeltaMovement(0.1, 0, 0);
-		PlayerTick.tick(player, 1);
+		PlayerTick.tick(player, 2);
 		helper.assertTrue(player.getDeltaMovement().y < 0.2, "not lifted without a painted wall, dy=" + player.getDeltaMovement().y);
 		helper.succeed();
 	}
@@ -1234,15 +1259,19 @@ public final class RivalsGameTests {
 		player.setYRot(-90f); // forward is +X, into the pane
 		player.setLastClientInput(PUSHING);
 		player.setDeltaMovement(0.1, 0, 0);
+		// The tick squid form is entered is the dive: the surge is that tick's one velocity packet, and a
+		// climb packet on top of it would overwrite the surge. The climb is the tick after.
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(SquidState.isSquid(player), "squid");
+		player.setDeltaMovement(0.1, 0, 0);
+		PlayerTick.tick(player, 1);
 		helper.assertTrue(player.getDeltaMovement().y > 0.2, "lifted up the inked pane, dy=" + player.getDeltaMovement().y);
 		// The quads are the only thing holding the climb up: take the pane away and the cell's quads die
 		// with it, so the same push must go nowhere.
 		helper.setBlock(new BlockPos(4, 2, 2), Blocks.AIR);
 		displays.count(helper.getLevel()); // the sweep that drops cells whose surface is gone
 		player.setDeltaMovement(0.1, 0, 0);
-		PlayerTick.tick(player, 1);
+		PlayerTick.tick(player, 2);
 		helper.assertTrue(player.getDeltaMovement().y < 0.2, "not lifted once the pane is gone, dy=" + player.getDeltaMovement().y);
 		helper.succeed();
 	}
@@ -1354,8 +1383,11 @@ public final class RivalsGameTests {
 		player.setShiftKeyDown(true);
 		player.setLastClientInput(PUSHING);
 		player.setDeltaMovement(0, -0.08, 0);
+		// The dive tick first: its surge is that tick's velocity packet, so the climb is the tick after.
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(SquidState.isSquid(player), "squid");
+		player.setDeltaMovement(0, -0.08, 0);
+		PlayerTick.tick(player, 1);
 		double first = player.getDeltaMovement().y;
 		helper.assertTrue(first > 0.35 && first < 0.5, "lifted off the floor at the wall-swim speed, dy=" + first);
 		// A block higher up the same wall — the case the user reported as "not working past one block".
@@ -1365,27 +1397,35 @@ public final class RivalsGameTests {
 		// Teleporting the player a whole block up reads, quite correctly, as a jump: the climb never
 		// sends a packet over someone already rising faster than it would push them. One tick lets the
 		// measurement settle at the new spot, and the tick after that is the climb this is about.
-		PlayerTick.tick(player, 1);
-		player.setDeltaMovement(0, -0.08, 0);
 		PlayerTick.tick(player, 2);
+		player.setDeltaMovement(0, -0.08, 0);
+		PlayerTick.tick(player, 3);
 		double second = player.getDeltaMovement().y;
 		helper.assertTrue(second > 0.35 && second < 0.5, "still lifted a block higher up the wall, dy=" + second);
 		// Off the keys: the squid clings where it is rather than climbing on by itself.
 		player.setLastClientInput(Input.EMPTY);
 		player.setDeltaMovement(0, -0.08, 0);
 		int syncs = PlayerTick.velocitySyncs();
-		PlayerTick.tick(player, 3);
+		PlayerTick.tick(player, 4);
 		helper.assertTrue(PlayerTick.isSquid(player), "squid form holds while clinging");
 		assertClinging(helper, player, "off the keys");
-		helper.assertValueEqual(PlayerTick.velocitySyncs(), syncs, "a cling sends no velocity packet");
-		helper.assertValueEqual(player.getDeltaMovement().y, -0.08, "and leaves the player's own motion alone");
+		// Zero gravity stops a squid falling further but does not take away the speed it already had, so
+		// the tick the cling begins sends one flattening packet.
+		helper.assertValueEqual(PlayerTick.velocitySyncs(), syncs + 1, "the cling arrests the fall, once");
+		helper.assertValueEqual(player.getDeltaMovement().y, 0.0, "and leaves the squid hanging");
+		// Every tick after that is gravity alone: no packets, and the player's motion is the player's.
+		player.setDeltaMovement(0, -0.08, 0);
+		PlayerTick.tick(player, 5);
+		assertClinging(helper, player, "still clinging");
+		helper.assertValueEqual(PlayerTick.velocitySyncs(), syncs + 1, "no packet on the ticks after it");
+		helper.assertValueEqual(player.getDeltaMovement().y, -0.08, "and nothing touches the motion");
 		// Facing away from the wall is not a climb either, however hard the player pushes.
 		player.setYRot(0f); // forward is +Z, away from the wall
 		player.setLastClientInput(PUSHING);
 		player.setDeltaMovement(0, -0.08, 0);
-		PlayerTick.tick(player, 4);
+		PlayerTick.tick(player, 6);
 		assertClinging(helper, player, "pushing away from the wall");
-		helper.assertValueEqual(PlayerTick.velocitySyncs(), syncs, "still no velocity packet");
+		helper.assertValueEqual(PlayerTick.velocitySyncs(), syncs + 1, "still no velocity packet");
 		helper.succeed();
 	}
 
@@ -1758,6 +1798,24 @@ public final class RivalsGameTests {
 		});
 	}
 
+	/**
+	 * A charger shot refused for an empty tank leaves the player still aiming. Letting go of the scope
+	 * for a shot that never happened would throw away the charge as well as the ink.
+	 */
+	@GameTest
+	public void chargerKeepsTheScopeWhenOutOfInk(GameTestHelper helper) {
+		Player player = gunner(helper);
+		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
+		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Ink.set(charger, 0);
+		player.startUsingItem(InteractionHand.MAIN_HAND);
+		helper.assertTrue(player.isUsingItem(), "scoped");
+		helper.assertTrue(!PaintWeapon.leftClick(player), "no shot on a tank that cannot cover it");
+		helper.assertTrue(player.isUsingItem(), "and the scope is still up");
+		helper.succeed();
+	}
+
 	/** Left click without the scope is a snap shot: the minimum charge, so the minimum ink and range. */
 	@GameTest
 	public void chargerSnapShotWhenUnscoped(GameTestHelper helper) {
@@ -1859,12 +1917,11 @@ public final class RivalsGameTests {
 		InteractionResult barehanded = AttackBlockCallback.EVENT.invoker()
 				.interact(bare, helper.getLevel(), InteractionHand.MAIN_HAND, stone, Direction.UP);
 		helper.assertTrue(barehanded == InteractionResult.PASS, "an empty hand is vanilla's business, got " + barehanded);
-		// The third path a left click arrives on — the swing at thin air — is a mixin on handlePunch, and
-		// no game test can send a packet. Loading its target class is what a game test can do: the mixin
-		// transformer runs over the class here, so an injector that no longer resolves fails in this test
-		// rather than the first time somebody left-clicks on a real server.
-		helper.assertValueEqual(ServerGamePacketListenerImpl.class.getSimpleName(), "ServerGamePacketListenerImpl",
-				"the punch mixin's target class loads, injector and all");
+		Player carrier = mockPlayer(helper, GameType.SURVIVAL);
+		carrier.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.STONE));
+		InteractionResult withStone = AttackBlockCallback.EVENT.invoker()
+				.interact(carrier, helper.getLevel(), InteractionHand.MAIN_HAND, stone, Direction.UP);
+		helper.assertTrue(withStone == InteractionResult.PASS, "and so is a block in hand, got " + withStone);
 		helper.succeed();
 	}
 

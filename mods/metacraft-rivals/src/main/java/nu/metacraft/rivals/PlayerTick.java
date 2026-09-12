@@ -149,6 +149,7 @@ public final class PlayerTick {
 			LAST_DIVE.remove(handler.getPlayer().getUUID());
 			LAST_POS.remove(handler.getPlayer().getUUID());
 			LAST_INK.remove(handler.getPlayer().getUUID());
+			PaintWeapon.forget(handler.getPlayer());
 		});
 	}
 
@@ -282,18 +283,26 @@ public final class PlayerTick {
 			// both the wake and the climb packet are built from this.
 			Vec3 moved = measure(player);
 			wake(player, own.get(), moved, now);
-			SquidDisplay.show(player, own.get(), moved);
+			SquidDisplay.show(player, own.get(), moved, inOwn);
 			if (wallBeside) {
 				Direction climbing = paintedWallToward(player, own.get(), moveIntent(player));
 				if (climbing != null) {
 					SquidState.clearCling(player);
-					climb(player, climbing, moved);
+					// Not on the tick squid form was entered: the dive surge has already sent this tick's
+					// velocity packet, and a climb packet on top of it would overwrite the surge.
+					if (wasSquid) climb(player, climbing, moved);
 				} else if (moved.y > 0.0) {
 					// On the way up — a jump off the wall. Clinging here would switch gravity off at the
 					// top of the impulse and leave the squid rising forever; let the arc finish.
 					SquidState.clearCling(player);
 				} else {
+					boolean wasClinging = SquidState.isClinging(player);
 					SquidState.applyCling(player);
+					// Zero gravity stops a squid falling further, but it does not take away the speed it
+					// already had: a squid that reaches the wall mid-fall would keep sinking at whatever
+					// it was doing. One packet on the tick the cling goes on arrests that, and none after
+					// — this is the one place the cling touches the client's motion at all.
+					if (!wasClinging && wasSquid) arrest(player, moved);
 				}
 				player.resetFallDistance();
 			} else {
@@ -381,6 +390,16 @@ public final class PlayerTick {
 		double lip = topsOut(player, climbing) ? LEDGE_HOP : 0.0;
 		player.setDeltaMovement(moved.x + climbing.getStepX() * lip, WALL_SWIM_SPEED,
 				moved.z + climbing.getStepZ() * lip);
+		player.syncVelocity = true;
+		velocitySyncs++;
+	}
+
+	/**
+	 * The tick a cling begins: keep the horizontal movement, drop the vertical to nothing. Built from the
+	 * measured movement for the same reason {@link #climb}'s packet is.
+	 */
+	private static void arrest(Player player, Vec3 moved) {
+		player.setDeltaMovement(moved.x, 0.0, moved.z);
 		player.syncVelocity = true;
 		velocitySyncs++;
 	}
@@ -503,10 +522,10 @@ public final class PlayerTick {
 	}
 
 	/**
-	 * The shared scan. With an empty {@code move} every horizontal neighbour counts, at any distance
-	 * the player's own cell can reach — that is the cling, and the test that keeps squid form on. With a
-	 * direction, only a wall the player is pushing into (within 60° of it, i.e. {@code dot > 0.5}) and
-	 * hugging counts.
+	 * The shared scan. Either way the player has to be hugging the wall ({@link #pressedAgainst}). With
+	 * an empty {@code move} any horizontal neighbour they are up against counts — that is the cling, and
+	 * the test that keeps squid form on. With a direction, only a wall they are also pushing into
+	 * (within 60° of it, i.e. {@code dot > 0.5}) counts.
 	 */
 	private static @Nullable Direction paintedWall(Player player, PaintColor own, Vec3 move) {
 		if (!(player.level() instanceof ServerLevel level)) return null;
@@ -520,10 +539,12 @@ public final class PlayerTick {
 		PaintColor quadColor = displays.colorAt(feet);
 		Direction quadFace = displays.faceAt(feet);
 		for (Direction side : Direction.Plane.HORIZONTAL) {
-			if (directed && (move.x * side.getStepX() + move.z * side.getStepZ() <= 0.5
-					|| !pressedAgainst(player, feet.relative(side), side))) {
-				continue;
-			}
+			// Pushing into it is what separates a climb from a cling, so only the climb asks about the
+			// direction — but both ask about the hug. A cling that reached any painted neighbour at any
+			// distance held squid form (and switched gravity off) for a squid floating in mid-air beside a
+			// pane, which vanilla's own flying check would then kick them for.
+			if (directed && move.x * side.getStepX() + move.z * side.getStepZ() <= 0.5) continue;
+			if (!pressedAgainst(player, feet.relative(side), side)) continue;
 			if (Painter.paintable(level.getBlockState(feet.relative(side)))) {
 				if (facing(atFeet, side, own)) return side;
 				if (quadColor == own && quadFace == side.getOpposite()) return side;

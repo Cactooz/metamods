@@ -86,10 +86,11 @@ public enum Weapon {
 	 * The splat bomb: the special every weapon but the charger throws on a left click. A slow lob that
 	 * arms nothing and asks for no aim — it splashes a wide patch of paint where it lands and hurts
 	 * whoever is standing in it — bought with most of a tank and a four-second wait of its own, so it is
-	 * a decision rather than a second trigger. The charger's left click is its shot instead; scoping is
+	 * a decision rather than a second trigger — most of a 40-ink tank, but not all of it, so a bomb still
+	 * leaves something to shoot with. The charger's left click is its shot instead; scoping is
 	 * what its right click does.
 	 */
-	public static final int SPECIAL_INK = 40;
+	public static final int SPECIAL_INK = 25;
 	public static final int SPECIAL_COOLDOWN = 80;
 	/** How far the splash reaches: 3 is 7×7 on the face it lands on. */
 	public static final int SPECIAL_RADIUS = 3;

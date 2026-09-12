@@ -147,6 +147,12 @@ public final class SquidState {
 		modifier(player, Attributes.GRAVITY, CLING_ID, -1.0, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
 	}
 
+	/** Is the cling already on? The tick it goes on is the one tick a fall has to be arrested. */
+	public static boolean isClinging(Player player) {
+		AttributeInstance gravity = player.getAttribute(Attributes.GRAVITY);
+		return gravity != null && gravity.hasModifier(CLING_ID);
+	}
+
 	public static void clearCling(Player player) {
 		remove(player, Attributes.GRAVITY, CLING_ID);
 	}
