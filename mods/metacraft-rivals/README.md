@@ -208,6 +208,11 @@ dedicated Rivals server wants.
 /rivals reset
 ```
 
+Or just get dressed: wearing an ovvar ovve puts you on that chapter's team within the second, creating
+the teams if nobody has run `/rivals setup` yet. Matched on the item's registry id (`ovvar:data_*` →
+DATA, `ovvar:it_*` → IT), so there is no dependency on ovvar and an arena without it plays exactly as
+before; taking the ovve off leaves you on the team you were on.
+
 ## Build, run, test
 
 ```

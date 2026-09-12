@@ -18,6 +18,7 @@ import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -50,6 +51,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.PaintColor;
+import nu.metacraft.rivals.OvveTeams;
 import nu.metacraft.rivals.PlayerTick;
 import nu.metacraft.rivals.Rivals;
 import nu.metacraft.rivals.SquidState;
@@ -526,13 +528,17 @@ public final class RivalsGameTests {
 		});
 	}
 
-	/** A ball that hits a player paints the floor under them and leaves their health alone. */
+	/** A ball that hits a teammate paints the floor under them and leaves their health alone. */
 	@GameTest
 	public void paintBallOnEntityPaintsUnderneathWithoutDamage(GameTestHelper helper) {
 		stoneFloor(helper, 5);
 		Player target = helper.makeMockPlayer(GameType.SURVIVAL);
 		Vec3 stand = helper.absoluteVec(new Vec3(2.5, 2, 2.5));
 		target.setPos(stand.x, stand.y, stand.z);
+		// On the shooter's own team, so the ball is the one that paints and does not hurt. (Every mock
+		// player shares the name "test-mock-player", so this puts the shooter on DATA as well, which is
+		// what makes them teammates.)
+		helper.getLevel().getScoreboard().addPlayerToTeam(target.getScoreboardName(), team(helper, PaintColor.DATA));
 		// The projectile's entity sweep only sees entities the level knows about.
 		helper.assertTrue(helper.getLevel().addFreshEntity(target), "the target player joined the level");
 		float health = target.getHealth();
@@ -552,8 +558,9 @@ public final class RivalsGameTests {
 					Component.literal("the floor under the player should be DATA paint, got " + state));
 			helper.assertTrue(hasFace(state, PaintColor.DATA, Direction.DOWN), "paint sits on its down face");
 			helper.assertTrue(target.getHealth() == health,
-					"the player took no damage, health " + target.getHealth() + " was " + health);
+					"a teammate took no damage, health " + target.getHealth() + " was " + health);
 			target.discard();
+			helper.getLevel().getScoreboard().removePlayerFromTeam(target.getScoreboardName());
 			helper.succeed();
 		});
 	}
@@ -606,6 +613,7 @@ public final class RivalsGameTests {
 		helper.assertTrue(PaintBall.hostile(PaintColor.IT, target), "though the other colour may shoot them");
 		helper.assertTrue(isPaint(helper.getLevel().getBlockState(helper.absolutePos(new BlockPos(2, 2, 2))), PaintColor.DATA),
 				"the paint lands on a teammate all the same");
+		helper.getLevel().getScoreboard().removePlayerFromTeam(target.getScoreboardName());
 		helper.succeed();
 	}
 
@@ -627,6 +635,45 @@ public final class RivalsGameTests {
 	}
 
 	/** Setup creates one vanilla team per colour with the matching colour, no friendly fire, no collisions. */
+	/** Every ovvar ovve id belongs to a chapter; nothing else in or out of the namespace does. */
+	@GameTest
+	public void ovveIdsMapToTeams(GameTestHelper helper) {
+		for (String id : new String[] {"data_ovve", "data_ovve_top", "data_polymiter_ovve"}) {
+			helper.assertValueEqual(OvveTeams.colourOf(Identifier.fromNamespaceAndPath("ovvar", id)),
+					Optional.of(PaintColor.DATA), id + " is a DATA ovve");
+		}
+		for (String id : new String[] {"it_ovve", "it_kisel_ovve", "it_polymiter_ovve"}) {
+			helper.assertValueEqual(OvveTeams.colourOf(Identifier.fromNamespaceAndPath("ovvar", id)),
+					Optional.of(PaintColor.IT), id + " is an IT ovve");
+		}
+		helper.assertValueEqual(OvveTeams.colourOf(Identifier.fromNamespaceAndPath("ovvar", "media_frack")),
+				Optional.empty(), "the media frack belongs to no chapter");
+		helper.assertValueEqual(OvveTeams.colourOf(Identifier.fromNamespaceAndPath("minecraft", "leather_leggings")),
+				Optional.empty(), "and nothing outside the namespace is an ovve");
+		// The stack path over a real registered item, since no ovvar item is on the test classpath.
+		helper.assertValueEqual(OvveTeams.colourOf(new ItemStack(Items.LEATHER_LEGGINGS)), Optional.empty(), "vanilla trousers are not an ovve");
+		helper.assertValueEqual(OvveTeams.colourOf(ItemStack.EMPTY), Optional.empty(), "bare legs are not an ovve");
+		helper.succeed();
+	}
+
+	/**
+	 * A player wearing no ovve keeps the team they were put on by hand — the check must never strip
+	 * someone for changing trousers. (The joining half needs an ovvar item, which is not on the test
+	 * classpath; {@link OvveTeams#colourOf} is what decides it and is covered above.)
+	 */
+	@GameTest
+	public void wornOvveJoinsTheTeam(GameTestHelper helper) {
+		Player player = gunner(helper);
+		ServerScoreboard board = helper.getLevel().getScoreboard();
+		board.addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.IT));
+		player.setItemSlot(EquipmentSlot.LEGS, new ItemStack(Items.LEATHER_LEGGINGS));
+		helper.assertValueEqual(OvveTeams.worn(player), Optional.empty(), "leather trousers dress you as nobody");
+		PlayerTick.tick(player, 20); // an ovve tick
+		helper.assertValueEqual(PaintColor.byTeam(player.getTeam()), Optional.of(PaintColor.IT), "the team they were put on by hand stands");
+		board.removePlayerFromTeam(player.getScoreboardName());
+		helper.succeed();
+	}
+
 	@GameTest
 	public void setupCreatesTeams(GameTestHelper helper) {
 		int touched = RivalsCommands.setupTeams(helper.getLevel().getServer());

@@ -8,6 +8,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.network.chat.Component;
+import net.minecraft.server.ServerScoreboard;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.Mth;
@@ -19,6 +21,7 @@ import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import nu.metacraft.rivals.gun.Ink;
@@ -71,6 +74,8 @@ public final class PlayerTick {
 	private static final double DIVE_SURGE_SPEED = 0.45;
 	/** No repeat surge for a re-entry (e.g. a brief unshift) within this many ticks of the last one. */
 	private static final int DIVE_SURGE_COOLDOWN = 10;
+	/** How often a player's ovve is checked against their team. Once a second is plenty for getting dressed. */
+	private static final int OVVE_EVERY = 20;
 
 	/** Below this many blocks per tick of horizontal movement a squid is holding still, not swimming. */
 	private static final double RIPPLE_SPEED = 0.05;
@@ -176,6 +181,7 @@ public final class PlayerTick {
 			SquidState.clearEnemyInk(player);
 			return;
 		}
+		if (now % OVVE_EVERY == 0) wearYourColours(player);
 		PaintColor under = paintUnder(player);
 		Optional<PaintColor> own = PaintColor.byTeam(player.getTeam());
 		boolean inOwn = under != null && own.isPresent() && under == own.get();
@@ -229,6 +235,32 @@ public final class PlayerTick {
 				ItemStack stack = player.getItemInHand(hand);
 				if (stack.getItem() instanceof PaintWeapon) Ink.add(stack, squid ? 4 : 1);
 			}
+		}
+	}
+
+	/**
+	 * The ovve picks the team. Metacraft's ovvar mod dresses players in chapter overalls, and the arena
+	 * should read the same way the campus does: put on the DATA ovve and you are on DATA, with no
+	 * command to run. Matched on the item's registry id by {@link OvveTeams}, so nothing here depends on
+	 * ovvar being installed; a player wearing no ovve keeps whatever team they had, because taking
+	 * someone off their team for changing trousers would be worse than leaving them on it.
+	 *
+	 * <p>{@link RivalsCommands#setupTeams} is idempotent and creates both teams, so joining works on a
+	 * server where nobody has run {@code /rivals setup} yet.
+	 */
+	private static void wearYourColours(Player player) {
+		if (!(player.level() instanceof ServerLevel level)) return;
+		Optional<PaintColor> ovve = OvveTeams.worn(player);
+		if (ovve.isEmpty()) return;
+		PaintColor color = ovve.get();
+		if (PaintColor.byTeam(player.getTeam()).orElse(null) == color) return;
+		RivalsCommands.setupTeams(level.getServer());
+		ServerScoreboard board = level.getScoreboard();
+		PlayerTeam team = board.getPlayerTeam(color.id);
+		if (team == null) return;
+		board.addPlayerToTeam(player.getScoreboardName(), team);
+		if (player instanceof ServerPlayer server && server.connection != null) {
+			server.sendSystemMessage(Component.literal("Your ovve puts you on " + color.displayName), true);
 		}
 	}
 
