@@ -289,17 +289,25 @@ dedicated Rivals server wants.
   cannot come back out still carrying a live number. With no ink the value is `InkOnScreen.IDLE`, a dark
   grey, and the item shader **discards** it outright: an LED with nothing to say draws nothing at all.
 
-  And the LED is not on the gun. It is a slip of a box floating free of it, placed so that each weapon's
-  own `firstperson_righthand` transform lands it *at the bottom centre of the screen, inside the hotbar*
-  — which the GUI draws after the post effect has read the frame, so the probe reads it out of the frame
-  and the player never sees it. `tools/weapon_models.py` solves that placement per weapon by walking the
-  same chain the client walks (a fixed 70° vertical FOV for the hand pass from `Camera.calculateHudFov`,
-  `applyItemArmTransform`'s `(±0.56, −0.52, −0.72)`, then `ItemTransform.apply`'s
-  translate·rotate·scale·translate(−½)) and inverting it; the arithmetic is checked against Julle's own
-  in-game screenshot, and a game test re-walks it and asserts the box is inside the hotbar's 182×22 GUI
-  pixels at GUI scale 1. Move a display transform and the script has to be run again. The two knock-on
-  costs: in third person, or in the inventory, the holder's own weapon has a lit pixel floating away from
-  it (nobody else's does — every other viewer is sent the idle value, which is discarded).
+  And the LED is not drawn where the model puts it. **`item.vsh` pins it in screen space**: a vertex
+  whose sprite carries the marker alpha (found by four vertex texture fetches half a texel off the
+  vertex's own corner, which also say *which* corner of the sprite it is) ignores `Position` outright and
+  is emitted onto a fixed 8×8-pixel quad at the bottom centre of the frame, one pixel up from the bottom
+  edge — under the hotbar, which the GUI draws after the post effect has read the frame, so the probe
+  reads it out of the frame and the player never sees it. Under an orthographic projection
+  (`ProjMat[2][3] == 0`) — the hotbar's own icons, the inventory — the quad is sent behind the far plane
+  and clipped instead, since there is no hotbar to hide behind there. All six faces of the LED box map
+  onto the same quad; half are culled by their winding and at least one survives.
+
+  It used to be solved into the model instead: each weapon's element placed so that its own
+  `firstperson_righthand` transform landed it under the hotbar, by walking the client's chain in
+  `tools/weapon_models.py` and inverting it. That worked and looked right in a screenshot, but the hand
+  is not fixed on screen — `GameRenderer.bobView` moves the hand pose by up to ~0.1 units per walk cycle
+  and the sprint FOV change moves it too, about a tenth of the screen height between them. The LED left
+  the frame every other step, the probe found nothing, and **the ink blinked in walking rhythm**. Pinning
+  it in the vertex shader is bob-proof, sprint-proof and the same pixels at every resolution and GUI
+  scale, and it costs the model nothing: all a weapon owes the LED now is one element whose six faces are
+  `#led` at tint index 1, anywhere inside its own box.
 
   The value only ever goes to the holder's own client: Polymer's per-viewer item hook hands every other
   player the idle colour, because a lit LED on someone else's gun is both a tell and a false reading — the
@@ -307,14 +315,13 @@ dedicated Rivals server wants.
   also turn `hand_animation_on_swap` off: a component change is a stack change, and without that the client
   replays the equip animation every time the meter (or the tank's dye) moves.
 
-  The chain's first pass renders to a **one-by-one** target, so the hunt for the LED runs once a frame
-  rather than once a pixel — and since round 7 it is a hunt through one small box rather than half the
-  screen: the bottom 8% of the height and the middle 30% of the width, which is where the placement above
-  puts the LED and nothing else. Stepped at 0.6% of the screen height, that is about 1 300 samples a
-  frame at 1080p, and each match is confirmed by a second sample a short hop to either side, so a red
-  pixel in the world is never mistaken for it and a scan column landing near the LED's edge never loses
-  it. The pass hands on the amount and the team, and nothing else: there is no longer anything for the
-  ink pass to paint over, because the hotbar does it.
+  The chain's first pass renders to a **one-by-one** target, so the read runs once a frame rather than
+  once a pixel — and it is no longer a search at all. It swept 1 344 samples of the bottom of the frame
+  while the LED could be anywhere in a box; now the quad has a fixed address, so the pass reads three
+  pixels: the middle of the quad (`InSize.x × 0.5`, 5 px up) and two pixels to either side, all three of
+  which have to carry the same signature and the same amount, so a red pixel of the world is never
+  mistaken for it. The pass hands on the amount and the team, and nothing else: there is no longer
+  anything for the ink pass to paint over, because the hotbar does it.
 
   **The ink itself is four textures**, not a field of procedural blobs — two flat tones and a signed
   distance function had no depth and did not read as pixel art. `textures/effect/ink_1.png` …
@@ -343,11 +350,12 @@ dedicated Rivals server wants.
   A game test asserts that, and it is a requirement for a hand-drawn replacement too. Coverage runs about
   16% / 35% / 52% / 69%.
 
-  Known limits: no weapon in view means no ink, so third
-  person and an empty hand show a clean screen however full the meter is (the meter keeps running, and
-  the ink comes back with the weapon); the pass runs every frame whether there is ink or not (two
-  full-screen passes' worth of work); and a shader pack that replaces the post chain loses the effect,
-  exactly as it loses the gloss.
+  Known limits: no weapon in hand means no LED on the frame and so no ink, however much health is missing
+  (the ink comes back with the weapon). Third person is no longer one of them — the held weapon is still
+  drawn inside `renderLevel`, on the player model rather than in the hand, and its LED vertices land on
+  the same pinned quad. The pass runs every frame whether there is ink or not (two full-screen passes'
+  worth of work), and a shader pack that replaces the post chain loses the effect, exactly as it loses
+  the gloss.
 - The guns' 3D models live under `assets/metacraft-rivals/models/item/`; the ink faces are dye-tinted
   to the team colour. All four are Julle's hand-built Blockbench models, delivered under
   `tools/julle/` (two snapshots, each with its masters, previews and a ready resource pack) and

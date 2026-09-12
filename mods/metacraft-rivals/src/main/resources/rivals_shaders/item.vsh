@@ -1,6 +1,10 @@
 #version 330
 #extension GL_ARB_separate_shader_objects : require
 
+// RIVALS: globals, for ScreenSize — the data LED is pinned to a fixed quad in screen pixels, so the
+// vertex stage needs the size of the screen. The Globals block is bound for every ITEM pipeline:
+// ITEM_SNIPPET is built on MATRICES_FOG_LIGHT_DIR_SNIPPET → GLOBALS_SNIPPET.
+#include <minecraft:globals.glsl>
 #include <minecraft:light.glsl>
 #include <minecraft:fog.glsl>
 #include <minecraft:dynamictransforms.glsl>
@@ -16,6 +20,10 @@ layout(location = 4) in ivec2 UV2;
 layout(location = 5) in vec2 UV3;
 #endif
 layout(location = 6) in vec3 Normal;
+
+// RIVALS: the atlas, in the vertex stage as well. The pipeline binds samplers by name, and this one is
+// read here with a vertex texture fetch to recognise the data LED's own sprite — see RIVALS_LED_PIN.
+uniform sampler2D Sampler0;
 
 #ifndef OIT_ALPHA_ONLY
 uniform sampler2D Sampler1;
@@ -42,8 +50,77 @@ layout(location = 6) out vec2 texCoordGlint;
 layout(location = 7) out vec3 viewPos;
 layout(location = 8) out vec4 rawColor;
 
+// RIVALS_LED_PIN: the data LED is not drawn where the model puts it. It is drawn on a fixed quad in
+// screen pixels, under the hotbar, at the bottom centre of the screen.
+//
+// Why: the LED used to be a box in each weapon model solved so that the weapon's own
+// firstperson_righthand transform landed it dead centre a hair above the bottom edge. But the hand is
+// not fixed on screen — GameRenderer.bobView translates the hand pose by up to ~0.1 units per walk
+// cycle, and the sprint FOV change moves it too, together about a tenth of the screen height. The LED
+// dropped off the bottom edge every other step, the probe found nothing, and the overlay blinked in
+// walking rhythm. Moving it up would put it on screen; widening the probe's search would be a bandage.
+// Pinning it here is none of those: the quad is the same eight by eight pixels on every frame, at every
+// resolution, at every GUI scale, whatever the hand is doing.
+//
+// The element in the model is now just somewhere to hang the sprite; its coordinates no longer matter.
+
+/** The LED sprite's alpha, 246/255, and the window item.fsh keys on: 245..247 and nothing else. */
+const float LED_ALPHA = 0.9647;
+const float LED_WINDOW = 0.006;
+/** The quad, in screen pixels: eight across, eight tall, centred, one pixel up from the bottom edge. */
+const float LED_QUAD = 8.0;
+const float LED_LIFT = 1.0;
+
+/**
+ * Is this vertex a corner of the LED's sprite, and which corner of it?
+ *
+ * A vertex sits on the corner of its sprite, so sampling exactly at UV0 is a coin toss between the
+ * sprite and whatever the atlas packed next to it. Sampling half a texel to each of the four diagonals
+ * is not: the LED sprite is on one side of the corner and a neighbour on the others, so exactly one of
+ * the four probes lands inside it — and which one says which corner of the sprite this vertex is.
+ * {@code corner} comes back as (0,0) for the min-u min-v corner, (1,1) for max-u max-v.
+ *
+ * The LED's sprite is the only texture in either item atlas at this alpha, at every mip level, which is
+ * the whole reason the fragment stage can recognise it too. The fetch is textureLod at level 0 because
+ * a vertex shader has no derivatives to pick a level from.
+ */
+bool ledCorner(out vec2 corner) {
+    vec2 d = 0.5 / vec2(textureSize(Sampler0, 0));
+    for (int i = 0; i < 4; i++) {
+        // (+d,+d), (-d,+d), (+d,-d), (-d,-d): the sprite lies away from the corner the vertex is on.
+        vec2 away = vec2(i == 1 || i == 3 ? -d.x : d.x, i >= 2 ? -d.y : d.y);
+        if (abs(textureLod(Sampler0, UV0 + away, 0.0).a - LED_ALPHA) < LED_WINDOW) {
+            corner = vec2(away.x > 0.0 ? 0.0 : 1.0, away.y > 0.0 ? 0.0 : 1.0);
+            return true;
+        }
+    }
+    corner = vec2(0.0);
+    return false;
+}
+
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
+
+    vec2 ledAt;
+    if (ledCorner(ledAt)) {
+        // Only in the world. The GUI draws hotbar icons and the inventory through this same pipeline
+        // under an orthographic matrix, whose [2][3] is zero where a perspective one's is -1; there the
+        // LED must vanish outright rather than be pinned over the hotbar, so it is sent behind the far
+        // plane and clipped.
+        if (ProjMat[2][3] == 0.0) {
+            gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
+        } else {
+            // Position is ignored: the quad is built from ScreenSize alone. v runs down the atlas and y
+            // runs up the screen, so the v side is flipped. All six faces of the LED box map onto this
+            // same quad — half of them wind the other way and are culled, but at least one survives,
+            // and they are all the same eight by eight pixels of the same flat colour anyway.
+            vec2 pixel = vec2(
+                    ScreenSize.x * 0.5 + (ledAt.x - 0.5) * LED_QUAD,
+                    LED_LIFT + (1.0 - ledAt.y) * LED_QUAD);
+            // In front of everything, and unprojected: w is 1, so this is straight NDC.
+            gl_Position = vec4(pixel / ScreenSize * 2.0 - 1.0, -0.999, 1.0);
+        }
+    }
 
     #ifndef OIT_ALPHA_ONLY
     sphericalVertexDistance = fog_spherical_distance(Position);

@@ -59,9 +59,22 @@ import java.util.UUID;
  * other viewer {@link #IDLE}, because a lit LED on someone else's gun is both a tell and a false reading —
  * the probe would find it on their third-person weapon and splatter the finder's screen.
  *
- * <p>Consequences worth knowing: in third person, with an empty hand, or with the weapon in the off-hand
- * out of view, there is no LED on the frame and therefore no ink, however much health is missing — and
- * the ink comes back the moment the weapon is in view again.
+ * <p>Where the LED lands is not the model's business any more. It used to be: each weapon's element was
+ * solved so that its own {@code firstperson_righthand} transform put it under the hotbar. The hand is not
+ * fixed on screen, though — {@code GameRenderer.bobView} moves the hand pose by up to a tenth of the
+ * screen height per walk cycle, and the sprint FOV change moves it too — so the LED left the frame every
+ * other step and the ink blinked in walking rhythm. {@code item.vsh} (RIVALS_LED_PIN) now throws the
+ * model's position away for LED vertices and emits a fixed eight-by-eight-pixel quad at the bottom centre
+ * of the screen, under the hotbar, at every resolution and every GUI scale.
+ *
+ * <p>Consequences worth knowing: the pinned quad does not depend on where the hand is, so third person
+ * shows ink now too — the held weapon is still drawn inside {@code renderLevel} through the same item
+ * pipelines, on the player model instead of in the hand, and its LED vertices land on the same quad. With
+ * an empty hand there is no LED on the frame at all and therefore no ink, however much health is missing,
+ * and the ink comes back the moment a weapon is in hand again. Everybody else's weapon, and every dropped
+ * one, carries {@link #IDLE}, which the fragment shader discards outright, so their pinned quad draws
+ * nothing; and under an orthographic projection — the hotbar's own icons, the inventory — the vertex
+ * shader clips the quad away rather than pinning it over the GUI.
  */
 public final class InkOnScreen {
 	/** The most ink a screen can hold; the shader's amount byte is 0..{@code MAX}. */

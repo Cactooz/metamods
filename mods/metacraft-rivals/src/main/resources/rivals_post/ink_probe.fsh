@@ -20,28 +20,23 @@ layout(location = 0) out vec4 fragColor;
 // custom_model_data tint to the frame unlit and exact, and this pass goes looking for it: red at full
 // with green under 16, which nothing in a rendered world is for two samples in a row.
 //
-// Where it looks is the point of round 7. The LED no longer sits on the gun: each weapon's element is
-// solved so that its own firstperson_righthand transform lands it dead centre horizontally and a hair
-// above the bottom edge — inside the hotbar, which the GUI draws after this pass has read the frame. So
-// the probe stops sweeping the lower half of the screen and reads the one box the LED can be in, which
-// is both cheaper and impossible to confuse with a red block on the floor to the shooter's left.
+// Where it looks is no longer a search at all. The LED used to be a box in the model, solved so that the
+// weapon's own firstperson_righthand transform landed it under the hotbar, and this pass swept 1344
+// samples of the bottom of the frame hunting for it. That placement was not stable: the hand is bobbed
+// by GameRenderer.bobView and moved by the sprint FOV change, about a tenth of the screen height
+// between them, so the LED dropped off the bottom edge every other step and the ink blinked in walking
+// rhythm. It is now pinned in screen space by item.vsh (RIVALS_LED_PIN), which ignores the model's
+// position for LED vertices and emits a fixed 8x8-pixel quad at the bottom centre of the screen —
+// under the hotbar, which the GUI draws after this pass has read the frame, so the player never sees
+// it. So this pass reads three pixels of a quad it knows the address of.
 //
 // This pass renders to a 1x1 target, so everything below runs once per frame for the whole screen rather
 // than once per pixel.
 
-/** The box the LED lands in: the bottom 8% of the height, the middle 30% of the width. */
-const float BAND = 0.08;
-const float MIDDLE = 0.30;
-/**
- * Sampling step as a share of the screen height. The LED comes out about 1.9% of the height tall and
- * 0.86% of the width across at 16:9 — 20 px by 16 px at 1920x1080 — and the step is taken on the height
- * and used on both axes, so at 0.6% it is 6 px and cannot step over the LED in either direction: two
- * columns and three rows land inside it at the worst alignment. The whole search is 96 x 14 = 1344
- * samples for the frame (one fetch each; the confirmation fetch only happens once something matches).
- */
-const float STEP_SHARE = 0.006;
-/** The confirmation sample's distance, a share of the height: well inside the LED, whatever the step is. */
-const float CONFIRM_SHARE = 0.004;
+/** The middle of item.vsh's quad, in pixels from the bottom-left: eight tall, lifted one off the edge. */
+const float LED_Y = 5.0;
+/** The confirmation samples, a couple of pixels either side: still well inside the eight-pixel quad. */
+const float CONFIRM = 2.0;
 
 /** The signature: red at full, green below 16 (green carries the team index in its low nibble). */
 bool marker(vec2 pixel, out vec3 data) {
@@ -50,7 +45,7 @@ bool marker(vec2 pixel, out vec3 data) {
     return frame.r > 0.99 && frame.g < 0.0627;
 }
 
-/** A second sample carrying the same amount: a lone red pixel in the world is not a flat run of them. */
+/** A second sample carrying the same amount: one red pixel of the world is not a flat run of them. */
 bool confirms(vec2 at, float hop, vec3 here) {
     vec3 there;
     if (!marker(at + vec2(hop, 0.0), there)) return false;
@@ -58,24 +53,16 @@ bool confirms(vec2 at, float hop, vec3 here) {
 }
 
 void main() {
-    float stride = max(2.0, floor(InSize.y * STEP_SHARE));
-    // The second sample is a fixed short hop, not a whole step: the step may be wider than the LED. It is
-    // tried both ways, because a scan column can land near either edge of the LED and a one-sided hop
-    // would then fall outside it and lose the reading for the whole frame.
-    float confirm = max(2.0, floor(InSize.y * CONFIRM_SHARE));
-    float left = InSize.x * (0.5 - MIDDLE * 0.5);
-    float right = InSize.x * (0.5 + MIDDLE * 0.5);
-    for (float y = stride * 0.5; y < InSize.y * BAND; y += stride) {
-        for (float x = left + stride * 0.5; x < right; x += stride) {
-            vec2 at = vec2(x, y);
-            vec3 here;
-            if (!marker(at, here)) continue;
-            if (!confirms(at, confirm, here) && !confirms(at, -confirm, here)) continue;
-            // amount, and the team index the ink pass picks its colour by. Where the LED is no longer
-            // matters to anyone: the ink pass has nothing to cover, because the hotbar covers it.
-            fragColor = vec4(here.b, here.g, 0.0, 1.0);
-            return;
-        }
+    vec2 at = vec2(InSize.x * 0.5, LED_Y);
+    vec3 here;
+    // Both confirmations, not either: the quad is eight pixels wide and centred, so two pixels to each
+    // side of its middle are inside it by construction. Anything that matches on one side only is not
+    // the LED, and the signature is cheap enough to be worth spending on being sure.
+    if (marker(at, here) && confirms(at, CONFIRM, here) && confirms(at, -CONFIRM, here)) {
+        // amount, and the team index the ink pass picks its colour by. Where the LED is matters to
+        // nobody: the ink pass has nothing to cover, because the hotbar covers it.
+        fragColor = vec4(here.b, here.g, 0.0, 1.0);
+        return;
     }
     // No weapon in view, or an idle LED (which the item shader discards outright): no ink, and the ink
     // pass hands the frame straight through.

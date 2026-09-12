@@ -1339,12 +1339,15 @@ public final class RivalsGameTests {
 		helper.assertTrue(probe.contains("frame.r > 0.99") && probe.contains("frame.g < 0.0627"),
 				"the probe tests the marker signature: red at full, green under 16");
 		helper.assertTrue(probe.contains("InSize"), "and searches in the input's own pixels");
-		// It searches the hotbar's box and nothing else, and it confirms both ways: a scan column can land
-		// near either edge of the LED, and a one-sided hop would then fall outside it.
-		helper.assertTrue(probe.contains("BAND = 0.08") && probe.contains("MIDDLE = 0.30"),
-				"the probe reads the bottom-centre box the LED is solved into");
-		helper.assertTrue(probe.contains("confirms(at, confirm, here)") && probe.contains("confirms(at, -confirm, here)"),
-				"and confirms to either side");
+		// It sweeps nothing: item.vsh pins the LED to a fixed 8x8 quad at the bottom centre, so the probe
+		// reads the middle of that quad and confirms two pixels to either side, both of which are inside
+		// it by construction.
+		helper.assertTrue(probe.contains("LED_Y = 5.0") && probe.contains("InSize.x * 0.5"),
+				"the probe reads the middle of the quad item.vsh pins the LED to");
+		helper.assertTrue(!probe.contains("BAND = 0.08") && !probe.contains("STEP_SHARE"),
+				"and no longer sweeps the bottom of the frame for it");
+		helper.assertTrue(probe.contains("confirms(at, CONFIRM, here) && confirms(at, -CONFIRM, here)"),
+				"confirming to both sides, since both are inside the quad");
 		String ink = new String(files.get("assets/metacraft-rivals/shaders/post/ink.fsh"), StandardCharsets.UTF_8);
 		// The LED's position used to ride in the probe's blue and alpha so this pass could paint over it.
 		// There is nothing to paint over now — the hotbar is drawn on top of it — so those two bytes are
@@ -1406,6 +1409,19 @@ public final class RivalsGameTests {
 		String itemVsh = new String(RivalsPack.shader("item.vsh"), StandardCharsets.UTF_8);
 		helper.assertTrue(itemVsh.contains("out vec4 rawColor") && itemVsh.contains("rawColor = Color"),
 				"the vertex shader carries the tint before lighting");
+		// RIVALS_LED_PIN: the LED is placed by the vertex shader, not by the model's display transform.
+		// The hand is bobbed and the sprint FOV moves it, so a solved model position left the LED off the
+		// bottom edge every other step and the ink blinked in walking rhythm.
+		helper.assertTrue(itemVsh.contains("RIVALS_LED_PIN") && itemVsh.contains("ScreenSize"),
+				"the vertex shader pins the LED to a quad in screen pixels");
+		helper.assertTrue(itemVsh.contains(String.format(Locale.ROOT, "%.4f", InkArt.LED_ALPHA / 255.0)),
+				"recognising it by the same marker alpha " + InkArt.LED_ALPHA + " the fragment stage keys on");
+		helper.assertTrue(itemVsh.contains("textureLod(Sampler0"),
+				"by a vertex texture fetch of the atlas, at an explicit level: a vertex has no derivatives");
+		// Under an orthographic matrix — the GUI's hotbar icons and the inventory, drawn through this same
+		// pipeline — the pinned quad would sit over the hotbar in plain view, so there the LED is clipped.
+		helper.assertTrue(itemVsh.contains("ProjMat[2][3] == 0.0") && itemVsh.contains("vec4(0.0, 0.0, 2.0, 1.0)"),
+				"and sends it behind the far plane under an orthographic projection");
 		helper.assertTrue(itemFsh.contains("in vec4 rawColor") && itemFsh.contains("RIVALS_LED"),
 				"and the fragment shader draws the LED from it");
 		helper.assertTrue(itemFsh.contains(String.format(Locale.ROOT, "%.4f", InkArt.LED_ALPHA / 255.0)),
@@ -1551,120 +1567,48 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * Where the LED lands on the screen, worked out the way the client works it out. A server-side mod
-	 * cannot look at a frame, so this is the one thing standing between the meter and a bright pip in the
-	 * middle of everybody's view: it walks the same chain 26.3 walks and asserts the answer is inside the
-	 * hotbar, which the GUI draws over the LED after the post effect has read it.
+	 * The LED element on every weapon model. It used to be solved so that the weapon's own
+	 * {@code firstperson_righthand} transform landed it under the hotbar, and a test here re-walked
+	 * 26.3's whole first-person chain to assert it did. That placement is gone: the hand is not fixed on
+	 * screen — {@code GameRenderer.bobView} moves the hand pose by up to a tenth of the screen height per
+	 * walk cycle, and the sprint FOV change moves it too — so the LED dropped off the bottom edge every
+	 * other step and the ink blinked in walking rhythm. {@code item.vsh} pins it instead
+	 * (RIVALS_LED_PIN), ignoring the model's position for LED vertices and emitting a fixed quad in
+	 * screen pixels; that half is asserted with the rest of the shader contract in
+	 * {@link #packCarriesTheInkPostEffect}.
 	 *
-	 * <p>The chain, each step verified against the 26.3-rc-1 client with {@code javap}:
-	 * {@code Camera.calculateHudFov} fixes the hand pass at a 70° vertical FOV whatever the FOV slider says;
-	 * {@code Projection.setupPerspective} feeds it to {@code Matrix4f.setPerspective}, whose first argument
-	 * is the vertical FOV; {@code FirstPersonHandsAndItemsRenderer.applyItemArmTransform} translates by
-	 * {@code (±0.56, −0.52 + equip·−0.6, −0.72)}; and {@code ItemTransform.apply} does
-	 * {@code translate(t) · rotationXYZ(r) · scale(s) · translate(−0.5)} on vertices that are the model's
-	 * element coordinates over sixteen. Only the two view-bob rotations are left out, and they are zero
-	 * whenever the view is not moving.
-	 *
-	 * <p>Checked against Julle's own in-game screenshot, {@code tools/julle/splat_roller_models/previews/
-	 * minecraft_roller_firstperson.png}: this arithmetic puts the roller's green grip heel at x 1162..1225,
-	 * y 907..980 of that 1600×1000 frame, which is where it is.
+	 * <p>So all a model owes the LED now is somewhere to hang the sprite: one element, every face on
+	 * {@code #led}, taking the second tint. Where in the box it sits no longer matters — the vertex
+	 * shader throws those coordinates away.
 	 */
 	@GameTest
-	public void theLedLandsUnderTheHotbar(GameTestHelper helper) throws IOException {
-		// The hotbar is 182x22 GUI pixels at the bottom centre. At GUI scale 1 — the smallest there is, and
-		// smaller than vanilla's automatic scale ever picks above 640x480 — that is 91 px either side of the
-		// middle and 22 px up from the bottom edge, as shares of a screen's width and height.
-		double halfHotbar = 91.0 / 1920.0;
-		double hotbarTop = 22.0 / 1080.0;
+	public void everyWeaponModelWearsOneLed(GameTestHelper helper) throws IOException {
 		for (String id : new String[] {"paint_gun", "charger", "slosher", "roller"}) {
 			JsonObject model;
 			try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/models/item/" + id + ".json")) {
 				model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
 			}
-			JsonObject display = model.getAsJsonObject("display").getAsJsonObject("firstperson_righthand");
-			JsonArray from = null, to = null;
+			int leds = 0;
 			for (JsonElement element : model.getAsJsonArray("elements")) {
 				JsonObject box = element.getAsJsonObject();
+				int led = 0;
 				for (var face : box.getAsJsonObject("faces").entrySet()) {
-					if (!"#led".equals(face.getValue().getAsJsonObject().get("texture").getAsString())) continue;
-					from = box.getAsJsonArray("from");
-					to = box.getAsJsonArray("to");
+					JsonObject json = face.getValue().getAsJsonObject();
+					if (!"#led".equals(json.get("texture").getAsString())) continue;
+					led++;
+					helper.assertValueEqual(json.get("tintindex").getAsInt(), 1,
+							id + ": the LED takes the second tint, which is where the meter is written");
 				}
+				if (led == 0) continue;
+				leds++;
+				// Every face, because the vertex shader maps all six onto the same quad and lets the
+				// winding decide which of them survives.
+				helper.assertValueEqual(led, 6, id + ": every face of the LED element is the LED");
+				helper.assertValueEqual(box.getAsJsonObject("faces").size(), 6, id + ": and it has six faces");
 			}
-			helper.assertTrue(from != null, id + ": has an LED element");
-			// Every corner of the cube, not just its centre: the whole of it has to be under the hotbar, and
-			// at this distance from the middle of the screen the perspective divide stretches it noticeably.
-			double left = 1.0, right = 0.0, bottom = 1.0, top = 0.0;
-			for (int corner = 0; corner < 8; corner++) {
-				double[] point = {
-						((corner & 1) == 0 ? from : to).get(0).getAsDouble(),
-						((corner & 2) == 0 ? from : to).get(1).getAsDouble(),
-						((corner & 4) == 0 ? from : to).get(2).getAsDouble()};
-				double[] screen = firstPersonScreen(point, display);
-				helper.assertTrue(screen != null, id + ": the LED is in front of the eye");
-				left = Math.min(left, screen[0]);
-				right = Math.max(right, screen[0]);
-				bottom = Math.min(bottom, screen[1]);
-				top = Math.max(top, screen[1]);
-			}
-			String where = String.format(Locale.ROOT, "%s: x %.4f..%.4f of the width, %.4f..%.4f of the height above the bottom",
-					id, left, right, bottom, top);
-			helper.assertTrue(Math.abs(0.5 * (left + right) - 0.5) < 0.002, where + " — not centred");
-			helper.assertTrue(left > 0.5 - halfHotbar && right < 0.5 + halfHotbar, where + " — outside the hotbar's width");
-			helper.assertTrue(top < hotbarTop, where + " — pokes out above the hotbar");
-			// And with room to spare under the hotbar's top edge. The hand pass is rotated by a tenth of
-			// the turn rate for the view bob, which this arithmetic takes as zero; a couple of pixels of
-			// headroom at 1080p is what stops a fast flick putting the LED on screen for a frame.
-			helper.assertTrue(hotbarTop - top > 2.0 / 1080.0,
-					where + " — no headroom under the hotbar for the view bob");
-			// And it is worth something to the probe: too small and the scan grid steps over it. The probe's
-			// step is 0.6% of the height, and it needs two samples in a row. The bottom of the box runs off
-			// the bottom of the screen, which costs nothing but has to be counted out of the height.
-			helper.assertTrue(top - Math.max(bottom, 0.0) > 0.012, where + " — too small for the probe's 0.6% step");
-			// The probe's box is the bottom 8% by the middle 30%: the whole LED has to be inside it, or the
-			// scan would find part of a reading and miss the rest.
-			helper.assertTrue(top < 0.08 && left > 0.5 - 0.15 && right < 0.5 + 0.15,
-					where + " — outside the box ink_probe.fsh scans");
+			helper.assertValueEqual(leds, 1, id + ": exactly one LED element");
 		}
 		helper.succeed();
-	}
-
-	/** The same, on the 16:9 an assertion about the hotbar wants to be read against. */
-	private static double[] firstPersonScreen(double[] modelPixel, JsonObject display) {
-		return firstPersonScreen(modelPixel, display, 16.0 / 9.0);
-	}
-
-	/**
-	 * One model-pixel coordinate through 26.3's first-person right-hand chain, as a share of the screen:
-	 * x from the left, y from the <em>bottom</em>. Null when the point is behind the eye.
-	 *
-	 * <p>The vertical share is resolution- and aspect-independent, because the projection only ever
-	 * divides it by the fixed 70° hand FOV. The horizontal one is <em>not</em>: {@code setPerspective}
-	 * divides x by {@code aspect · tan}, so the same camera-space x is a smaller share of a wider screen.
-	 * It very nearly did not matter here — the LED is solved to camera-space x = 0, which is the middle
-	 * at every aspect — but the width of the box is what the hotbar assertion is measured against, and
-	 * measuring it against the height made it look nearly twice as wide as it is.
-	 */
-	private static double[] firstPersonScreen(double[] modelPixel, JsonObject display, double aspect) {
-		JsonArray translation = display.getAsJsonArray("translation");
-		JsonArray rotation = display.getAsJsonArray("rotation");
-		JsonArray scale = display.getAsJsonArray("scale");
-		org.joml.Vector3f v = new org.joml.Vector3f();
-		for (int i = 0; i < 3; i++) {
-			v.setComponent(i, (float) ((modelPixel[i] / 16.0 - 0.5) * scale.get(i).getAsDouble()));
-		}
-		new org.joml.Quaternionf().rotationXYZ(
-				(float) Math.toRadians(rotation.get(0).getAsDouble()),
-				(float) Math.toRadians(rotation.get(1).getAsDouble()),
-				(float) Math.toRadians(rotation.get(2).getAsDouble())).transform(v);
-		// ItemTransform's own translation is the model's, over sixteen; then the arm's, for the right hand
-		// with the equip animation finished.
-		double x = v.x + translation.get(0).getAsDouble() / 16.0 + 0.56;
-		double y = v.y + translation.get(1).getAsDouble() / 16.0 - 0.52;
-		double z = v.z + translation.get(2).getAsDouble() / 16.0 - 0.72;
-		if (z >= -1.0e-6) return null;
-		double tan = Math.tan(Math.toRadians(70.0) / 2.0);
-		return new double[] {(x / (aspect * tan)) / -z * 0.5 + 0.5, (y / tan) / -z * 0.5 + 0.5};
 	}
 
 	/** A fresh gun holds 40 ink, a shot costs one, an empty gun refills after the delay, own paint tops it up. */

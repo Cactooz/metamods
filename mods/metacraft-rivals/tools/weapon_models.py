@@ -7,11 +7,19 @@ Reads `tools/julle/*/resourcepack/assets/splat/models/item/*.json`, rewrites the
 shared pair, keeps everything else — geometry, UVs, tint indices, `gui_light` and above all the
 `display` transforms — verbatim, and appends one element: the ink meter's data LED.
 
-The LED is the interesting half. It is not on the gun. It is a free-floating slip of a box placed so
-that the weapon's *own* first-person transform lands it at the bottom centre of the screen, inside the
-hotbar — which the GUI draws after the post effect has already read the frame, so the probe finds the
-LED in the frame and the player never sees it. Its model coordinates therefore depend on the display
-transform, and if Julle ever moves one this script has to be run again.
+The LED used to be the interesting half: a free-floating slip of a box placed so that the weapon's *own*
+first-person transform landed it at the bottom centre of the screen, inside the hotbar. That is over. The
+hand is not fixed on screen — the view bob moves the hand pose by up to a tenth of the screen height per
+walk cycle, and the sprint FOV change moves it too — so the solved box left the frame every other step
+and the ink on the screen blinked in walking rhythm. `rivals_shaders/item.vsh` (RIVALS_LED_PIN) now pins
+the LED in screen space instead: it recognises an LED vertex by the sprite's marker alpha and emits a
+fixed quad at the bottom centre, ignoring the model's coordinates entirely.
+
+So the element's position no longer matters, and this script no longer has to be re-run when Julle moves
+a display transform. The solve below is kept because it still puts the box somewhere sane inside the
+item's own space — the camera arithmetic is left in because `--report` reads well and because it is the
+only written record of 26.3's first-person chain we have — but nothing downstream depends on where it
+lands. All a model owes the LED is one element whose six faces are all `#led` at tint index 1.
 
 The chain below is 26.3-rc-1's, each step read off the client with `javap`:
 
@@ -56,14 +64,9 @@ CREDIT = ("Original fan-made geometry by Julle (tools/julle/), Splatoon inspired
 FOV_Y = 70.0                 # Camera.calculateHudFov
 ARM = (0.56, -0.52, -0.72)   # applyItemArmTransform, right hand, equip progress 0
 
-# Where the LED has to land. Both are resolution-independent: x dead centre is ndc_x = 0 at any aspect,
-# and the vertical share only ever divides by the fixed 70 deg. 9/1080 of the height puts the whole box
-# inside a 22-GUI-pixel hotbar even at GUI scale 1 — which is smaller than vanilla's automatic scale
-# picks at any window size worth playing at — and leaves a couple of pixels of headroom under its top
-# edge, which is what absorbs the view bob: the hand pass is rotated by a tenth of the turn rate, so a
-# fast flick moves the LED a pixel or two. The cost is that the bottom of the box is clipped by the
-# bottom of the screen, which costs nothing: it is under the hotbar either way, and what is left is
-# still three times the probe's sampling step.
+# Where the solve aims the box. Kept for the report and so the element lands somewhere sane; the vertex
+# shader pins the LED to its own quad whatever comes out of here, and the headroom this used to leave
+# under the hotbar for the view bob is no longer what saves it.
 TARGET_Y_SHARE = 9.0 / 1080.0
 # How far in front of the eye. Nearer and the box comes out too tall for the hotbar; further and the
 # model coordinates run past the [-16, 32] a model element may use.
