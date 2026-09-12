@@ -8,6 +8,8 @@ import net.minecraft.core.Direction;
 import net.minecraft.core.Holder;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -24,16 +26,23 @@ import nu.metacraft.rivals.paint.PaintDisplays;
 import nu.metacraft.rivals.paint.Painter;
 import org.jspecify.annotations.Nullable;
 
+import java.util.HashMap;
+import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
  * Per-player paint effects, every tick.
  *
- * <p>Sneaking in own-colour paint is squid form: small, quick, invisible, refilling, unable to shoot,
- * and able to swim up a wall it is pushing against if that wall is inked too. The size and speed come
- * from {@link SquidState}'s attribute modifiers rather than potion effects, so they are exact and do
- * not show up in the client's effect list; only invisibility is still a potion effect, because there
- * is no attribute for it.
+ * <p>Sneaking in own-colour paint is squid form: small, quick, invisible, refilling, and unable to
+ * shoot. Squid form also holds — it does not require paint under the feet — while the player is
+ * beside a wall inked in their own colour: pushing into that wall climbs it, and easing off clings
+ * to it instead of sliding back down, so a climb off the floor paint never drops the player mid-wall.
+ * The size and speed come from {@link SquidState}'s attribute modifiers rather than potion effects,
+ * so they are exact and do not show up in the client's effect list; only invisibility is still a
+ * potion effect, because there is no attribute for it. Entering squid form from a stand is a dive: a
+ * horizontal shove along the player's look direction and a quiet splash, gated by a short per-player
+ * cooldown so it fires once per dive rather than every tick spent in the paint.
  *
  * <p>Standing in another colour is a trap rather than an inconvenience: Slowness II, no jump at all,
  * and a point of damage every second (never the last one — enemy ink wears you down, it does not kill
@@ -48,7 +57,15 @@ public final class PlayerTick {
 	private static final int DRIP_EVERY = 20;
 	private static final float DRIP_DAMAGE = 1.0f;
 	/** Upward speed while swimming up an inked wall, blocks per tick. */
-	private static final double WALL_SWIM_SPEED = 0.28;
+	private static final double WALL_SWIM_SPEED = 0.42;
+	/** Horizontal push, along the look direction, on the tick squid form is entered. */
+	private static final double DIVE_SURGE_SPEED = 0.45;
+	/** No repeat surge for a re-entry (e.g. a brief unshift) within this many ticks of the last one. */
+	private static final int DIVE_SURGE_COOLDOWN = 10;
+
+	/** Server tick of each player's last dive surge, so a flicker in and out of squid form does not
+	 * re-trigger it every tick. Cleared alongside the squid bookkeeping on disconnect and server stop. */
+	private static final Map<UUID, Long> LAST_DIVE = new HashMap<>();
 
 	private PlayerTick() {}
 
@@ -57,13 +74,17 @@ public final class PlayerTick {
 			long now = server.getTickCount();
 			for (ServerPlayer player : server.getPlayerList().getPlayers()) tick(player, now);
 		});
-		ServerLifecycleEvents.SERVER_STOPPING.register(server -> SquidState.clearAll());
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+			SquidState.clearAll();
+			LAST_DIVE.clear();
+		});
 		// A player who logs out mid-squid (or standing in enemy ink) is never ticked again, so nothing
 		// would ever take the state off them: the UUID would stay in the squid set, and a rejoin would
 		// report a squid whose attributes died with the old entity. Same tidy-up the spectator branch does.
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
 			SquidState.exit(handler.getPlayer());
 			SquidState.clearEnemyInk(handler.getPlayer());
+			LAST_DIVE.remove(handler.getPlayer().getUUID());
 		});
 	}
 
@@ -118,16 +139,25 @@ public final class PlayerTick {
 		Optional<PaintColor> own = PaintColor.byTeam(player.getTeam());
 		boolean inOwn = under != null && own.isPresent() && under == own.get();
 		boolean inEnemy = under != null && own.isPresent() && under != own.get();
-		boolean squid = inOwn && player.isShiftKeyDown();
+		// A climb off the floor paint must not drop squid form mid-wall: without this, the moment the
+		// player is lifted off the ground `inOwn` goes false, squid form ends, and the wall swim only
+		// ever lasts the one tick that started it.
+		boolean wallBeside = own.isPresent() && paintedWallBeside(player, own.get());
+		boolean squid = (inOwn || wallBeside) && player.isShiftKeyDown();
+		boolean wasSquid = SquidState.isSquid(player);
 		if (squid) {
 			SquidState.enter(player);
+			if (!wasSquid) diveSurge(player, now);
 			keep(player, MobEffects.INVISIBILITY, 0);
-			// Swimming up a wall is a shove, not an attribute: set the upward speed directly and mark
-			// the movement dirty so the server tells the client about it this tick.
-			if (player.horizontalCollision && paintedWallBeside(player, own.get())) {
+			// Swimming up a wall is a shove, not an attribute: set the velocity directly and mark the
+			// movement dirty so the server tells the client about it this tick. Pushing into the wall
+			// climbs it; otherwise the squid clings rather than sliding back down.
+			if (wallBeside) {
 				Vec3 velocity = player.getDeltaMovement();
-				player.setDeltaMovement(velocity.x, WALL_SWIM_SPEED, velocity.z);
+				double vy = player.horizontalCollision ? WALL_SWIM_SPEED : Math.max(velocity.y, 0.0);
+				player.setDeltaMovement(velocity.x, vy, velocity.z);
 				player.hurtMarked = true;
+				player.resetFallDistance();
 			}
 		} else {
 			SquidState.exit(player);
@@ -143,11 +173,28 @@ public final class PlayerTick {
 		} else {
 			SquidState.clearEnemyInk(player);
 		}
-		if (inOwn && now % TOPUP_EVERY == 0) {
+		if ((inOwn || wallBeside) && now % TOPUP_EVERY == 0) {
 			for (InteractionHand hand : InteractionHand.values()) {
 				ItemStack stack = player.getItemInHand(hand);
 				if (stack.getItem() instanceof PaintWeapon) Ink.add(stack, squid ? 4 : 1);
 			}
+		}
+	}
+
+	/**
+	 * A snappy dive: the tick squid form is entered from not-squid, push the player along their look
+	 * direction and play a quiet splash. Cooldown-gated on {@link #LAST_DIVE} so a flicker in and out
+	 * of squid form (e.g. a one-tick unshift at the edge of the paint) does not surge every re-entry.
+	 */
+	private static void diveSurge(Player player, long now) {
+		Long last = LAST_DIVE.get(player.getUUID());
+		if (last != null && now - last < DIVE_SURGE_COOLDOWN) return;
+		LAST_DIVE.put(player.getUUID(), now);
+		Vec3 look = player.getLookAngle();
+		player.push(look.x * DIVE_SURGE_SPEED, 0, look.z * DIVE_SURGE_SPEED);
+		player.hurtMarked = true;
+		if (player.level() instanceof ServerLevel level) {
+			level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.PLAYER_SPLASH, SoundSource.PLAYERS, 0.4f, 1.5f);
 		}
 	}
 

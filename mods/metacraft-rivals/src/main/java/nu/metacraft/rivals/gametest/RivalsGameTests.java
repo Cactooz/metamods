@@ -671,6 +671,9 @@ public final class RivalsGameTests {
 		helper.assertTrue(player.getAttribute(Attributes.MOVEMENT_SPEED).hasModifier(SquidState.SPEED_ID), "squid is fast");
 		helper.assertTrue(player.getAttribute(Attributes.JUMP_STRENGTH).hasModifier(SquidState.JUMP_ID), "squid hops");
 		helper.assertTrue(player.getAttribute(Attributes.STEP_HEIGHT).hasModifier(SquidState.STEP_ID), "squid glides over steps");
+		helper.assertTrue(player.getAttribute(Attributes.SNEAKING_SPEED).hasModifier(SquidState.SNEAK_ID), "squid sneak penalty is lifted");
+		helper.assertTrue(player.getAttribute(Attributes.SAFE_FALL_DISTANCE).hasModifier(SquidState.SAFE_FALL_ID), "squid hop lands safely");
+		helper.assertTrue(player.getAttribute(Attributes.GRAVITY).hasModifier(SquidState.GRAVITY_ID), "squid arc is floatier");
 		// A fresh effect ticks down for real, one server tick at a time. Re-applying it here should not
 		// reset it back to full: it is still well above the running-low threshold, so `keep` must leave it.
 		MobEffectInstance invisibility = player.getEffect(MobEffects.INVISIBILITY);
@@ -687,11 +690,36 @@ public final class RivalsGameTests {
 		helper.assertTrue(!PlayerTick.isSquid(player), "squid form off when not sneaking");
 		helper.assertTrue(!player.getAttribute(Attributes.SCALE).hasModifier(SquidState.SCALE_ID)
 				&& !player.getAttribute(Attributes.MOVEMENT_SPEED).hasModifier(SquidState.SPEED_ID), "modifiers removed on exit");
+		helper.assertTrue(!player.getAttribute(Attributes.SNEAKING_SPEED).hasModifier(SquidState.SNEAK_ID)
+				&& !player.getAttribute(Attributes.SAFE_FALL_DISTANCE).hasModifier(SquidState.SAFE_FALL_ID)
+				&& !player.getAttribute(Attributes.GRAVITY).hasModifier(SquidState.GRAVITY_ID), "dive modifiers removed on exit");
 		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.LIME);
 		PlayerTick.tick(player, 2);
 		helper.assertTrue(player.hasEffect(MobEffects.SLOWNESS), "enemy paint slows");
 		helper.assertValueEqual(player.getEffect(MobEffects.SLOWNESS).getAmplifier(), 1, "Slowness II");
 		helper.assertTrue(player.getAttribute(Attributes.JUMP_STRENGTH).hasModifier(SquidState.NO_JUMP_ID), "enemy ink kills the jump");
+		helper.succeed();
+	}
+
+	/** Entering squid form from a stand is a dive: a horizontal shove along the look direction. */
+	@GameTest
+	public void squidDiveSurges(GameTestHelper helper) {
+		helper.setBlock(new BlockPos(4, 2, 4), Blocks.STONE);
+		Player player = gunner(helper); // stands at relative (4, 3, 4), i.e. in the cell above that stone
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.MAGENTA);
+		player.setYRot(-90f); // look +X
+		player.setXRot(0f);
+		helper.assertTrue(!player.isShiftKeyDown(), "not sneaking yet");
+		PlayerTick.tick(player, 0); // standing in own paint, not shift: no squid form, no surge
+		helper.assertTrue(!PlayerTick.isSquid(player), "not squid before shifting");
+		helper.assertTrue(player.getDeltaMovement().horizontalDistance() < 0.01, "no surge before the dive");
+		player.setShiftKeyDown(true);
+		PlayerTick.tick(player, 1);
+		helper.assertTrue(PlayerTick.isSquid(player), "squid form on after diving");
+		Vec3 delta = player.getDeltaMovement();
+		helper.assertTrue(delta.horizontalDistance() >= 0.3, "dive surge pushes horizontally, got " + delta);
+		helper.assertTrue(delta.x > 0, "surge follows the look direction (+X), got " + delta);
 		helper.succeed();
 	}
 
@@ -776,6 +804,41 @@ public final class RivalsGameTests {
 		player.setDeltaMovement(0.1, 0, 0);
 		PlayerTick.tick(player, 1);
 		helper.assertTrue(player.getDeltaMovement().y < 0.2, "not lifted once the pane is gone, dy=" + player.getDeltaMovement().y);
+		helper.succeed();
+	}
+
+	/**
+	 * No paint under the feet at all — only a painted wall beside the player. Squid form must still
+	 * hold (a climb off the floor paint would otherwise end squid form and drop the player mid-wall),
+	 * and pressing into the wall climbs it while easing off holds the squid in place instead of
+	 * sliding back down.
+	 */
+	@GameTest
+	public void squidClingsToAnInkedWall(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.STONE);
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		player.setPos(at.x, at.y, at.z);
+		// Painted one cell up from the feet (head height): a full-cube wall face lands as a real
+		// PaintBlock in the cell in front of it — the feet cell itself if painted at feet height, which
+		// paintUnder would find directly and defeat the point of this test. Painting at head height
+		// instead keeps the feet cell (and its own paintUnder check) genuinely clean.
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 3, 2)), Direction.WEST, PaintColor.MAGENTA);
+		helper.assertTrue(PlayerTick.paintUnder(player) == null, "no paint under the feet");
+		player.setShiftKeyDown(true);
+		player.horizontalCollision = false;
+		player.setDeltaMovement(0.0, -0.05, 0.0);
+		PlayerTick.tick(player, 0);
+		helper.assertTrue(PlayerTick.isSquid(player), "squid form holds beside a wall with no floor paint");
+		helper.assertTrue(player.getDeltaMovement().y >= 0.0, "clings instead of sliding down, dy=" + player.getDeltaMovement().y);
+		player.horizontalCollision = true;
+		player.setDeltaMovement(0.1, 0, 0);
+		PlayerTick.tick(player, 1);
+		helper.assertTrue(PlayerTick.isSquid(player), "still squid while pushing into the wall");
+		double dy = player.getDeltaMovement().y;
+		helper.assertTrue(dy > 0.35 && dy < 0.5, "climbs the wall at the wall-swim speed, dy=" + dy);
 		helper.succeed();
 	}
 

@@ -16,9 +16,11 @@ import java.util.UUID;
  * Attribute modifiers and bookkeeping for squid form and enemy ink, applied and removed exactly once
  * per player.
  *
- * <p>Squid form is four transient modifiers rather than potion effects: half size (so a squid fits
- * where a player does not), much faster, a slightly higher hop, and a taller step so it glides over
- * kerbs and slabs instead of stalling on them. Enemy ink takes the jump away entirely, which is what
+ * <p>Squid form is transient modifiers rather than potion effects: half size (so a squid fits where a
+ * player does not), much faster, a taller step so it glides over kerbs and slabs instead of stalling
+ * on them, a sneaking-speed modifier that cancels out vanilla's own sneak penalty (squid form is
+ * entered by holding shift, so without this the two would multiply against each other), a big hop
+ * with a floatier fall and no fall damage from it. Enemy ink takes the jump away entirely, which is what
  * makes it a trap rather than an inconvenience. The modifiers are transient, so they are never
  * written to the player's save data; the set of squids only exists to keep {@link #enter} and
  * {@link #exit} idempotent and to answer {@link #isSquid} without reading attributes back.
@@ -28,6 +30,9 @@ public final class SquidState {
 	public static final Identifier SPEED_ID = Rivals.id("squid/speed");
 	public static final Identifier JUMP_ID = Rivals.id("squid/jump");
 	public static final Identifier STEP_ID = Rivals.id("squid/step");
+	public static final Identifier SNEAK_ID = Rivals.id("squid/sneak");
+	public static final Identifier SAFE_FALL_ID = Rivals.id("squid/safe_fall");
+	public static final Identifier GRAVITY_ID = Rivals.id("squid/gravity");
 	public static final Identifier NO_JUMP_ID = Rivals.id("ink/no_jump");
 
 	private static final Set<UUID> SQUIDS = new HashSet<>();
@@ -48,8 +53,17 @@ public final class SquidState {
 		SQUIDS.add(player.getUUID());
 		modifier(player, Attributes.SCALE, SCALE_ID, -0.5, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
 		modifier(player, Attributes.MOVEMENT_SPEED, SPEED_ID, 0.8, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
-		modifier(player, Attributes.JUMP_STRENGTH, JUMP_ID, 0.2, AttributeModifier.Operation.ADD_VALUE);
+		modifier(player, Attributes.JUMP_STRENGTH, JUMP_ID, 0.33, AttributeModifier.Operation.ADD_VALUE);
 		modifier(player, Attributes.STEP_HEIGHT, STEP_ID, 0.5, AttributeModifier.Operation.ADD_VALUE);
+		// Vanilla's sneaking penalty (default 0.3) would otherwise multiply on top of the speed boost
+		// above, since squid form is entered by holding shift: +0.7 brings it back to 1.0 so sneaking
+		// costs nothing while swimming.
+		modifier(player, Attributes.SNEAKING_SPEED, SNEAK_ID, 0.7, AttributeModifier.Operation.ADD_VALUE);
+		// The bigger hop above would otherwise hurt on the way down; a squid never takes fall damage
+		// from its own jump.
+		modifier(player, Attributes.SAFE_FALL_DISTANCE, SAFE_FALL_ID, 4.0, AttributeModifier.Operation.ADD_VALUE);
+		// A slightly floatier arc so the hop reads as a swim rather than a normal vanilla jump.
+		modifier(player, Attributes.GRAVITY, GRAVITY_ID, -0.15, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
 	}
 
 	/** Back to a player. {@link #remove} is a no-op when the modifier is absent, so this is safe to call unconditionally. */
@@ -59,6 +73,9 @@ public final class SquidState {
 		remove(player, Attributes.MOVEMENT_SPEED, SPEED_ID);
 		remove(player, Attributes.JUMP_STRENGTH, JUMP_ID);
 		remove(player, Attributes.STEP_HEIGHT, STEP_ID);
+		remove(player, Attributes.SNEAKING_SPEED, SNEAK_ID);
+		remove(player, Attributes.SAFE_FALL_DISTANCE, SAFE_FALL_ID);
+		remove(player, Attributes.GRAVITY, GRAVITY_ID);
 	}
 
 	/** Standing in someone else's ink: no jumping out of it. */

@@ -101,12 +101,16 @@ Rivals server wants.
   ticks and after every shot, rounded to ten cells (`INK ██████░░░░ 24/40`), and reads
   `REFILLING…` or adds `SQUID` as appropriate.
 - Sneaking on your own colour's paint is squid form, and it's now a real mechanic rather than a
-  cosmetic buff: half size, +80% movement speed, a higher jump and a taller step (four attribute
-  modifiers, not potion effects, so they're exact and don't show up in the client's effect list),
-  plus vanilla invisibility — all reapplied every tick so they fade within a second of leaving the
-  paint or standing back up — and the gun refuses to fire while it's active. Pressed against a
-  wall face painted in your own colour while a squid, you swim straight up it. Standing on an
-  enemy colour's paint is a trap instead: Slowness II, no jumping at all, and half a heart of
+  cosmetic buff: half size, +80% movement speed with the vanilla sneak penalty lifted (net faster
+  than sprinting), a big ~2.5-block hop with a floatier fall and no fall damage from it, and a
+  taller step (seven attribute modifiers, not potion effects, so they're exact and don't show up
+  in the client's effect list), plus vanilla invisibility — all reapplied every tick so they fade
+  within a second of leaving the paint or standing back up — and the gun refuses to fire while
+  it's active. Diving into squid form from a stand gives a snappy horizontal surge and a quiet
+  splash. Squid form also holds beside a wall face painted in your own colour even with no paint
+  underfoot, so a climb off the floor paint doesn't drop you mid-wall: pushing into that wall
+  swims you straight up it, and easing off clings in place instead of sliding back down. Standing
+  on an enemy colour's paint is a trap instead: Slowness II, no jumping at all, and half a heart of
   damage every second that never brings you below one health.
 - Score: bossbars show each colour's share of painted faces across all levels — paint blocks and
   surviving display quads alike — counted once a second from the cells the painter has touched (in
@@ -130,7 +134,7 @@ Rivals server wants.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (37 of ours, plus vanilla's always_pass: 38 in total)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (39 of ours, plus vanilla's always_pass: 40 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so
