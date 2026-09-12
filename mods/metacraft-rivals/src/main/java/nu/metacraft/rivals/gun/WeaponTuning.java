@@ -86,6 +86,17 @@ public final class WeaponTuning {
 		SPATTER_SCATTER("spatter_scatter", 0.0, 2.0),
 		/** Hearts off a droplet hit — a graze, not a shot. */
 		SPATTER_DAMAGE("spatter_damage", 0.0, 40.0),
+		/** Roller: how wide the rolled strip is, in cells. Rounded. */
+		ROLL_WIDTH("roll_width", 1.0, 9.0),
+		/** Roller: hearts off someone the head runs over, and how long before it can happen again. */
+		ROLL_DAMAGE("roll_damage", 0.0, 40.0),
+		ROLL_HIT_COOLDOWN("roll_hit_cooldown", 1.0, 200.0),
+		/** Roller: one ink every this many ticks of rolling. Rounded. */
+		ROLL_INK_EVERY("roll_ink_every", 1.0, 200.0),
+		/** Roller: the movement bonus while rolling, as a fraction. */
+		ROLL_SPEED("roll_speed", 0.0, 1.0),
+		/** Roller: ticks held below which the release is a flick rather than the end of a roll. Rounded. */
+		FLICK_TAP("flick_tap", 1.0, 40.0),
 		/** Charger: ticks held below which the release is a tap, not a shot. Rounded. */
 		CHARGE_MIN("charge_min", 1.0, 200.0),
 		/** Charger: ticks held for a full charge; holding longer adds nothing. Rounded, never 0. */
@@ -152,19 +163,25 @@ public final class WeaponTuning {
 			Param.RANGE_MIN, Param.RANGE_FULL, Param.CHARGE_INK_MIN, Param.CHARGE_INK_FULL,
 			Param.CHARGE_DAMAGE_MIN, Param.CHARGE_DAMAGE_FULL);
 
+	/** The roller's own: the roll, and the tap that tells a flick from the end of one. */
+	private static final List<Param> ROLL_ONLY = List.of(Param.ROLL_WIDTH, Param.ROLL_DAMAGE,
+			Param.ROLL_HIT_COOLDOWN, Param.ROLL_INK_EVERY, Param.ROLL_SPEED, Param.FLICK_TAP);
+
 	/**
 	 * Does this parameter mean anything for this weapon? The charger throws no ball and no splat bomb, so
-	 * none of those numbers reach it; the other three never charge. Ink, cooldown and kick belong to all four.
-	 * Only used for what the commands offer and accept — {@link #value} answers for any of them.
+	 * none of those numbers reach it; nothing but the roller rolls, and nothing but the charger charges.
+	 * Ink, cooldown and kick belong to all four. Only used for what the commands offer and accept —
+	 * {@link #value} answers for any of them.
 	 */
 	public static boolean applies(Weapon weapon, Param param) {
 		boolean charge = CHARGE_ONLY.contains(param);
+		boolean roll = ROLL_ONLY.contains(param);
 		// The charger's list is a whitelist, so the splat bomb's parameters fall outside it by
 		// construction: it has no bomb, and its left click fires the line instead.
 		if (weapon == Weapon.CHARGER) {
 			return charge || param == Param.INK || param == Param.COOLDOWN || param == Param.KICK;
 		}
-		return !charge;
+		return !charge && (!roll || weapon == Weapon.ROLLER);
 	}
 
 	/** The parameters a weapon shows and accepts, in declaration order. */
@@ -220,6 +237,12 @@ public final class WeaponTuning {
 			values.put(Param.SPATTER_SPEED, PaintBall.DROPLET_SPEED);
 			values.put(Param.SPATTER_SCATTER, PaintBall.DROPLET_SCATTER);
 			values.put(Param.SPATTER_DAMAGE, (double) Weapon.DROPLET_DAMAGE);
+			values.put(Param.ROLL_WIDTH, (double) Weapon.ROLL_WIDTH);
+			values.put(Param.ROLL_DAMAGE, (double) Weapon.ROLL_DAMAGE);
+			values.put(Param.ROLL_HIT_COOLDOWN, (double) Weapon.ROLL_HIT_COOLDOWN);
+			values.put(Param.ROLL_INK_EVERY, (double) Weapon.ROLL_INK_EVERY);
+			values.put(Param.ROLL_SPEED, Weapon.ROLL_SPEED_BONUS);
+			values.put(Param.FLICK_TAP, (double) Weapon.ROLLER_FLICK_TAP_TICKS);
 			values.put(Param.CHARGE_MIN, (double) Weapon.MIN_CHARGE_TICKS);
 			values.put(Param.CHARGE_FULL, (double) Weapon.CHARGE_FULL_TICKS);
 			values.put(Param.RANGE_MIN, Weapon.CHARGE_BASE_RANGE);

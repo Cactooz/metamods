@@ -278,6 +278,18 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		return (int) Math.round(inkMin + (tuning.value(Param.CHARGE_INK_FULL) - inkMin) * charge);
 	}
 
+	/**
+	 * Does holding this weapon's right click keep it working? A vanilla client repeats a held right click
+	 * only every four ticks, which is a ceiling of five shots a second and simply not a fire rate a
+	 * shooter can have; and the roller's roll is not a click at all. Both therefore become <em>held-use</em>
+	 * items: the press starts using, and {@link #onUseTick} does the work every tick until the button is
+	 * let go. The slosher stays one slosh per click, because its own cadence is twelve ticks and the
+	 * four-tick repeat fits inside it; the charger is held for its charge and fires on the left click.
+	 */
+	public boolean isHeld() {
+		return weapon == Weapon.SHOOTER || weapon == Weapon.ROLLER || weapon == Weapon.CHARGER;
+	}
+
 	@Override
 	public InteractionResult use(Level level, Player player, InteractionHand hand) {
 		if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.PASS;
@@ -286,15 +298,21 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		if (ready.isEmpty()) return InteractionResult.FAIL;
 		PaintColor color = ready.get();
 		WeaponTuning tuning = WeaponTuning.get(weapon);
-		// A tank that cannot cover the shot is as good as empty: one ink must not buy a fifteen-ink slosh.
-		if (Ink.get(gun) < tuning.intValue(Param.INK)) {
+		// A tank that cannot cover the shot is as good as empty: one ink must not buy a seven-ink slosh.
+		// The roller is exempt: it may be picked up on an empty tank to roll, which costs almost nothing,
+		// and only the flick has to be paid for.
+		if (weapon != Weapon.ROLLER && Ink.get(gun) < tuning.intValue(Param.INK)) {
 			outOfInk(serverLevel, player, gun);
 			return InteractionResult.FAIL;
 		}
-		// The charger spends nothing on the press: right click is the scope, and its shot, ink and cooldown
-		// all wait for the left click that fires it.
-		if (weapon == Weapon.CHARGER) {
+		if (isHeld()) {
+			// The charger spends nothing on the press: right click is the scope, and its shot, ink and
+			// cooldown all wait for the left click that fires it. The shooter fires at once and then keeps
+			// firing from the use tick — waiting for the first tick would put a frame of nothing between
+			// the click and the shot — and the roller's first roll needs a position to measure from, so it
+			// starts on the next tick by construction.
 			player.startUsingItem(hand);
+			if (weapon == Weapon.SHOOTER) fireIfReady(serverLevel, player, gun, color);
 			return InteractionResult.CONSUME;
 		}
 		fire(serverLevel, player, color);
@@ -303,6 +321,53 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		player.getCooldowns().addCooldown(gun, tuning.intValue(Param.COOLDOWN));
 		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 		return weapon == Weapon.SLOSHER ? InteractionResult.SUCCESS_SERVER : InteractionResult.CONSUME;
+	}
+
+	/**
+	 * A tick of holding the button down, on the server. 26.3 calls this every tick a living entity is
+	 * using an item, with the ticks <em>left</em> of {@link #getUseDuration}; ours is vanilla's cap for
+	 * "as long as you like", so the number counts down from 72000 and what matters is only that this ran.
+	 *
+	 * <p>The shooter fires whenever its cooldown is up, which is what makes {@code cooldown} the fire rate
+	 * rather than a floor under the client's four-tick repeat. The roller rolls. The charger does nothing
+	 * here: its holding is the charge, and {@link InkHud} is what shows it.
+	 */
+	@Override
+	public void onUseTick(Level level, LivingEntity entity, ItemStack stack, int remaining) {
+		if (!(level instanceof ServerLevel serverLevel) || !(entity instanceof Player player)) return;
+		if (weapon != Weapon.SHOOTER && weapon != Weapon.ROLLER) return;
+		Optional<PaintColor> ready = ready(serverLevel, player, stack); // team, refill, squid
+		if (ready.isEmpty()) {
+			// Squid form, no team or a refill in progress: stop rolling rather than roll invisibly.
+			if (weapon == Weapon.ROLLER) Roll.stop(player);
+			return;
+		}
+		if (weapon == Weapon.ROLLER) {
+			Roll.tick(serverLevel, player, stack, ready.get());
+		} else {
+			fireIfReady(serverLevel, player, stack, ready.get());
+		}
+		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
+	}
+
+	/**
+	 * One shot, if the weapon's own cooldown has run out and the tank can cover it. The item cooldown is
+	 * the rate limiter and the thing the player can see; an empty tank starts the refill, exactly as a
+	 * click on an empty tank always did. Returns whether a shot left the barrel.
+	 */
+	private boolean fireIfReady(ServerLevel level, Player player, ItemStack gun, PaintColor color) {
+		if (player.getCooldowns().isOnCooldown(gun)) return false;
+		WeaponTuning tuning = WeaponTuning.get(weapon);
+		int cost = tuning.intValue(Param.INK);
+		if (Ink.get(gun) < cost) {
+			outOfInk(level, player, gun);
+			return false;
+		}
+		fire(level, player, color);
+		feel(level, player, color);
+		Ink.add(gun, -cost);
+		player.getCooldowns().addCooldown(gun, tuning.intValue(Param.COOLDOWN));
+		return true;
 	}
 
 	/**
@@ -337,27 +402,66 @@ public final class PaintWeapon extends Item implements PolymerItem {
 
 	@Override
 	public int getUseDuration(ItemStack stack, LivingEntity entity) {
-		return weapon == Weapon.CHARGER ? Weapon.CHARGE_MAX_TICKS : 0;
+		// Vanilla's cap for "as long as you like": every held weapon keeps going until the button is let
+		// go, and what each of them does with the time is onUseTick's business.
+		return isHeld() ? Weapon.CHARGE_MAX_TICKS : 0;
 	}
 
 	@Override
 	public ItemUseAnimation getUseAnimation(ItemStack stack) {
-		// The client item is a spyglass, so the spyglass animation is also the scope: holding zooms.
+		// The client item is a spyglass, so the spyglass animation is also the scope: holding zooms. NONE
+		// for the other two: the standing rule is no arm swing, and every other animation in the enum
+		// moves the hand somewhere the weapon should not be — and would take the LED with it, which is
+		// solved for the plain first-person transform.
 		return weapon == Weapon.CHARGER ? ItemUseAnimation.SPYGLASS : ItemUseAnimation.NONE;
 	}
 
 	@Override
 	public boolean releaseUsing(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {
+		if (!(entity instanceof Player player)) return false;
+		int held = getUseDuration(stack, entity) - timeLeft;
+		if (weapon == Weapon.ROLLER) {
+			// Hold to roll, tap to flick — and a vanilla client sends only a press and a release, so the
+			// release is the only place the two can be told apart. Anything under flick_tap ticks was a
+			// click, and a click throws the bucketful.
+			Roll.stop(player);
+			if (level instanceof ServerLevel serverLevel && held < WeaponTuning.get(weapon).intValue(Param.FLICK_TAP)) {
+				flick(serverLevel, player, stack);
+			}
+			return false;
+		}
 		// Letting go of the scope is not a shot: the trigger is the left click, so that the aim and the
 		// firing are two buttons rather than one gesture. A short scoped hold is the one case worth a
-		// word, because someone clicking this weapon the way the other three are clicked sees nothing
+		// word, because someone clicking this weapon the way the others are clicked sees nothing
 		// happen at all and reads it as broken.
-		if (weapon != Weapon.CHARGER || !(entity instanceof Player player)) return false;
-		int held = getUseDuration(stack, entity) - timeLeft;
+		if (weapon != Weapon.CHARGER) return false;
 		if (held < WeaponTuning.get(weapon).intValue(Param.CHARGE_MIN)) {
 			actionBar(player, Component.literal("Hold right click to aim, left click to fire").withStyle(ChatFormatting.GRAY));
 		}
 		return false;
+	}
+
+	/**
+	 * The roller's tap: a bucketful thrown in an arc that lands a few blocks ahead, for the weapon's own
+	 * ink and its own recovery. Returns whether it left the head, which is what the tests read.
+	 */
+	public boolean flick(ServerLevel level, Player player, ItemStack gun) {
+		if (weapon != Weapon.ROLLER) return false;
+		Optional<PaintColor> ready = ready(level, player, gun);
+		if (ready.isEmpty()) return false;
+		WeaponTuning tuning = WeaponTuning.get(weapon);
+		int cost = tuning.intValue(Param.INK);
+		if (Ink.get(gun) < cost) {
+			outOfInk(level, player, gun);
+			return false;
+		}
+		if (player.getCooldowns().isOnCooldown(gun)) return false;
+		fire(level, player, ready.get());
+		feel(level, player, ready.get());
+		Ink.add(gun, -cost);
+		player.getCooldowns().addCooldown(gun, tuning.intValue(Param.COOLDOWN));
+		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
+		return true;
 	}
 
 	/**
@@ -463,6 +567,12 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		if (player instanceof ServerPlayer serverPlayer && serverPlayer.connection != null) serverPlayer.sendSystemMessage(text, true);
 	}
 
+	/** Is this player holding a roller's button down right now? The roll runs for exactly as long. */
+	public static boolean isRolling(Player player) {
+		return player.isUsingItem() && player.getUseItem().getItem() instanceof PaintWeapon gun
+				&& gun.weapon == Weapon.ROLLER;
+	}
+
 	/** Squid form (sneaking on own paint) can't shoot. */
 	public static boolean isSquid(Player player) {
 		return PlayerTick.isSquid(player);
@@ -544,6 +654,12 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		if (holder instanceof Player carrier) {
 			InkOnScreen.put(stack, InkOnScreen.ledFor(carrier));
 			InkOnScreen.owner(stack, carrier.getUUID());
+			// releaseUsing ends a roll, but not every way of stopping goes through it — dying with the
+			// button down, or having the weapon taken out of the hand. The roll's speed bonus is a
+			// transient modifier and must not outlive the holding, so the tick that keeps the dye honest
+			// keeps this honest too. Asked per player rather than per stack, so a second roller in the
+			// backpack does not stop the one in the hand.
+			if (weapon == Weapon.ROLLER && !isRolling(carrier)) Roll.stop(carrier);
 		}
 		PlayerTeam team = holder.getTeam();
 		DyedItemColor wanted = PaintColor.byTeam(team).map(color -> new DyedItemColor(color.rgb)).orElse(null);

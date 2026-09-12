@@ -27,6 +27,7 @@ import net.minecraft.world.phys.Vec3;
 import nu.metacraft.rivals.gun.Ink;
 import nu.metacraft.rivals.gun.InkOnScreen;
 import nu.metacraft.rivals.gun.PaintWeapon;
+import nu.metacraft.rivals.gun.Roll;
 import nu.metacraft.rivals.paint.Paint;
 import nu.metacraft.rivals.paint.PaintDisplays;
 import nu.metacraft.rivals.paint.Painter;
@@ -66,7 +67,16 @@ import java.util.UUID;
  */
 public final class PlayerTick {
 	private static final int EFFECT_TICKS = 15;
-	private static final int TOPUP_EVERY = 5;
+	/**
+	 * Standing in your own ink refills the tank, at Splatoon 1's own rates on a 100-unit tank: ten
+	 * seconds on your feet, three as a squid ({@code InkTankItem.inventoryTick} gives 0.5 and 1.667 a
+	 * tick). Whole ink on a whole tick, so each is the nearest fraction with a small period — one every
+	 * two ticks is a half, five every three is 1.667 exactly.
+	 */
+	private static final int TOPUP_EVERY = 2;
+	private static final int TOPUP = 1;
+	private static final int SQUID_TOPUP_EVERY = 3;
+	private static final int SQUID_TOPUP = 5;
 	/** Ticks between two drips of enemy-ink damage. */
 	private static final int DRIP_EVERY = 20;
 	private static final float DRIP_DAMAGE = 1.0f;
@@ -151,6 +161,7 @@ public final class PlayerTick {
 			LAST_POS.remove(handler.getPlayer().getUUID());
 			LAST_INK.remove(handler.getPlayer().getUUID());
 			PaintWeapon.forget(handler.getPlayer());
+			Roll.forget(handler.getPlayer());
 		});
 	}
 
@@ -328,10 +339,15 @@ public final class PlayerTick {
 		} else {
 			SquidState.clearEnemyInk(player);
 		}
-		if ((inOwn || wallBeside) && now % TOPUP_EVERY == 0) {
-			for (InteractionHand hand : InteractionHand.values()) {
-				ItemStack stack = player.getItemInHand(hand);
-				if (stack.getItem() instanceof PaintWeapon) Ink.add(stack, squid ? 4 : 1);
+		if (inOwn || wallBeside) {
+			int gain = squid
+					? (now % SQUID_TOPUP_EVERY == 0 ? SQUID_TOPUP : 0)
+					: (now % TOPUP_EVERY == 0 ? TOPUP : 0);
+			if (gain > 0) {
+				for (InteractionHand hand : InteractionHand.values()) {
+					ItemStack stack = player.getItemInHand(hand);
+					if (stack.getItem() instanceof PaintWeapon) Ink.add(stack, gain);
+				}
 			}
 		}
 		// Last, because the ink this tick added has to be in before the decay and the packet: the meter

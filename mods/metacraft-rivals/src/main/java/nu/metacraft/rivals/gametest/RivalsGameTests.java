@@ -35,6 +35,7 @@ import net.minecraft.world.InteractionResult;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
 import net.minecraft.world.entity.Entity;
+import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
@@ -71,6 +72,7 @@ import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponTuning;
 import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.gun.Recoil;
+import nu.metacraft.rivals.gun.Roll;
 import nu.metacraft.rivals.paint.ConnectedPaintBlock;
 import nu.metacraft.rivals.paint.Paint;
 import nu.metacraft.rivals.paint.PaintBlock;
@@ -1484,9 +1486,19 @@ public final class RivalsGameTests {
 		Player player = gunner(helper);
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		// The tank is a hundred, which is Splatoon's own scale: every ink cost in Weapon is that game's
+		// percentage without a factor in front of it. A stack written when it was forty holds a number
+		// inside this one, and get() clamps either way, so nothing stored can read as a full tank it is not.
+		helper.assertValueEqual(Ink.MAX, 100, "the tank reads as a percentage");
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "fresh gun is full");
+		ItemStack old = new ItemStack(PaintWeapon.of(Weapon.SHOOTER));
+		CustomData.update(DataComponents.CUSTOM_DATA, old, tag -> tag.putInt("rivals_ink", 40));
+		helper.assertValueEqual(Ink.get(old), 40, "a round-6 tank comes back part-full, not wrong");
+		CustomData.update(DataComponents.CUSTOM_DATA, old, tag -> tag.putInt("rivals_ink", 4000));
+		helper.assertValueEqual(Ink.get(old), Ink.MAX, "and a number from nowhere is clamped");
 		PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX - 1, "a shot costs one");
+		readyToFire(player);
 		Ink.set(gun, 0);
 		long now = helper.getLevel().getServer().getTickCount();
 		InteractionResult empty = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
@@ -1519,12 +1531,52 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** The action-bar text has ten cells, one per four ink, and says REFILLING while a refill runs. */
+	/**
+	 * Standing in your own ink refills the tank at Splatoon 1's rates, on the hundred-unit tank those
+	 * rates were written for: ten seconds on your feet, three as a squid. Driven through the real tick
+	 * with a real floor of paint underneath, over a whole second of ticks, so what is measured is the
+	 * rate rather than one period of it — a rate written as "every N ticks, add M" is only correct if
+	 * N and M divide out to the number Splatoon uses.
+	 */
+	@GameTest
+	public void ownPaintRefillsAtSplatoonsRates(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 2.0, 2.5));
+		player.setPos(at.x, at.y, at.z);
+		// A floor of their own colour under their feet, which is what a top-up wants.
+		for (int x = 1; x <= 3; x++) {
+			for (int z = 1; z <= 3; z++) {
+				Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(x, 1, z)), Direction.UP, PaintColor.DATA);
+			}
+		}
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		helper.assertTrue(PlayerTick.paintUnder(player) == PaintColor.DATA, "standing in their own ink");
+		// Both rates are "every N ticks, add M", so the count over a window depends on where in the period
+		// the window starts. Started on a multiple of six, which both periods divide, thirty ticks is a
+		// whole number of each: the measurement is the rate and not the phase.
+		long base = helper.getLevel().getServer().getTickCount();
+		base += (6 - base % 6) % 6;
+		Ink.set(gun, 0);
+		for (int i = 0; i < 30; i++) PlayerTick.tick(player, base + i);
+		helper.assertValueEqual(Ink.get(gun), 15, "on foot: half an ink a tick, a hundred-unit tank in ten seconds");
+		// And as a squid, which is sneaking on your own paint: the same window is worth three times as much.
+		Ink.set(gun, 0);
+		player.setShiftKeyDown(true);
+		for (int i = 0; i < 30; i++) PlayerTick.tick(player, base + 60 + i);
+		helper.assertTrue(PlayerTick.isSquid(player), "sneaking on own paint is squid form");
+		helper.assertValueEqual(Ink.get(gun), 50, "as a squid: five ink every three ticks, a full tank in three seconds");
+		player.setShiftKeyDown(false);
+		helper.succeed();
+	}
+
+	/** The action-bar text has ten cells, one per tenth of the tank, and says REFILLING while a refill runs. */
 	@GameTest
 	public void inkBarText(GameTestHelper helper) {
 		String full = InkHud.bar(PaintColor.DATA, Ink.MAX, false, false).getString();
-		helper.assertTrue(full.startsWith("INK ") && full.contains("40/40") && full.chars().filter(c -> c == '\u2588').count() == 10, "full bar: " + full);
-		String half = InkHud.bar(PaintColor.DATA, 20, false, false).getString();
+		helper.assertTrue(full.startsWith("INK ") && full.contains("100/100") && full.chars().filter(c -> c == '\u2588').count() == 10, "full bar: " + full);
+		String half = InkHud.bar(PaintColor.DATA, Ink.MAX / 2, false, false).getString();
 		helper.assertTrue(half.chars().filter(c -> c == '\u2588').count() == 5 && half.chars().filter(c -> c == '\u2591').count() == 5, "half bar: " + half);
 		helper.assertTrue(InkHud.bar(PaintColor.DATA, 0, true, false).getString().contains("REFILLING"), "refilling text");
 		helper.assertTrue(InkHud.bar(PaintColor.DATA, 5, false, true).getString().contains("SQUID"), "squid tag");
@@ -2162,6 +2214,182 @@ public final class RivalsGameTests {
 			helper.assertTrue(ball.blobHolder() == null || ball.blobHolder().getAttachment() == null, "blob gone with the ball");
 			helper.succeed();
 		});
+	}
+
+	/**
+	 * The shooter is a held-use weapon: the press starts using it and fires at once, and every tick the
+	 * button stays down goes through {@code onUseTick}, which fires again as soon as the item cooldown is
+	 * up. That is the whole point of the change — a vanilla client repeats a held right click only every
+	 * four ticks, so a three-tick cadence is unreachable from {@code use} alone — so the test fires the
+	 * use tick the number of times the cadence says and counts the balls.
+	 */
+	@GameTest
+	public void shooterFiresFromTheUseTick(GameTestHelper helper) {
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		PaintWeapon shooter = PaintWeapon.of(Weapon.SHOOTER);
+		helper.assertTrue(shooter.isHeld(), "the shooter is held, not clicked");
+		helper.assertValueEqual(shooter.getUseDuration(gun, player), Weapon.CHARGE_MAX_TICKS,
+				"held for as long as the button is down");
+		int cooldown = WeaponTuning.get(Weapon.SHOOTER).intValue(Param.COOLDOWN);
+		helper.assertTrue(cooldown < 4, "the cadence is faster than a client's four-tick repeat: " + cooldown);
+		int before = Ink.get(gun);
+		helper.assertTrue(shooter.use(helper.getLevel(), player, InteractionHand.MAIN_HAND).consumesAction(),
+				"the press takes");
+		helper.assertTrue(player.isUsingItem(), "and starts using the item");
+		helper.assertValueEqual(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0).size(), 1,
+				"the press itself fires, so there is no dead frame before the first shot");
+		// Use ticks inside the cooldown fire nothing; the one that finds it expired fires.
+		for (int i = 0; i < cooldown - 1; i++) {
+			player.getCooldowns().tick();
+			shooter.onUseTick(helper.getLevel(), player, gun, Weapon.CHARGE_MAX_TICKS - i - 1);
+			helper.assertValueEqual(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0).size(), 1,
+					"still the one ball " + (i + 1) + " ticks in: the cooldown is the fire rate");
+		}
+		player.getCooldowns().tick();
+		shooter.onUseTick(helper.getLevel(), player, gun, Weapon.CHARGE_MAX_TICKS - cooldown);
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0);
+		helper.assertValueEqual(balls.size(), 2, "the tick the cooldown runs out is the second shot");
+		helper.assertValueEqual(Ink.get(gun), before - 2 * WeaponTuning.get(Weapon.SHOOTER).intValue(Param.INK),
+				"and each shot paid for itself");
+		// Letting go of a shooter does nothing at all: there is no tap gesture on it.
+		helper.assertTrue(!shooter.releaseUsing(gun, helper.getLevel(), player, 0), "the release is not a shot");
+		balls.forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/**
+	 * The roll: a strip of paint where the roller walks, and nothing where it stands. Splatoon's roller
+	 * paints what it is pushed over, so a roller held down on the spot must not repaint one cell forever
+	 * — and the movement is measured from two positions, so the first tick of a roll has nothing to
+	 * measure and paints nothing by construction.
+	 */
+	@GameTest
+	public void rollerPaintsAStripWhenItMoves(GameTestHelper helper) {
+		stoneFloor(helper, 7);
+		Roll.clearAll();
+		Player player = gunner(helper);
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		// Facing south (+z) on the floor, so the strip goes across x and lands one cell ahead in z.
+		player.setYRot(0.0f);
+		player.setXRot(0.0f);
+		Vec3 start = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		player.setPos(start.x, start.y, start.z);
+		helper.assertTrue(!Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA),
+				"the first tick has no previous position and paints nothing");
+		helper.assertTrue(!Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA),
+				"and standing still paints nothing however long the button is held");
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "a roller that has not moved has spent nothing");
+		// A step forward: the strip lands on the three cells across the facing, one ahead of the feet.
+		Vec3 stepped = helper.absoluteVec(new Vec3(3.5, 2.0, 3.5));
+		player.setPos(stepped.x, stepped.y, stepped.z);
+		helper.assertTrue(Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA), "a step paints");
+		for (int x = 2; x <= 4; x++) {
+			helper.assertTrue(isPaint(helper.getBlockState(new BlockPos(x, 2, 4)), PaintColor.DATA),
+					"the strip covers " + x + ", three wide across the facing");
+		}
+		helper.assertTrue(!isPaint(helper.getBlockState(new BlockPos(1, 2, 4)), PaintColor.DATA),
+				"and no wider than that");
+		helper.assertTrue(!isPaint(helper.getBlockState(new BlockPos(3, 2, 3)), PaintColor.DATA),
+				"and lands ahead of the feet, not under them");
+		helper.assertTrue(Roll.isRolling(player), "rolling carries the movement bonus");
+		// The trickle: one ink every roll_ink_every ticks of moving, and not a drop before.
+		int every = WeaponTuning.get(Weapon.ROLLER).intValue(Param.ROLL_INK_EVERY);
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "the first rolled tick is not yet a unit of ink");
+		for (int i = 1; i < every; i++) {
+			Vec3 on = helper.absoluteVec(new Vec3(3.5, 2.0, 3.5 + i * 0.1));
+			player.setPos(on.x, on.y, on.z);
+			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+		}
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX - 1, "one ink every " + every + " ticks of rolling");
+		Roll.stop(player);
+		helper.assertTrue(!Roll.isRolling(player), "and putting it away takes the bonus off");
+		helper.succeed();
+	}
+
+	/**
+	 * Running someone over. The head sweeps in front of the roller whether or not the feet moved, so
+	 * walking into a held roller is as bad as being chased by one — and it lands once per victim per
+	 * {@code roll_hit_cooldown} ticks, so it is a hit rather than a grinder.
+	 */
+	@GameTest
+	public void rollerRunsOverAHostile(GameTestHelper helper) {
+		stoneFloor(helper, 7);
+		Roll.clearAll();
+		Player player = gunner(helper);
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		player.setYRot(0.0f); // facing +z
+		player.setXRot(0.0f);
+		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		player.setPos(at.x, at.y, at.z);
+		Player victim = mockPlayer(helper, GameType.SURVIVAL);
+		helper.getLevel().getScoreboard().addPlayerToTeam(victim.getScoreboardName(), team(helper, PaintColor.IT));
+		Vec3 inFront = helper.absoluteVec(new Vec3(3.5, 2.0, 4.0));
+		victim.setPos(inFront.x, inFront.y, inFront.z);
+		// The head is an area sweep, so the victim has to be somewhere the level can find them.
+		helper.getLevel().addFreshEntity(victim);
+		victim.setHealth(victim.getMaxHealth());
+		// The real roll is worth more than a player has, so a test that wants to be run over three times
+		// has to turn it down first. That the default is a near-splat is asserted on its own below.
+		helper.assertTrue(Weapon.ROLL_DAMAGE >= 20.0f, "a roll is worth most of a player: " + Weapon.ROLL_DAMAGE);
+		withTuning(() -> {
+			float damage = 5.0f;
+			WeaponTuning.get(Weapon.ROLLER).set(Param.ROLL_DAMAGE, damage);
+			float full = victim.getHealth();
+			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+			helper.assertValueEqual(victim.getHealth(), full - damage, "the head runs them over for the roll's damage");
+			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+			helper.assertValueEqual(victim.getHealth(), full - damage, "and not again inside its own window");
+			// The window is per victim and kept here, so clearing it is the same as waiting it out.
+			Roll.clearAll();
+			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+			helper.assertValueEqual(victim.getHealth(), full - 2 * damage, "once the window is past, the head hits again");
+			// And the second hit was a whole hit, not the excess over the first: that is PaintDamage's
+			// doing, and it is what makes a weapon that lands more than one thing at a time work at all.
+			// A teammate walks through it untouched: the roll is a weapon, not a hazard.
+			helper.getLevel().getScoreboard().addPlayerToTeam(victim.getScoreboardName(), team(helper, PaintColor.DATA));
+			Roll.clearAll();
+			Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+			helper.assertValueEqual(victim.getHealth(), full - 2 * damage, "a teammate is not run over");
+		});
+		victim.discard();
+		Roll.stop(player);
+		helper.succeed();
+	}
+
+	/**
+	 * Hold to roll, tap to flick. A vanilla client sends a press and a release and nothing in between, so
+	 * the release is the only place the two gestures can be told apart: under {@code flick_tap} ticks is
+	 * a click and throws the bucketful, anything longer was a roll and throws nothing.
+	 */
+	@GameTest
+	public void rollerFlicksOnATapAndNotOnAHold(GameTestHelper helper) {
+		Roll.clearAll();
+		Player player = gunner(helper);
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		PaintWeapon roller = PaintWeapon.of(Weapon.ROLLER);
+		int tap = WeaponTuning.get(Weapon.ROLLER).intValue(Param.FLICK_TAP);
+		// A long hold: the release is the end of a roll and throws nothing.
+		roller.releaseUsing(gun, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - tap);
+		helper.assertTrue(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0).isEmpty(),
+				"a hold of exactly flick_tap ticks is a roll, not a flick");
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "and costs no flick's worth of ink");
+		// A tap: one tick held, the bucketful goes.
+		roller.releaseUsing(gun, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - 1);
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0);
+		helper.assertValueEqual(balls.size(), Weapon.ROLLER_FLICK_BALLS, "a tap flicks");
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX - WeaponTuning.get(Weapon.ROLLER).intValue(Param.INK),
+				"and pays the flick's ink");
+		helper.assertTrue(player.getCooldowns().isOnCooldown(gun), "and takes the flick's recovery");
+		balls.forEach(Entity::discard);
+		helper.succeed();
 	}
 
 	/**
@@ -2876,11 +3104,23 @@ public final class RivalsGameTests {
 
 	/** One click of the shooter, and the ball it threw. */
 	private static PaintBall onlyBall(GameTestHelper helper, Player player) {
+		// The shooter is a held-use weapon now and its item cooldown is its fire rate, so a second shot in
+		// the same tick is refused on purpose. A test that wants two shots has to let the gun catch up.
+		readyToFire(player);
 		InteractionResult result = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(result.consumesAction(), "shoots");
 		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
 		helper.assertValueEqual(balls.size(), 1, "one ball");
 		return balls.get(0);
+	}
+
+	/**
+	 * Take the weapon in this player's main hand off cooldown. A test that fires twice without letting
+	 * ticks pass is asking for something the fire rate refuses; this is how it asks honestly.
+	 */
+	private static void readyToFire(Player player) {
+		ItemStack held = player.getItemInHand(InteractionHand.MAIN_HAND);
+		player.getCooldowns().removeCooldown(BuiltInRegistries.ITEM.getKey(held.getItem()));
 	}
 
 	/**

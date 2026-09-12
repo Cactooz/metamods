@@ -15,19 +15,27 @@ import net.minecraft.world.item.component.CustomData;
  * this session: it is stale, and counts as due rather than as a refill in progress.
  */
 public final class Ink {
-	public static final int MAX = 40;
+	/**
+	 * The tank, in units that read as a percentage — which is what Splatoon's own numbers are, so every
+	 * ink cost in {@link Weapon} is the game's figure without a scale factor in front of it. It was 40
+	 * through round 6; a stack written then holds a number inside this one, and {@link #get} clamps
+	 * anyway, so an old weapon comes back merely part-full rather than wrong.
+	 */
+	public static final int MAX = 100;
 	public static final int REFILL_TICKS = 30;
 	static final String INK = "rivals_ink";
 	static final String REFILL_UNTIL = "rivals_refill_until";
 
 	private Ink() {}
 
+	/** What the stack holds, clamped: the tank has changed size once and may again. */
 	public static int get(ItemStack stack) {
-		return stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag().getIntOr(INK, MAX);
+		int stored = stack.getOrDefault(DataComponents.CUSTOM_DATA, CustomData.EMPTY).copyTag().getIntOr(INK, MAX);
+		return Math.clamp(stored, 0, MAX);
 	}
 
 	public static void set(ItemStack stack, int ink) {
-		int clamped = Math.max(0, Math.min(MAX, ink));
+		int clamped = Math.clamp(ink, 0, MAX);
 		CustomData.update(DataComponents.CUSTOM_DATA, stack, tag -> tag.putInt(INK, clamped));
 	}
 

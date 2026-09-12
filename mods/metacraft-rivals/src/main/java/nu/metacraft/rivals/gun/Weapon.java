@@ -22,7 +22,7 @@ import java.util.stream.Stream;
  * than on a ball.
  */
 public enum Weapon {
-	SHOOTER("paint_gun", "Paint Gun", 1, 4, 1.8f, 2.0f, -2.5f, 3.0f),
+	SHOOTER("paint_gun", "Paint Gun", 1, 3, 1.8f, 2.0f, -2.5f, 3.0f),
 	CHARGER("charger", "Paint Charger", 4, 20, 0.0f, 0.0f, -6.0f, 0.0f),
 	SLOSHER("slosher", "Paint Slosher", 15, 14, 1.1f, 0.0f, -3.0f, 4.0f),
 	ROLLER("roller", "Paint Roller", 9, 15, 0.55f, 0.0f, -4.0f, 30.0f);
@@ -67,6 +67,33 @@ public enum Weapon {
 	public static final double ROLLER_GRAVITY = 0.06;
 	/** Roller: the flick lands as a bucketful, 5x5 on the face it finds. */
 	public static final int ROLLER_SPLAT_RADIUS = 2;
+	/**
+	 * Roller: how long a right click may be held and still count as a tap rather than a roll. Splatoon
+	 * separates the two by the button's own semantics; a vanilla client only sends a hold, so the release
+	 * has to tell them apart, and six ticks is about as long as a click lasts.
+	 */
+	public static final int ROLLER_FLICK_TAP_TICKS = 6;
+
+	// The roll, from splat_roller.json's rolling half and RollerItem.weaponUseTick (Splatcraft, MIT).
+
+	/** Roller: how wide the rolled strip is, in cells. Splatcraft rolls 3 wide. */
+	public static final int ROLL_WIDTH = 3;
+	/**
+	 * Roller: what running someone over is worth. Splatcraft's roll does 25 on contact, which on a 20 HP
+	 * scale is most of a player — a roller that reaches you has earned it.
+	 */
+	public static final float ROLL_DAMAGE = 25.0f;
+	/** Roller: ticks before the same victim can be run over again, so a roll is a hit and not a grinder. */
+	public static final int ROLL_HIT_COOLDOWN = 10;
+	/**
+	 * Roller: one ink every this many ticks of rolling. Splatcraft spends 0.06 of a 100-unit tank a tick,
+	 * which is a unit every sixteen and change; sixteen is that, in whole ink.
+	 */
+	public static final int ROLL_INK_EVERY = 16;
+	/** Roller: the movement bonus while rolling. Splatcraft's roll mobility is 1.08. */
+	public static final double ROLL_SPEED_BONUS = 0.08;
+	/** Roller: how far in front of the feet the head sweeps, in blocks. */
+	public static final double ROLL_REACH = 1.5;
 
 	/** Slosher: yaw offsets of the fan, degrees from the look direction. */
 	public static final float[] SLOSHER_FAN = {-15.0f, -5.0f, 5.0f, 15.0f};
