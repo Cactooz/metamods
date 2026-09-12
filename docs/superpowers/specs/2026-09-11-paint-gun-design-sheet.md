@@ -58,8 +58,8 @@ out on the side instead of on top, rotate every hand transform 90° about Y in o
 
 `assets/metacraft-rivals/textures/item/paint_gun_palette.png`, 16×16 (v2, one texel per
 colour; the v1 sheet used 8×8, one colour per column) (rows are identical). A face samples
-column *c* with `"uv": [2c, 0, 2c+2, 2]`.
-
+column *c* with `"uv": [c, 0, c+1, 1]` — one texel wide, because v2's palette has 16
+columns across the same 16 uv units. (v1's 8-column palette used `"uv": [2c, 0, 2c+2, 2]`.)
 
 | Column | Colour | Used by |
 |---|---|---|

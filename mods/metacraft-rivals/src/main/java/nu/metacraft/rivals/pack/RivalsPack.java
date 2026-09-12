@@ -23,8 +23,12 @@ public final class RivalsPack {
 		PolymerResourcePackUtils.RESOURCE_PACK_CREATION_EVENT.register(builder -> {
 			Map<String, byte[]> files = SplatArt.packFiles();
 			files.forEach(builder::addData);
-			Rivals.LOGGER.info("[{}] pack: {} splat files written ({} colours × {} shapes × {} rotations)", Rivals.MOD_ID,
-					files.size(), PaintColor.values().length, SplatArt.SHAPES.length, SplatArt.ROTATIONS);
+			// The count covers more than the splat art: the per-colour blockstate overrides and the
+			// splat-quad item files ride along in the same map, so name them rather than let the number
+			// read as "colours × shapes × rotations" and not add up.
+			long quadFiles = files.keySet().stream().filter(path -> path.contains("splat_quad_")).count();
+			Rivals.LOGGER.info("[{}] pack: {} pack files (splat art for {} colours × {} shapes × {} rotations, plus {} quad item files)",
+					Rivals.MOD_ID, files.size(), PaintColor.values().length, SplatArt.SHAPES.length, SplatArt.ROTATIONS, quadFiles);
 			builder.addData("assets/minecraft/shaders/core/block.vsh", shader("block.vsh"));
 			builder.addData("assets/minecraft/shaders/core/block.fsh", shader("block.fsh"));
 		});

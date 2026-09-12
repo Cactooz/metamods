@@ -30,9 +30,12 @@ Rivals server wants.
   exactly the rule paint wants. A face that isn't full (stairs, slabs, fences, panes, walls, glass
   panes) instead gets a set of flat splat-quad item displays that wrap the block's own outline
   shape (not its collision box, so paint on a fence sits on top of the post, not floating at
-  collision height). These quads aren't blocks, so nothing tells them to fall on their own: they
-  are dropped, and stop being counted, once their surface is destroyed, replaced, buried, or its
-  chunk unloads.
+  collision height). At most three quads per cell, the largest boxes on the struck side, so a
+  wall post with four arms doesn't put a dozen item displays in one cell. These quads aren't
+  blocks, so nothing tells them to fall on their own: they are dropped, and stop being counted,
+  once their surface is destroyed, replaced, buried, or merely changes shape (a stair turned
+  under them), or once its chunk unloads — a chunk unload takes the paint with it, and unlike a
+  paint block it does not come back when the chunk reloads.
 - Splat art comes from Kenney's Splat Pack (CC0): eight silhouettes, each rendered per colour at
   four rotations (32 variants per colour), with paint texels marked at a specific alpha the gloss
   shader looks for. The resource pack's blockstate overrides for `sculk_vein`, `resin_clump` and
@@ -45,9 +48,11 @@ Rivals server wants.
   dye-tinted to the team colour. It's Kenney's `blaster-b` (CC0, Blaster Kit) converted into a
   vanilla element model by `tools/obj2mc.py` (stdlib + Pillow): voxelise the mesh, greedy-merge
   same-colour voxels into boxes, quantise colours to a palette texture. Rerun it after touching
-  the source mesh; pass `--flip` if the muzzle ends up pointing backwards. Re-render the design
-  sheet after editing the model — it reads its colours straight from the palette PNG the model
-  references, so it never drifts from the JSON:
+  the source mesh; pass `--flip` if the muzzle ends up pointing backwards. The model's in-hand
+  `display` transforms (first and third person) are neutral placeholders — no rotation, a rough
+  translation and scale — and get aimed properly in the screenshot round, once there are in-game
+  shots to judge them against. Re-render the design sheet after editing the model — it reads its
+  colours straight from the palette PNG the model references, so it never drifts from the JSON:
   `python3 mods/metacraft-rivals/tools/gun_sheet.py <model.json> <out.svg>`.
 - Ink: the gun holds 40 shots, tracked in the stack's own data so it survives item moves. Each
   shot costs 1; trying to fire at 0 starts a 30-tick refill (sound, cooldown) that fills the tank
@@ -78,7 +83,7 @@ Rivals server wants.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (22 of ours, plus vanilla's always_pass)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (24 of ours, plus vanilla's always_pass: 25 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so
@@ -92,6 +97,24 @@ Polymer's pack autohost is on by default in the dev environment, so the required
 without any extra setup.
 
 Join the dev server with a vanilla 26.2 client (offline mode) and accept the pack.
+
+To drive a running dev server without a client attached (`/rivals setup`, `/op <name>`, a score
+check), `tools/rcon.py` sends one command over RCON and prints the reply — standard library only,
+no dependency to install:
+
+```
+python3 mods/metacraft-rivals/tools/rcon.py 'rivals setup'
+```
+
+It defaults to `127.0.0.1:25576` with the password `rivals-dev` (override with `RCON_HOST`,
+`RCON_PORT`, `RCON_PASSWORD`). RCON is off in a fresh `server.properties`, so add these three
+lines to `run/server.properties` alongside `online-mode=false` in step 2 above, then restart:
+
+```
+enable-rcon=true
+rcon.port=25576
+rcon.password=rivals-dev
+```
 
 ## Credits
 

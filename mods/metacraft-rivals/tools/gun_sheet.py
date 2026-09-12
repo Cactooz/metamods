@@ -92,10 +92,10 @@ def main(model_path, svg_path):
         f'1 unit = 1/16 block, pink outline = tank (dye-tinted)</text>',
     ]
     col = 32 * SCALE + PAD
-    # Sword frame: +Y is the muzzle, -X the tank side ("top" in hand), +X the grip, Z the width.
-    parts += view(elements, palette, (0, 1), "profile (X right: tank left, grip right; Y up = muzzle)", PAD, PAD * 2)
-    parts += view(elements, palette, (2, 1), "edge-on (Z right = width; Y up = muzzle)", PAD + col, PAD * 2)
-    parts += view(elements, palette, (0, 2), "down the barrel (X right: tank left; Z down = width)", PAD + 2 * col, PAD * 2)
+    # v2 (obj2mc) frame: Y is up, the barrel runs along -Z, so -Z is the muzzle and +Z the back.
+    parts += view(elements, palette, (0, 1), "front (X right, Y up; looking down the barrel)", PAD, PAD * 2)
+    parts += view(elements, palette, (2, 1), "side (Z right = back of gun, Y up; muzzle at -Z)", PAD + col, PAD * 2)
+    parts += view(elements, palette, (0, 2), "top (X right, Z down = back of gun)", PAD + 2 * col, PAD * 2)
     parts.append("</svg>")
     with open(svg_path, "w") as f:
         f.write("\n".join(parts))
