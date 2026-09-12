@@ -1,7 +1,7 @@
 # Ovvar
 
 Student overalls (ovvar) with sewn-on patches for METAcraft — server-side, Fabric + Polymer,
-Minecraft 26.2. Players need nothing but the auto-served resource pack.
+Minecraft 26.3. Players need nothing but the auto-served resource pack.
 
 ## What it adds
 
@@ -77,6 +77,27 @@ by `/ovvar give`). What they have sewn on it, and the patches they own but have 
 recrafted ovve just shows the design again. Only the look and the patches travel: pockets,
 enchantments, the top being up or down stay with the item.
 
+### An ovve is its owner's
+
+Handing somebody an ovve does not hand them the wardrobe behind it, so an owned ovve is worn and
+changed by its owner and by nobody else:
+
+- **wearing.** A foreign ovve does not go in the legs slot: the armour slot refuses it (dragging,
+  clicking, shift-clicking), a dispenser aimed at the player refuses it, right-clicking it says
+  "That ovve belongs to \<name\>" in red, and one forced in anyway (`/item replace`, another mod,
+  the rule changed while it was worn) is taken off on the wearer's next tick and put back in their
+  inventory. `designs.others_ovve` chooses between that (`block`, the default), `rebind` (a given
+  ovve becomes the holder's, showing *their* design) and `allow` (anyone may wear it, showing its
+  owner's design — how it was before);
+- **changing.** With `designs.edit_requires_owner` on (the default) only the owner sews a patch on
+  an owned ovve or shears one off it, on any stand: "That ovve belongs to \<name\>; only they can
+  change it". The name comes from the server's own name cache, or "someone else" for an owner it
+  has never seen.
+
+An ovve with no owner is still anybody's: they may wear it and sew on it, and it becomes theirs the
+first time a player's inventory ticks it (`bind_on_pickup`). Stands and mannequins wear and show
+anybody's ovve unchanged — that is what makes a sewing stand and a showcase work.
+
 A patch lives in exactly one place: as an item in the world, in a stash, or on a design. The
 `ovvar:patches` component on an owned ovve is a copy for drawing, refreshed every tick and never a
 source. Every change is a compare-and-set naming the version it saw; a write that lost the race
@@ -118,6 +139,9 @@ plays the totem-of-undying flourish with the patch's art and explains the stash 
     jdbc.driver_class        force a driver class; "" lets the URL pick
     jdbc.connect_timeout_seconds, jdbc.query_timeout_seconds
     bind_on_pickup           an unowned ovve becomes the first holder's (default true)
+    others_ovve              somebody else's ovve: block (default: not wearable, nothing sewn on or off it)
+                             | rebind (a given ovve becomes the holder's) | allow (anyone wears it, owner's design)
+    edit_requires_owner      only an owned ovve's owner may sew on it or unpick from it (default true)
     sew_when_unreachable     store down: sew anyway and queue the write (default false: refuse, keep the patch)
     unpick_when_unreachable  store down: hand the patch back anyway and queue the write (default false; the dupe direction)
     retry_seconds            how often failed loads and queued writes are retried (default 15)
@@ -138,6 +162,16 @@ plays the totem-of-undying flourish with the patch's art and explains the stash 
     session_reach            blocks a player may walk from their session stand (default 8)
     session_seconds          idle time before a session ends (default 300)
     explain_in_chat          the stash explanation when a patch is earned (default true)
+
+`config/ovvar.json` → `server` (what this server calls itself):
+
+    name                     this server's name in the MOTD (default "METAcraft")
+
+The MOTD is set from those two blocks when the server is up, so the server list says what a player
+gets before they join: `METAcraft Survival · ovve sewing on stands, patches are items`, or
+`METAcraft Minigame · ovve stash only, no sewing` where `stash.minigame_server` is on. Every key
+above is optional in the file: the defaults are the ones documented here, and a key only needs
+writing to change it.
 
 The file backend is fine for one server or a shared mount; a network of servers wants `jdbc`
 (MariaDB/MySQL and PostgreSQL drivers ship in the jar).
@@ -174,7 +208,11 @@ ovve with `/ovvar give data all` or from the Ovvar creative tab. `Run Tests.comm
 game tests (`OvvarGameTests`): every cell aimed at on stands at rest, posed and turned, and the
 sneak far-face rule, checked against `StandAim.cell`, the independent cell → point mapping; and
 the stitching minigame played through with the clicks its dialog sends (stale clicks ignored,
-sewn on the last pull, nothing sewn after cutting the thread).
+sewn on the last pull, nothing sewn after cutting the thread). `WardrobeTests` runs the store
+(both backends, the compare-and-set cache, one patch in one place) and the ownership rules: a
+foreign ovve is refused by the equip checks and evicted by the tick, a stranger's sew and unpick
+change neither the store nor the ovve, the owner's own still work, `rebind` and `allow` still do
+what they say, and the MOTD names this server and its mode.
 
 ## Adding a chapter
 
