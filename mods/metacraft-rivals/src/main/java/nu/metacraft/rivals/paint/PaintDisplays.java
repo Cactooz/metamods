@@ -30,8 +30,10 @@ import java.util.Map;
  * Paint for faces a multiface block cannot sit on (stairs, slabs, fences, panes …): one flat quad per
  * outline-box face on the struck side, as Polymer <em>block</em> displays carrying the very paint state
  * a painted cell would carry — {@link PaintStates#connected} for the colour, the attach direction and
- * the four connection bits — so a quad is the same material as the block paint beside it and
- * borders against it. One holder per cell, one
+ * the four connection bits — so a quad is the same material as the block paint beside it, borders
+ * against it, and is drawn by the same shader code (block displays go through
+ * {@code Sheets.cutoutBlockItemSheet()} → {@code RenderPipelines.ITEM_CUTOUT} → the pack's
+ * {@code item.vsh}/{@code item.fsh}, which carry the terrain gloss block). One holder per cell, one
  * colour and one face per cell; recolouring rebuilds the holder. In memory only, like the tally: a
  * restart drops them.
  *

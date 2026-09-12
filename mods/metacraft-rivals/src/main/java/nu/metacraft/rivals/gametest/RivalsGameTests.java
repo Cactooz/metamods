@@ -921,6 +921,33 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
+	/**
+	 * The same gloss in the item pair, which is what draws the block displays on stairs, slabs and panes
+	 * (cutoutBlockItemSheet → ITEM_CUTOUT → core/item). The delta over vanilla is two varyings: the view
+	 * position, for the normal and the view vector, and the world position, so a quad's border is cut on
+	 * the same 1/16-block grid as the paint block beside it — vanilla's item pair carries neither, and
+	 * {@code Position} there is camera-relative render space, not model space, so the world position has
+	 * to be rebuilt from the Globals camera.
+	 */
+	@GameTest
+	public void itemShaderCarriesTheSameGloss(GameTestHelper helper) {
+		helper.assertTrue(RivalsPack.SHADERS.containsAll(List.of("item.vsh", "item.fsh")), "the pack ships the item pair");
+		String fsh = new String(RivalsPack.shader("item.fsh"), StandardCharsets.UTF_8);
+		String vsh = new String(RivalsPack.shader("item.vsh"), StandardCharsets.UTF_8);
+		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.9216") && fsh.contains("0.008"),
+				"fragment shader guards on the marker alpha");
+		helper.assertTrue(fsh.contains("in vec3 paintPos") && vsh.contains("out vec3 paintPos"), "the pair agrees on the world position");
+		helper.assertTrue(fsh.contains("in vec3 viewPos") && vsh.contains("out vec3 viewPos"), "and on the view position");
+		helper.assertTrue(vsh.contains("CameraBlockPos") && vsh.contains("CameraOffset"), "the world position comes off the camera");
+		helper.assertTrue(fsh.contains("floor(p * TEXELS) + 0.5") && fsh.contains("floor(paintPos * TEXELS) + 0.5"),
+				"and snaps to the same 16-px grid the terrain gloss does");
+		// Vanilla's own item work has to survive: the cutout, the lightmap and overlay, the glint.
+		helper.assertTrue(fsh.contains("#ifdef ALPHA_CUTOUT") && fsh.contains("lightMapColor") && fsh.contains("GlintSampler"),
+				"vanilla item shading kept");
+		helper.assertTrue(vsh.contains("minecraft_mix_light(Light0_Direction"), "vanilla item lighting kept");
+		helper.succeed();
+	}
+
 	/** A fresh gun holds 40 ink, a shot costs one, an empty gun refills after the delay, own paint tops it up. */
 	@GameTest
 	public void inkDrainsRefillsAndTopsUp(GameTestHelper helper) {

@@ -9,16 +9,22 @@ import nu.metacraft.rivals.paint.PaintStates;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
+import java.util.List;
 import java.util.Map;
 
 /**
  * The resource pack: the mod's own assets (gun model, palette, lang) plus the generated paint art —
  * bit-carrying textures, the six face quads and a variants blockstate override per donor block.
  * Required, because without it players see sculk veins, resin clumps, tripwire and redstone dust where
- * the paint is. Also ships a terrain shader override: chunk geometry in
- * 26.3 is drawn by terrain.vsh/terrain.fsh (not block.*), so the paint gloss is keyed into that pair.
+ * the paint is. Also ships two core shader overrides, each vanilla's own plus the same paint gloss
+ * keyed on the marker alpha: terrain.vsh/terrain.fsh, which is what draws chunk geometry in 26.3 (not
+ * block.*), and item.vsh/item.fsh, which is what draws the block displays
+ * {@link nu.metacraft.rivals.paint.PaintDisplays} hangs on stairs, slabs, fences and panes.
  */
 public final class RivalsPack {
+	/** The core shader pairs the pack replaces, both of them vanilla's plus the RIVALS_GLOSS block. */
+	public static final List<String> SHADERS = List.of("terrain.vsh", "terrain.fsh", "item.vsh", "item.fsh");
+
 	private RivalsPack() {}
 
 	public static void init() {
@@ -31,12 +37,11 @@ public final class RivalsPack {
 			// bit textures + face models + wrappers + mask models + the empty model + donor overrides.
 			int colors = PaintColor.values().length;
 			Rivals.LOGGER.info(
-					"[{}] pack: {} paint files ({} bit textures, {} face models, {} wrappers, {} mask models, 1 empty model, {} donor overrides), terrain shader",
+					"[{}] pack: {} paint files ({} bit textures, {} face models, {} wrappers, {} mask models, 1 empty model, {} donor overrides), terrain and item shaders",
 					Rivals.MOD_ID, paint.size(), colors * PaintArt.BITS, Direction.values().length,
 					colors * PaintArt.BITS * Direction.values().length, colors * PaintStates.SPLAT_PER_COLOR,
 					PaintStates.DONORS.size());
-			builder.addData("assets/minecraft/shaders/core/terrain.vsh", shader("terrain.vsh"));
-			builder.addData("assets/minecraft/shaders/core/terrain.fsh", shader("terrain.fsh"));
+			for (String name : SHADERS) builder.addData("assets/minecraft/shaders/core/" + name, shader(name));
 		});
 	}
 
