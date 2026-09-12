@@ -52,6 +52,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import nu.metacraft.rivals.pack.RivalsPack;
+import nu.metacraft.rivals.gun.Ink;
+import nu.metacraft.rivals.gun.InkHud;
 
 /**
  * Server-side game tests (Fabric GameTest API). Run headless with
@@ -481,6 +483,42 @@ public final class RivalsGameTests {
 		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.85") && fsh.contains("0.95"), "fragment shader guards on the marker alpha");
 		helper.assertTrue(fsh.contains("#ifdef ALPHA_CUTOUT"), "vanilla cutout path kept");
 		helper.assertTrue(vsh.contains("out vec3 viewPos"), "vertex shader exports the view position");
+		helper.succeed();
+	}
+
+	/** A fresh gun holds 40 ink, a shot costs one, an empty gun refills after the delay, own paint tops it up. */
+	@GameTest
+	public void inkDrainsRefillsAndTopsUp(GameTestHelper helper) {
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "fresh gun is full");
+		PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX - 1, "a shot costs one");
+		Ink.set(gun, 0);
+		long now = helper.getLevel().getServer().getTickCount();
+		InteractionResult empty = PaintGun.ITEM.use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(empty == InteractionResult.FAIL && Ink.isRefilling(gun, now), "empty gun starts refilling");
+		Ink.finishIfDue(gun, now + Ink.REFILL_TICKS);
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "refilled after the delay");
+		Ink.set(gun, 10);
+		Ink.add(gun, 1);
+		helper.assertValueEqual(Ink.get(gun), 11, "top-up adds");
+		Ink.add(gun, 100);
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "top-up clamps");
+		helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/** The action-bar text has ten cells, one per four ink, and says REFILLING while a refill runs. */
+	@GameTest
+	public void inkBarText(GameTestHelper helper) {
+		String full = InkHud.bar(PaintColor.LIME, Ink.MAX, false, false).getString();
+		helper.assertTrue(full.startsWith("INK ") && full.contains("40/40") && full.chars().filter(c -> c == '\u2588').count() == 10, "full bar: " + full);
+		String half = InkHud.bar(PaintColor.LIME, 20, false, false).getString();
+		helper.assertTrue(half.chars().filter(c -> c == '\u2588').count() == 5 && half.chars().filter(c -> c == '\u2591').count() == 5, "half bar: " + half);
+		helper.assertTrue(InkHud.bar(PaintColor.LIME, 0, true, false).getString().contains("REFILLING"), "refilling text");
+		helper.assertTrue(InkHud.bar(PaintColor.LIME, 5, false, true).getString().contains("SQUID"), "squid tag");
 		helper.succeed();
 	}
 }

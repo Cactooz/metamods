@@ -65,17 +65,40 @@ public final class PaintGun extends Item implements PolymerItem {
 		if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.PASS;
 		Optional<PaintColor> color = PaintColor.byTeam(player.getTeam());
 		if (color.isEmpty()) {
-			// Server players without a live connection (fake or offline players) cannot be sent to.
-			if (player instanceof ServerPlayer serverPlayer && serverPlayer.connection != null) {
-				serverPlayer.sendSystemMessage(Component.literal("Join a team first: /team join " + PaintColor.values()[0].id)
-						.withStyle(ChatFormatting.RED), true);
-			}
+			actionBar(player, Component.literal("Join a team first: /team join " + PaintColor.values()[0].id)
+					.withStyle(ChatFormatting.RED));
 			return InteractionResult.FAIL;
 		}
-		PaintBall ball = shoot(serverLevel, player, color.get());
+		ItemStack gun = player.getItemInHand(hand);
+		long now = serverLevel.getServer().getTickCount();
+		Ink.finishIfDue(gun, now);
+		if (Ink.isRefilling(gun, now)) return InteractionResult.FAIL;
+		if (isSquid(player)) {
+			actionBar(player, Component.literal("Can't shoot in squid form").withStyle(ChatFormatting.RED));
+			return InteractionResult.FAIL;
+		}
+		if (Ink.get(gun) <= 0) {
+			Ink.startRefill(gun, now);
+			serverLevel.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BOTTLE_FILL, SoundSource.PLAYERS, 0.8f, 0.9f);
+			player.getCooldowns().addCooldown(gun, Ink.REFILL_TICKS);
+			if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
+			return InteractionResult.FAIL;
+		}
+		shoot(serverLevel, player, color.get());
 		feel(serverLevel, player, color.get());
-		player.getCooldowns().addCooldown(player.getItemInHand(hand), COOLDOWN_TICKS);
+		Ink.add(gun, -1);
+		player.getCooldowns().addCooldown(gun, COOLDOWN_TICKS);
+		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 		return InteractionResult.SUCCESS;
+	}
+
+	static void actionBar(Player player, Component text) {
+		if (player instanceof ServerPlayer serverPlayer && serverPlayer.connection != null) serverPlayer.sendSystemMessage(text, true);
+	}
+
+	/** Task 8 turns this into the squid-form check; until then nobody is a squid. */
+	public static boolean isSquid(Player player) {
+		return false;
 	}
 
 	/** Throw one paint ball from the shooter's eyes along their view. */
@@ -119,6 +142,7 @@ public final class PaintGun extends Item implements PolymerItem {
 	 */
 	@Override
 	public void inventoryTick(ItemStack stack, ServerLevel level, Entity entity, EquipmentSlot slot) {
+		Ink.finishIfDue(stack, level.getServer().getTickCount());
 		if (!(entity instanceof LivingEntity holder)) return; // a dropped gun keeps the dye it had
 		PlayerTeam team = holder.getTeam();
 		DyedItemColor wanted = PaintColor.byTeam(team).map(color -> new DyedItemColor(color.rgb)).orElse(null);
