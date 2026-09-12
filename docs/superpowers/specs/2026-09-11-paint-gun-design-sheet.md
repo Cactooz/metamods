@@ -1,5 +1,12 @@
 # Paint gun: design sheet
 
+> **v2: the shipped model is converted from Kenney's blaster-b by `tools/obj2mc.py`; the parts
+> table below describes the v1 hand-built model and is kept for reference.** The converter
+> surface-voxelises the CC0 mesh in `tools/kenney/`, quantises its colormap into a 16-texel
+> palette and greedy-merges the voxels into boxes, so the model is now a few hundred small
+> elements rather than nine named ones, the frame is Y up with the barrel along -Z, and the
+> orange body family is the dye-tinted part instead of a single "tank" box.
+
 Companion to the Rivals paint prototype spec. The gun is a vanilla "Java Block/Item" element
 model (what Blockbench exports) with nine boxes, one flat palette texture, and a dye-tinted
 tank so the same model shows every team colour. Orthographic views rendered from the JSON are
