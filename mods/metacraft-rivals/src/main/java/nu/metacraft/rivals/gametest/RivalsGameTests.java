@@ -152,7 +152,8 @@ public final class RivalsGameTests {
 	/**
 	 * Every donor override covers every state of its block, names a model that is in the pack, and each
 	 * model resolves to a texture that is in the pack too — states paint does not use point at the empty
-	 * model, so a stray vanilla sculk vein shows nothing.
+	 * model, so a stray vanilla sculk vein shows nothing. Every model carries a particle texture, and the
+	 * shared face quad is the shape the shader expects.
 	 */
 	@GameTest
 	public void blockstateOverridesReferenceGeneratedModels(GameTestHelper helper) {
@@ -171,11 +172,15 @@ public final class RivalsGameTests {
 				String model = variant.getAsJsonObject().get("model").getAsString(); // metacraft-rivals:block/paint_...
 				String modelPath = "assets/metacraft-rivals/models/block/" + model.substring(model.indexOf('/') + 1) + ".json";
 				helper.assertTrue(files.containsKey(modelPath), "model in pack: " + modelPath);
+				JsonObject json = JsonParser.parseString(new String(files.get(modelPath), StandardCharsets.UTF_8)).getAsJsonObject();
+				// Every model needs a particle texture, empty ones included, or the client logs a missing
+				// texture reference for it on every join.
+				helper.assertTrue(json.getAsJsonObject("textures").has("particle"), "particle texture in " + modelPath);
 				if (!used.contains(state)) {
 					helper.assertValueEqual(model, Rivals.MOD_ID + ":block/paint_none", "unused donor state draws nothing: " + state);
+					helper.assertValueEqual(json.getAsJsonArray("elements").size(), 0, modelPath + " draws nothing");
 					continue;
 				}
-				JsonObject json = JsonParser.parseString(new String(files.get(modelPath), StandardCharsets.UTF_8)).getAsJsonObject();
 				String texture = json.getAsJsonObject("textures").get("paint").getAsString();
 				String texturePath = "assets/metacraft-rivals/textures/" + texture.substring(texture.indexOf(':') + 1) + ".png";
 				helper.assertTrue(files.containsKey(texturePath), "texture in pack: " + texturePath);
@@ -193,6 +198,31 @@ public final class RivalsGameTests {
 				}
 			}
 			helper.assertValueEqual(variants.size(), states, donor + ": a variant for every state");
+		}
+		// The quad itself: a plane the full 16×16 of the cell, a tenth of a sixteenth off the attach face
+		// (vanilla's own multiface offset), textured on both of its sides with the whole sprite and never
+		// tinted — a slab, a smaller uv or a tintindex would each change what the shader is handed.
+		String facePath = "assets/metacraft-rivals/models/block/" + PaintArt.modelName(Direction.DOWN) + ".json";
+		JsonObject face = JsonParser.parseString(new String(files.get(facePath), StandardCharsets.UTF_8)).getAsJsonObject();
+		JsonArray elements = face.getAsJsonArray("elements");
+		helper.assertValueEqual(elements.size(), 1, facePath + " is one quad");
+		JsonObject element = elements.get(0).getAsJsonObject();
+		JsonArray from = element.getAsJsonArray("from");
+		JsonArray to = element.getAsJsonArray("to");
+		helper.assertValueEqual(from.get(1).getAsDouble(), 0.1, facePath + " sits 0.1 off the down face");
+		helper.assertValueEqual(to.get(1).getAsDouble(), from.get(1).getAsDouble(), facePath + " is a plane, not a slab");
+		for (int axis : new int[] {0, 2}) {
+			helper.assertValueEqual(from.get(axis).getAsDouble(), 0.0, facePath + " starts at 0 on axis " + axis);
+			helper.assertValueEqual(to.get(axis).getAsDouble(), 16.0, facePath + " spans the cell on axis " + axis);
+		}
+		JsonObject faces = element.getAsJsonObject("faces");
+		helper.assertValueEqual(faces.keySet(), Set.of("up", "down"), facePath + ": both sides of the quad, and only those");
+		for (String side : faces.keySet()) {
+			JsonObject json = faces.getAsJsonObject(side);
+			helper.assertValueEqual(json.get("texture").getAsString(), "#paint", facePath + " " + side + " texture");
+			helper.assertTrue(!json.has("tintindex"), facePath + " " + side + " is untinted");
+			JsonArray uv = json.getAsJsonArray("uv");
+			helper.assertValueEqual(uv.toString(), "[0,0,16,16]", facePath + " " + side + " uv covers the sprite");
 		}
 		helper.succeed();
 	}

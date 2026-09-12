@@ -178,17 +178,26 @@ public final class PaintArt {
 		return model;
 	}
 
-	/** The empty model a donor state paint does not use points at: no textures, no geometry. */
+	/**
+	 * The empty model a donor state paint does not use points at: no geometry, and a {@code particle}
+	 * only because every model needs one — vanilla gives even {@code block/air.json} a particle texture,
+	 * and a model without one is a "missing texture references" line in the client's log on every join.
+	 */
 	static JsonObject emptyModel() {
+		JsonObject textures = new JsonObject();
+		textures.addProperty("particle", Rivals.MOD_ID + ":block/" + textureName(PaintColor.values()[0], 15));
 		JsonObject model = new JsonObject();
-		model.add("textures", new JsonObject());
+		model.add("textures", textures);
 		model.add("elements", new JsonArray());
 		return model;
 	}
 
+	/** The texture slots of a paint model: {@code paint} for the quads, {@code particle} for everything else. */
 	private static JsonObject textures(PaintColor color, int bits) {
+		String texture = Rivals.MOD_ID + ":block/" + textureName(color, bits);
 		JsonObject textures = new JsonObject();
-		textures.addProperty("paint", Rivals.MOD_ID + ":block/" + textureName(color, bits));
+		textures.addProperty("particle", texture);
+		textures.addProperty("paint", texture);
 		return textures;
 	}
 
