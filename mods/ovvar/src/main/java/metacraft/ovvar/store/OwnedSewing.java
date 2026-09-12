@@ -4,6 +4,7 @@ import metacraft.ovvar.OvvarConfig;
 import metacraft.ovvar.content.Chapter;
 import metacraft.ovvar.content.Looks;
 import metacraft.ovvar.content.OvveItem;
+import metacraft.ovvar.content.Ownership;
 import metacraft.ovvar.content.Patches;
 import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
@@ -24,7 +25,8 @@ import java.util.function.UnaryOperator;
  * from the stash (or the item in hand) onto the design, and an unpick moves it off the design into
  * the stash or, on a survival server, back into the hand — either way one compare-and-set write
  * first, and only then the item, which is what makes two ovves of one owner (or two servers) not a
- * patch duplicator.
+ * patch duplicator. Either way an owned ovve is its owner's to change and nobody else's
+ * ({@link Ownership#editRefusal}).
  */
 public final class OwnedSewing {
 	private OwnedSewing() {}
@@ -48,12 +50,19 @@ public final class OwnedSewing {
 	}
 
 	/**
+	 * @param player	the player whose click this is, and who an owned ovve must belong to
+	 *				  ({@code designs.edit_requires_owner}); null for the mod's own writes
 	 * @param fromHand  the patch was a real item in the hand that the click consumed: it is banked and
 	 *				  sewn in the same write, so it never needed to be in the stash
 	 * @param onSewn	the change is on the ovve (and in the store, or queued for it)
 	 * @param onRefused nothing changed; why, for the player
 	 */
-	public static void sew(ItemStack ovve, Placement placement, boolean fromHand, Runnable onSewn, Consumer<String> onRefused) {
+	public static void sew(@Nullable ServerPlayer player, ItemStack ovve, Placement placement, boolean fromHand, Runnable onSewn, Consumer<String> onRefused) {
+		String ownerRefusal = Ownership.editRefusal(player, ovve);
+		if (ownerRefusal != null) {
+			onRefused.accept(ownerRefusal);
+			return;
+		}
 		UUID owner = OvveItem.owner(ovve);
 		if (owner == null || !(ovve.getItem() instanceof OvveItem item)) {
 			if (Looks.sew(ovve, placement)) onSewn.run();
@@ -99,12 +108,19 @@ public final class OwnedSewing {
 	}
 
 	/**
+	 * @param player	 the player whose click this is, and who an owned ovve must belong to
+	 *				   ({@code designs.edit_requires_owner}); null for the mod's own writes
 	 * @param toStash	an owned ovve's patch goes to the stash (true) or is the caller's to hand out once the
 	 *				   store has let go of it (false, the vanilla feel on a survival server); unowned: always the caller's
 	 * @param onUnpicked the patch is off the ovve
 	 * @param onRefused  nothing changed; why, for the player
 	 */
-	public static void unpick(ItemStack ovve, Spot spot, boolean toStash, Consumer<Unpicked> onUnpicked, Consumer<String> onRefused) {
+	public static void unpick(@Nullable ServerPlayer player, ItemStack ovve, Spot spot, boolean toStash, Consumer<Unpicked> onUnpicked, Consumer<String> onRefused) {
+		String ownerRefusal = Ownership.editRefusal(player, ovve);
+		if (ownerRefusal != null) {
+			onRefused.accept(ownerRefusal);
+			return;
+		}
 		UUID owner = OvveItem.owner(ovve);
 		if (owner == null || !(ovve.getItem() instanceof OvveItem item)) {
 			Placement there = Looks.at(ovve, spot);

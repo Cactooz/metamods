@@ -6,6 +6,7 @@ import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Looks;
 import metacraft.ovvar.content.ModContent;
 import metacraft.ovvar.content.OvveItem;
+import metacraft.ovvar.content.Ownership;
 import metacraft.ovvar.content.PatchItem;
 import metacraft.ovvar.content.Patches;
 import metacraft.ovvar.content.Spot;
@@ -50,6 +51,9 @@ import java.util.UUID;
  * clicks on air or the block behind and are taken too). Sneaking aims
  * at the far face of the part you look at (the inside of an arm or leg, the back). With the
  * stitching minigame on (config), the click opens {@link SewingGame} instead of sewing at once.
+ *
+ * An owned ovve answers only to its owner ({@link Ownership#editRefusal}); a stand of any kind
+ * still wears and shows anybody's.
  */
 public final class StandSewing {
 	private StandSewing() {}
@@ -147,6 +151,8 @@ public final class StandSewing {
 			if (refusal == null && !session && OvveItem.owner(ovve) != null && !OvvarConfig.get().stash().anyStand()) {
 				refusal = "Sew on your own stand: /ovvar stash";
 			}
+			// Somebody else's ovve is theirs to change: neither the shears nor a patch touches it.
+			if (refusal == null) refusal = Ownership.editRefusal(player, ovve);
 			if (refusal != null) {
 				player.sendSystemMessage(Component.literal(refusal).withColor(TextColor.RED.getValue()));
 				return InteractionResult.FAIL;
@@ -178,7 +184,7 @@ public final class StandSewing {
 			// Into the stash on a session stand (or by config), else back into the hand — either way only
 			// once the store has let go of it (an owned ovve is a view of the design).
 			boolean toStash = session || OvvarConfig.get().stash().unpickToStash();
-			OwnedSewing.unpick(ovve, spot, toStash, unpicked -> {
+			OwnedSewing.unpick(player, ovve, spot, toStash, unpicked -> {
 				if (!unpicked.toStash()) Stash.give(player, unpicked.placement().patch(), 1);
 				celebrate(level, where, false);
 				player.sendOverlayMessage(Component.literal(unpicked.placement().patch().name() + " unpicked" + (unpicked.toStash() ? ", back in your stash" : "")));
@@ -206,7 +212,7 @@ public final class StandSewing {
 		boolean fromStash = held.has(ModComponents.SESSION);
 		boolean taken = !fromStash && !player.isCreative();
 		if (taken) held.shrink(1);
-		OwnedSewing.sew(ovve, placement, !fromStash, () -> {
+		OwnedSewing.sew(player, ovve, placement, !fromStash, () -> {
 			Looks.setPreview(ovve, null);
 			AIMS.remove(player.getUUID());
 			celebrate(player.level(), where, true);

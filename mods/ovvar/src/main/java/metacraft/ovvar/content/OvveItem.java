@@ -3,6 +3,7 @@ package metacraft.ovvar.content;
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import metacraft.ovvar.Ovvar;
 import metacraft.ovvar.OvvarConfig;
+import metacraft.ovvar.store.DesignStoreConfig;
 import metacraft.ovvar.store.Wardrobe;
 import metacraft.ovvar.store.Wardrobes;
 import org.jspecify.annotations.Nullable;
@@ -14,6 +15,7 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.util.Prediction;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.entity.Entity;
@@ -43,7 +45,8 @@ import java.util.UUID;
  * defence, no durability (it breaking would spill someone's pockets). The client is handed a
  * bundle with our equipment asset, chosen per stack.
  *
- * An ovve belongs to a player ({@link ModComponents#OWNER}, set when a player first holds it) and
+ * An ovve belongs to a player ({@link ModComponents#OWNER}, set when a player first holds it, and
+ * moved to a later holder only under {@code designs.others_ovve: rebind}, see {@link Ownership}) and
  * its patches are that player's design in their wardrobe ({@link Wardrobes}); the component on the
  * item is a copy kept in step every tick, so a second ovve of the same owner looks the same and
  * never holds a patch of its own.
@@ -95,11 +98,17 @@ public final class OvveItem extends BundleItem implements PolymerItem {
 	/**
 	 * The store side of a player's inventory tick: bind an unowned ovve to this player, adopt the
 	 * patches on it as their first design if they have no wardrobe at all, and keep the copy on
-	 * the item in step with the design.
+	 * the item in step with the design. {@code bind_on_pickup} is what lets an ovve change hands at
+	 * all, so with it off nothing binds and nothing rebinds either, whatever {@code others_ovve} says.
 	 */
 	public static void syncDesign(ServerPlayer player, ItemStack stack) {
 		if (owner(stack) == null) {
 			if (!OvvarConfig.get().designs().bindOnPickup()) return;
+			setOwner(stack, player.getUUID());
+		} else if (!player.getUUID().equals(owner(stack))
+				&& OvvarConfig.get().designs().othersOvve() == DesignStoreConfig.OthersOvve.REBIND
+				&& OvvarConfig.get().designs().bindOnPickup()) {
+			// A given ovve becomes the new holder's: their design, not the giver's (designs.others_ovve).
 			setOwner(stack, player.getUUID());
 		}
 		UUID owner = owner(stack);
@@ -130,6 +139,16 @@ public final class OvveItem extends BundleItem implements PolymerItem {
 			if (bundleContents == null || bundleContents.isEmpty()) {
 				Equippable equippable = stack.get(DataComponents.EQUIPPABLE);
 				if (equippable != null && equippable.swappable()) {
+					// Somebody else's ovve never swaps into the slot (the armour slot refuses it too).
+					if (player instanceof ServerPlayer serverPlayer) {
+						String refusal = Ownership.wearRefusal(serverPlayer, stack);
+						if (refusal != null) {
+							Ownership.refuse(serverPlayer, refusal);
+							return InteractionResult.FAIL;
+						}
+					} else if (Ownership.blocksWearing(player, stack)) {
+						return InteractionResult.FAIL;
+					}
 					return equippable.swapWithEquipmentSlot(stack, player);
 				}
 			}
@@ -156,6 +175,12 @@ public final class OvveItem extends BundleItem implements PolymerItem {
 			// this player's pack cannot show them all, this is the one reload a sewing session ends in.
 			if (stack.has(ModComponents.ON_STAND)) stack.remove(ModComponents.ON_STAND);
 			syncDesign(player, stack);
+			// The backstop under the equip checks: an ovve that got into the slot anyway (/item replace,
+			// a mod, a rule changed while it was worn) comes off again, into the inventory it came from.
+			if (slot == EquipmentSlot.LEGS && Ownership.blocksWearing(player, stack)) {
+				evict(player, stack);
+				return;
+			}
 			Looks.claimIfNeeded(player, stack);
 		} else {
 			refresh(stack);   // on a stand or a mannequin: follow the owner's design (loaded on demand)
@@ -166,6 +191,15 @@ public final class OvveItem extends BundleItem implements PolymerItem {
 			OvveTop.sync(wearer, stack);
 			OvveFeet.sync(wearer, stack);
 		}
+	}
+
+	/** Takes a foreign ovve off this player, back into their inventory (or onto the ground), with a word in chat. */
+	private static void evict(ServerPlayer player, ItemStack ovve) {
+		String refusal = Ownership.wearRefusal(player, ovve);
+		ItemStack taken = ovve.copy();
+		player.setItemSlot(EquipmentSlot.LEGS, ItemStack.EMPTY);
+		if (!player.getInventory().add(taken)) player.drop(taken, false, Prediction.SERVER_ONLY);
+		if (refusal != null) Ownership.refuse(player, refusal);
 	}
 
 	@Override
