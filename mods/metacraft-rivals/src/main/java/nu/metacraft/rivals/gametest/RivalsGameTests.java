@@ -26,6 +26,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
@@ -453,7 +454,10 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** A stair top takes paint as display quads: tracked, counted in the colour, removed by reset. */
+	/**
+	 * A stair top takes paint as display quads: tracked, counted in the colour, dropped when the surface
+	 * goes (waterlogged stairs included), removed by reset.
+	 */
 	@GameTest
 	public void stairTakesDisplayPaint(GameTestHelper helper) {
 		BlockPos stair = new BlockPos(2, 1, 2);
@@ -465,10 +469,24 @@ public final class RivalsGameTests {
 		helper.assertTrue(helper.getBlockState(stair.above()).isAir(), "no paint block above a stair (quads instead)");
 		helper.assertValueEqual(displays.holders(), before + 1, "one holder for the cell");
 		helper.assertTrue(displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.LIME, "cell is lime");
-		helper.assertTrue(displays.count().get(PaintColor.LIME) >= 1, "counted as lime faces");
+		helper.assertTrue(displays.count(helper.getLevel()).get(PaintColor.LIME) >= 1, "counted as lime faces");
 		boolean recoloured = Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.CYAN);
 		helper.assertTrue(recoloured && displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.CYAN, "recoloured to cyan");
 		helper.assertValueEqual(displays.holders(), before + 1, "recolour reuses the cell");
+		BlockPos wet = new BlockPos(5, 1, 5);
+		helper.setBlock(wet, Blocks.STONE_STAIRS.defaultBlockState().setValue(BlockStateProperties.WATERLOGGED, true));
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(wet), Direction.UP, PaintColor.LIME),
+				"a waterlogged stair still takes paint");
+		// The quads die with their surface. A chunk unload does the same thing by another route — Polymer
+		// destroys the holder's attachment — but a game test cannot unload its own chunks, so this half of
+		// the rule stands in for both.
+		helper.setBlock(stair, Blocks.AIR.defaultBlockState());
+		displays.count(helper.getLevel()); // the sweep that prunes cells whose paint is gone
+		helper.assertTrue(displays.colorAt(helper.absolutePos(stair.above())) == null, "the broken stair took its cell with it");
+		helper.assertValueEqual(displays.holders(), before + 1, "only the waterlogged stair's holder is left");
+		helper.setBlock(stair, Blocks.STONE_STAIRS.defaultBlockState());
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.CYAN),
+				"a rebuilt stair takes the same colour again");
 		PaintTally tally = new PaintTally();
 		helper.assertTrue(tally.count(helper.getLevel()).get(PaintColor.CYAN) >= 1, "the tally counts the quads as cyan faces");
 		int removed = tally.reset(helper.getLevel()); // a reset clears the level's display quads too

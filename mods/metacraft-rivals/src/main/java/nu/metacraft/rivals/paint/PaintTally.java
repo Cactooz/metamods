@@ -72,7 +72,7 @@ public final class PaintTally {
 			}
 			counts.merge(paint.color, faces, Integer::sum);
 		}
-		PaintDisplays.of(level).count().forEach((color, quads) -> counts.merge(color, quads, Integer::sum));
+		PaintDisplays.of(level).count(level).forEach((color, quads) -> counts.merge(color, quads, Integer::sum));
 		return counts;
 	}
 

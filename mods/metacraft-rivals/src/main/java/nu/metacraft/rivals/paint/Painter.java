@@ -10,6 +10,7 @@ import net.minecraft.util.RandomSource;
 import net.minecraft.world.entity.Entity;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Block;
+import net.minecraft.world.level.block.LiquidBlock;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
@@ -57,9 +58,12 @@ public final class Painter {
 		};
 	}
 
-	/** Anything solid: not air, not replaceable (grass, snow), not a fluid, not paint. */
+	/**
+	 * Anything solid: not air, not replaceable (grass, snow), not a liquid, not paint. Waterlogged blocks
+	 * hold paint like any other — the test is the block, not the fluid state it carries.
+	 */
 	public static boolean paintable(BlockState surface) {
-		return !surface.isAir() && !surface.canBeReplaced() && surface.getFluidState().isEmpty() && !(surface.getBlock() instanceof PaintBlock);
+		return !surface.isAir() && !surface.canBeReplaced() && !(surface.getBlock() instanceof LiquidBlock) && !(surface.getBlock() instanceof PaintBlock);
 	}
 
 	/**

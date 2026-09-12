@@ -13,6 +13,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
@@ -27,20 +28,24 @@ import org.joml.Vector3f;
 
 import java.util.EnumMap;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Map;
 
 /**
  * Paint for faces a multiface block cannot sit on (stairs, slabs, fences, panes …): one flat splat quad
- * per collision-box face on the struck side, as Polymer item displays that wrap the block's real shape.
+ * per outline-box face on the struck side, as Polymer item displays that wrap the block's real shape.
  * One holder per cell, one colour per cell; recolouring rebuilds the holder. In memory only, like the
  * tally: a restart drops them.
+ *
+ * <p>Quads are not blocks, so nothing tells them to fall: {@link #count} sweeps the cells and drops the
+ * ones whose holder or surface is gone, the same way {@link PaintTally} sweeps its paint blocks.
  */
 public final class PaintDisplays {
 	private static final Map<ResourceKey<Level>, PaintDisplays> ALL = new HashMap<>();
 	private static final double LIFT = 0.01;
 
-	private record Painted(PaintColor color, ElementHolder holder, int quads) {}
+	private record Painted(PaintColor color, ElementHolder holder, int quads, BlockPos surface, Direction face) {}
 
 	private final Map<BlockPos, Painted> cells = new HashMap<>();
 
@@ -62,12 +67,43 @@ public final class PaintDisplays {
 		return painted == null ? null : painted.color;
 	}
 
-	/** Quads per colour, counted as faces. Every colour has an entry. */
-	public Map<PaintColor, Integer> count() {
+	/**
+	 * Quads per colour, counted as faces, dropping the cells whose paint is gone. Every colour has an entry.
+	 */
+	public Map<PaintColor, Integer> count(ServerLevel level) {
 		Map<PaintColor, Integer> counts = new EnumMap<>(PaintColor.class);
 		for (PaintColor color : PaintColor.values()) counts.put(color, 0);
-		for (Painted painted : cells.values()) counts.merge(painted.color, painted.quads, Integer::sum);
+		Iterator<Map.Entry<BlockPos, Painted>> it = cells.entrySet().iterator();
+		while (it.hasNext()) {
+			Map.Entry<BlockPos, Painted> entry = it.next();
+			Painted painted = entry.getValue();
+			if (!alive(level, entry.getKey(), painted)) {
+				painted.holder.destroy();
+				it.remove();
+				continue;
+			}
+			counts.merge(painted.color, painted.quads, Integer::sum);
+		}
 		return counts;
+	}
+
+	/**
+	 * Whether this cell still holds real paint. Polymer destroys every attachment in a chunk when the chunk
+	 * unloads, which nulls the holder's attachment and leaves the entry scoring for quads nobody can see; a
+	 * broken or replaced surface leaves the quads hanging in the air; and a block built into the cell buries
+	 * them. A full face is gone too: that side takes a paint block now, not quads.
+	 */
+	private boolean alive(ServerLevel level, BlockPos cell, Painted painted) {
+		if (painted.holder.getAttachment() == null) return false;
+		BlockState surface = level.getBlockState(painted.surface);
+		if (!Painter.paintable(surface)) return false;
+		if (Block.isFaceFull(surface.getCollisionShape(level, painted.surface), painted.face)) return false;
+		return free(level.getBlockState(cell));
+	}
+
+	/** A cell quads may live in: empty, or a paint block put there by a full face beside it. */
+	private static boolean free(BlockState cell) {
+		return cell.isAir() || cell.getBlock() instanceof PaintBlock;
 	}
 
 	/** Destroy every holder in this level. Returns how many cells were cleared. */
@@ -79,16 +115,26 @@ public final class PaintDisplays {
 	}
 
 	/**
-	 * Cover the {@code face} side of every collision box of the block at {@code surface} with quads in the
-	 * cell in front. Returns false when the cell already holds this colour or the shape has no boxes.
+	 * Cover the {@code face} side of every outline box of the block at {@code surface} with quads in the
+	 * cell in front. Returns false when the cell already holds this colour, the cell is built up, or the
+	 * shape has no boxes. A cell whose paint has died (unloaded chunk, surface gone) counts as empty and is
+	 * rebuilt, so a team can always repaint its own colour.
 	 */
 	public boolean paint(ServerLevel level, BlockPos surface, Direction face, PaintColor color) {
 		BlockPos cell = surface.relative(face).immutable();
 		Painted existing = cells.get(cell);
+		if (existing != null && !alive(level, cell, existing)) {
+			existing.holder.destroy();
+			cells.remove(cell);
+			existing = null;
+		}
 		if (existing != null && existing.color == color) return false;
+		if (!free(level.getBlockState(cell))) return false;
 		BlockState state = level.getBlockState(surface);
-		VoxelShape shape = state.getCollisionShape(level, surface);
-		if (shape.isEmpty()) shape = state.getShape(level, surface);
+		// The outline shape, not the collision shape: a fence's collision box is 1.5 blocks tall, and paint
+		// on top of it would float half a block over the post.
+		VoxelShape shape = state.getShape(level, surface);
+		if (shape.isEmpty()) shape = state.getCollisionShape(level, surface);
 		List<AABB> boxes = shape.toAabbs();
 		if (boxes.isEmpty()) return false;
 		if (existing != null) existing.holder.destroy();
@@ -100,7 +146,7 @@ public final class PaintDisplays {
 			quads++;
 		}
 		ChunkAttachment.of(holder, level, origin);
-		cells.put(cell, new Painted(color, holder, quads));
+		cells.put(cell, new Painted(color, holder, quads, surface.immutable(), face));
 		return true;
 	}
 
