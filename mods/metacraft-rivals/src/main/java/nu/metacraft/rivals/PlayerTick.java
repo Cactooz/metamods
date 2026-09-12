@@ -10,14 +10,17 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.util.Mth;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.effect.MobEffect;
 import net.minecraft.world.effect.MobEffectInstance;
 import net.minecraft.world.effect.MobEffects;
+import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import nu.metacraft.rivals.gun.Ink;
 import nu.metacraft.rivals.gun.PaintWeapon;
@@ -58,6 +61,10 @@ public final class PlayerTick {
 	private static final float DRIP_DAMAGE = 1.0f;
 	/** Upward speed while swimming up an inked wall, blocks per tick. */
 	private static final double WALL_SWIM_SPEED = 0.42;
+	/** How far the player's box may sit off a wall's plane and still count as pressed against it. */
+	private static final double WALL_REACH = 0.15;
+	/** Horizontal nudge over the lip on the tick the climbed wall runs out above the player's head. */
+	private static final double LEDGE_HOP = 0.25;
 	/** Horizontal push, along the look direction, on the tick squid form is entered. */
 	private static final double DIVE_SURGE_SPEED = 0.45;
 	/** No repeat surge for a re-entry (e.g. a brief unshift) within this many ticks of the last one. */
@@ -154,8 +161,16 @@ public final class PlayerTick {
 			// climbs it; otherwise the squid clings rather than sliding back down.
 			if (wallBeside) {
 				Vec3 velocity = player.getDeltaMovement();
-				double vy = player.horizontalCollision ? WALL_SWIM_SPEED : Math.max(velocity.y, 0.0);
-				player.setDeltaMovement(velocity.x, vy, velocity.z);
+				Direction climbing = paintedWallToward(player, own.get(), moveIntent(player));
+				if (climbing != null) {
+					// Nothing left to press into above the head means the wall has run out: a small push
+					// over the lip, or the squid hangs at the top of the climb instead of topping out.
+					double lip = topsOut(player, climbing) ? LEDGE_HOP : 0.0;
+					player.setDeltaMovement(velocity.x + climbing.getStepX() * lip, WALL_SWIM_SPEED,
+							velocity.z + climbing.getStepZ() * lip);
+				} else {
+					player.setDeltaMovement(velocity.x, Math.max(velocity.y, 0.0), velocity.z);
+				}
 				player.hurtMarked = true;
 				player.resetFallDistance();
 			}
@@ -199,9 +214,9 @@ public final class PlayerTick {
 	}
 
 	/**
-	 * Is there own-colour paint on a wall face the player is pushing against? Any of the four
-	 * horizontal neighbours counts: the server does not know which way the collision was, and a squid
-	 * pressed into a corner should climb either wall.
+	 * Is there own-colour paint on a wall face beside the player? Any of the four horizontal neighbours
+	 * counts — this is the cling and the reason squid form holds off the floor paint, so which wall it
+	 * is does not matter here; {@link #paintedWallToward} is the directed version that climbs.
 	 *
 	 * <p>Paint on a wall face lives in the cell in front of that face, which is the player's own cell
 	 * (feet or head): as a paint block with the face flag pointing back at the wall, or as display
@@ -216,7 +231,53 @@ public final class PlayerTick {
 	 * air below it is still a wall to climb.
 	 */
 	static boolean paintedWallBeside(Player player, PaintColor own) {
-		if (!(player.level() instanceof ServerLevel level)) return false;
+		return paintedWall(player, own, Vec3.ZERO) != null;
+	}
+
+	/**
+	 * The inked wall the player is actually climbing: one they are both asking to move into and pressed
+	 * up against, or null. {@code move} is the intended direction from {@link #moveIntent}; an empty
+	 * one is a cling rather than a climb, so it never picks a wall.
+	 */
+	static @Nullable Direction paintedWallToward(Player player, PaintColor own, Vec3 move) {
+		// Not a guard the shared scan can make: an empty move there means the undirected cling scan,
+		// which answers with whatever wall is beside the player.
+		return move.lengthSqr() < 1.0E-4 ? null : paintedWall(player, own, move);
+	}
+
+	/**
+	 * Which way the player is asking to move, as a unit horizontal vector, or {@link Vec3#ZERO} when
+	 * they are asking for nothing.
+	 *
+	 * <p>This reads the client's own key state rather than the movement the server saw. A player
+	 * walking into a wall has their delta clipped client-side and sends one of about zero, so the
+	 * server's own {@code move()} never reports a horizontal collision on that player: testing
+	 * {@code horizontalCollision} here only ever climbed the single block squid form's taller step
+	 * height carried the player over. Only a {@link ServerPlayer} has client input; any other player
+	 * (a fake one) is treated as asking for nothing and can still cling.
+	 */
+	static Vec3 moveIntent(Player player) {
+		if (!(player instanceof ServerPlayer server)) return Vec3.ZERO;
+		Input input = server.getLastClientInput();
+		double forward = (input.forward() ? 1 : 0) - (input.backward() ? 1 : 0);
+		double strafe = (input.left() ? 1 : 0) - (input.right() ? 1 : 0);
+		if (forward == 0 && strafe == 0) return Vec3.ZERO;
+		// The rotation vanilla's Entity.getInputVector does: yaw 0 faces +Z, and the strafe axis is
+		// positive to the left.
+		float yaw = player.getYRot() * ((float) Math.PI / 180f);
+		double sin = Mth.sin(yaw);
+		double cos = Mth.cos(yaw);
+		return new Vec3(strafe * cos - forward * sin, 0, forward * cos + strafe * sin).normalize();
+	}
+
+	/**
+	 * The shared scan. With an empty {@code move} every horizontal neighbour counts, at any distance
+	 * the player's own cell can reach — that is the cling, and the test that keeps squid form on. With a
+	 * direction, only a wall the player is pushing into (within 45° of it) and hugging counts.
+	 */
+	private static @Nullable Direction paintedWall(Player player, PaintColor own, Vec3 move) {
+		if (!(player.level() instanceof ServerLevel level)) return null;
+		boolean directed = move.lengthSqr() >= 1.0E-4;
 		BlockPos feet = player.blockPosition();
 		BlockPos head = feet.above();
 		PaintDisplays displays = PaintDisplays.of(level);
@@ -226,13 +287,41 @@ public final class PlayerTick {
 		PaintColor quadColor = displays.colorAt(feet);
 		Direction quadFace = displays.faceAt(feet);
 		for (Direction side : Direction.Plane.HORIZONTAL) {
-			if (Painter.paintable(level.getBlockState(feet.relative(side)))) {
-				if (facing(atFeet, side, own)) return true;
-				if (quadColor == own && quadFace == side.getOpposite()) return true;
+			if (directed && (move.x * side.getStepX() + move.z * side.getStepZ() <= 0.5
+					|| !pressedAgainst(player, feet.relative(side), side))) {
+				continue;
 			}
-			if (facing(atHead, side, own) && Painter.paintable(level.getBlockState(head.relative(side)))) return true;
+			if (Painter.paintable(level.getBlockState(feet.relative(side)))) {
+				if (facing(atFeet, side, own)) return side;
+				if (quadColor == own && quadFace == side.getOpposite()) return side;
+			}
+			if (facing(atHead, side, own) && Painter.paintable(level.getBlockState(head.relative(side)))) return side;
 		}
-		return false;
+		return null;
+	}
+
+	/** Is the player's box within {@link #WALL_REACH} of {@code wall}'s near plane, or already inside it? */
+	private static boolean pressedAgainst(Player player, BlockPos wall, Direction side) {
+		AABB box = player.getBoundingBox();
+		double gap = switch (side) {
+			case EAST -> wall.getX() - box.maxX;
+			case WEST -> box.minX - (wall.getX() + 1);
+			case SOUTH -> wall.getZ() - box.maxZ;
+			case NORTH -> box.minZ - (wall.getZ() + 1);
+			default -> Double.POSITIVE_INFINITY;
+		};
+		return gap <= WALL_REACH;
+	}
+
+	/**
+	 * Has the climbed wall run out? The cell beyond the player's head in the wall direction having no
+	 * collision at all means there is nothing left up there to press into — a pane or fence still
+	 * counts as wall, so a climb up one is not cut short a block early.
+	 */
+	private static boolean topsOut(Player player, Direction side) {
+		if (!(player.level() instanceof ServerLevel level)) return false;
+		BlockPos above = player.blockPosition().above(2).relative(side);
+		return level.getBlockState(above).getCollisionShape(level, above).isEmpty();
 	}
 
 	/** Is {@code cell} a paint block of {@code own} carrying a face that looks towards {@code side}? */

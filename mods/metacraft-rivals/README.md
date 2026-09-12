@@ -111,9 +111,12 @@ Rivals server wants.
   it's active. Diving into squid form from a stand gives a snappy horizontal surge and a quiet
   splash. Squid form also holds beside a wall face painted in your own colour even with no paint
   underfoot, so a climb off the floor paint doesn't drop you mid-wall: pushing into that wall
-  swims you straight up it, and easing off clings in place instead of sliding back down. Standing
-  on an enemy colour's paint is a trap instead: Slowness II, no jumping at all, and half a heart of
-  damage every second that never brings you below one health.
+  swims you straight up it for as long as the ink goes, with a nudge over the lip at the top, and
+  easing off clings in place instead of sliding back down. "Pushing into" is your own movement keys
+  rather than the server noticing a collision — walking into a wall is clipped client-side, so the
+  server never sees one, which is why the climb used to stall a block up. Standing on an enemy
+  colour's paint is a trap instead: Slowness II, no jumping at all, and half a heart of damage
+  every second that never brings you below one health.
 - Score: bossbars show each colour's share of painted faces across all levels — paint blocks and
   surviving display quads alike — counted once a second from the cells the painter has touched (in
   memory; a restart forgets them). `/rivals score` counts only the level it is run in, and names
@@ -136,7 +139,7 @@ Rivals server wants.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (39 of ours, plus vanilla's always_pass: 40 in total)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (40 of ours, plus vanilla's always_pass: 41 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so

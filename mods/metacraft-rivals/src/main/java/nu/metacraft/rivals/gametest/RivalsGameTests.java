@@ -14,6 +14,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.server.ServerScoreboard;
+import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -22,6 +23,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
+import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
@@ -274,6 +276,33 @@ public final class RivalsGameTests {
 		PlayerTeam team = board.getPlayerTeam(color.id);
 		return team != null ? team : board.addPlayerTeam(color.id);
 	}
+
+	/**
+	 * A mock survival <em>server</em> player on {@code color}'s team, for the wall climb: only a
+	 * {@link ServerPlayer} carries the client input {@code PlayerTick} reads to decide which wall is
+	 * being pushed into, so a plain mock player can never climb.
+	 *
+	 * <p>This one has no connection (vanilla's helper builds it without one), so the invisibility
+	 * {@code PlayerTick} keeps on a squid would NPE on its way out to the client. Seeding the effect
+	 * straight into the active map, well above the running-low threshold, means {@code keep} finds it
+	 * healthy and never re-adds it — the climb is what these tests are about.
+	 */
+	private static ServerPlayer wallSquid(GameTestHelper helper, PaintColor color) {
+		ServerPlayer player = (ServerPlayer) helper.makeMockServerPlayer(GameType.SURVIVAL);
+		// Every mock player is called "test-mock-player" and the game test world (and its scoreboard) is
+		// reused between runs, so clear any membership another test or an earlier run left behind.
+		ServerScoreboard board = helper.getLevel().getScoreboard();
+		if (board.getPlayersTeam(player.getScoreboardName()) != null) {
+			board.removePlayerFromTeam(player.getScoreboardName());
+		}
+		board.addPlayerToTeam(player.getScoreboardName(), team(helper, color));
+		player.getActiveEffectsMap().put(MobEffects.INVISIBILITY,
+				new MobEffectInstance(MobEffects.INVISIBILITY, 600, 0, true, false, false));
+		return player;
+	}
+
+	/** Pressing forward, sneaking: the input a climbing squid sends. */
+	private static final Input PUSHING = new Input(true, false, false, false, false, true, false);
 
 	/** A mock survival player holding a gun, standing at relative (4, 3, 4), on no team. */
 	private static Player gunner(GameTestHelper helper) {
@@ -750,21 +779,22 @@ public final class RivalsGameTests {
 	public void squidWallSwim(GameTestHelper helper) {
 		stoneFloor(helper, 5);
 		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.STONE);
-		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
-		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		ServerPlayer player = wallSquid(helper, PaintColor.DATA);
+		// Hugging the wall: its west plane is the x of relative cell 4, and a full-size player's box
+		// reaches 0.3 either side of its centre.
+		Vec3 at = helper.absoluteVec(new Vec3(3.7, 2.0, 2.5));
 		player.setPos(at.x, at.y, at.z);
 		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(3, 1, 2)), Direction.UP, PaintColor.DATA); // floor under
 		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 2)), Direction.WEST, PaintColor.DATA); // wall beside
 		player.setShiftKeyDown(true);
-		player.horizontalCollision = true;
+		player.setYRot(-90f); // forward is +X, into the wall
+		player.setLastClientInput(PUSHING);
 		player.setDeltaMovement(0.1, 0, 0);
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(SquidState.isSquid(player), "squid");
 		helper.assertTrue(player.getDeltaMovement().y > 0.2, "lifted up the inked wall, dy=" + player.getDeltaMovement().y);
 		// Only floor paint left: the wall itself carries no paint, so the squid must not climb it.
 		helper.setBlock(new BlockPos(4, 2, 2), Blocks.AIR);
-		player.horizontalCollision = true;
 		player.setDeltaMovement(0.1, 0, 0);
 		PlayerTick.tick(player, 1);
 		helper.assertTrue(player.getDeltaMovement().y < 0.2, "not lifted without a painted wall, dy=" + player.getDeltaMovement().y);
@@ -780,9 +810,8 @@ public final class RivalsGameTests {
 	public void squidWallSwimUpAPane(GameTestHelper helper) {
 		stoneFloor(helper, 5);
 		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.GLASS_PANE);
-		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
-		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		ServerPlayer player = wallSquid(helper, PaintColor.DATA);
+		Vec3 at = helper.absoluteVec(new Vec3(3.7, 2.0, 2.5)); // hugging the pane's cell
 		player.setPos(at.x, at.y, at.z);
 		BlockPos feet = helper.absolutePos(new BlockPos(3, 2, 2));
 		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(3, 1, 2)), Direction.UP, PaintColor.DATA); // floor under
@@ -792,7 +821,8 @@ public final class RivalsGameTests {
 		helper.assertTrue(displays.colorAt(feet) == PaintColor.DATA && displays.faceAt(feet) == Direction.WEST,
 				"a pane's paint is quads in the player's own cell, facing back at the pane");
 		player.setShiftKeyDown(true);
-		player.horizontalCollision = true;
+		player.setYRot(-90f); // forward is +X, into the pane
+		player.setLastClientInput(PUSHING);
 		player.setDeltaMovement(0.1, 0, 0);
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(SquidState.isSquid(player), "squid");
@@ -801,7 +831,6 @@ public final class RivalsGameTests {
 		// with it, so the same push must go nowhere.
 		helper.setBlock(new BlockPos(4, 2, 2), Blocks.AIR);
 		displays.count(helper.getLevel()); // the sweep that drops cells whose surface is gone
-		player.horizontalCollision = true;
 		player.setDeltaMovement(0.1, 0, 0);
 		PlayerTick.tick(player, 1);
 		helper.assertTrue(player.getDeltaMovement().y < 0.2, "not lifted once the pane is gone, dy=" + player.getDeltaMovement().y);
@@ -818,9 +847,8 @@ public final class RivalsGameTests {
 	public void squidClingsToAnInkedWall(GameTestHelper helper) {
 		stoneFloor(helper, 5);
 		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.STONE);
-		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
-		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		ServerPlayer player = wallSquid(helper, PaintColor.DATA);
+		Vec3 at = helper.absoluteVec(new Vec3(3.7, 2.0, 2.5));
 		player.setPos(at.x, at.y, at.z);
 		// Painted one cell up from the feet (head height): a full-cube wall face lands as a real
 		// PaintBlock in the cell in front of it — the feet cell itself if painted at feet height, which
@@ -829,17 +857,73 @@ public final class RivalsGameTests {
 		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 3, 2)), Direction.WEST, PaintColor.DATA);
 		helper.assertTrue(PlayerTick.paintUnder(player) == null, "no paint under the feet");
 		player.setShiftKeyDown(true);
-		player.horizontalCollision = false;
+		player.setYRot(-90f); // facing the wall, but not asking to move
+		player.setLastClientInput(Input.EMPTY);
 		player.setDeltaMovement(0.0, -0.05, 0.0);
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(PlayerTick.isSquid(player), "squid form holds beside a wall with no floor paint");
 		helper.assertTrue(player.getDeltaMovement().y >= 0.0, "clings instead of sliding down, dy=" + player.getDeltaMovement().y);
-		player.horizontalCollision = true;
+		// A squid's box is half as wide, so hugging the same wall puts its centre closer to it.
+		Vec3 hug = helper.absoluteVec(new Vec3(3.85, 2.0, 2.5));
+		player.setPos(hug.x, hug.y, hug.z);
+		player.setLastClientInput(PUSHING);
 		player.setDeltaMovement(0.1, 0, 0);
 		PlayerTick.tick(player, 1);
 		helper.assertTrue(PlayerTick.isSquid(player), "still squid while pushing into the wall");
 		double dy = player.getDeltaMovement().y;
 		helper.assertTrue(dy > 0.35 && dy < 0.5, "climbs the wall at the wall-swim speed, dy=" + dy);
+		helper.succeed();
+	}
+
+	/**
+	 * The climb keeps going past the first block. Pushing into the wall is read from the client's own
+	 * input, not from {@code horizontalCollision}: a real player walking into a wall has their movement
+	 * clipped client-side and sends a delta of about zero, so the server copy never collides and the
+	 * old check only ever lifted the one block squid form's taller step height carried them over.
+	 */
+	@GameTest
+	public void squidClimbsAnInkedWall(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(2, y, 1), Blocks.STONE);
+		ServerPlayer player = wallSquid(helper, PaintColor.DATA);
+		for (int y = 2; y <= 4; y++) {
+			helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(2, y, 1)), Direction.SOUTH, PaintColor.DATA),
+					"the wall took paint at y=" + y);
+		}
+		// Hugging the wall: its south plane is the z of relative cell 2, and a full-size player's box
+		// reaches 0.3 either side of its centre.
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 2.0, 2.3));
+		player.setPos(at.x, at.y, at.z);
+		player.setYRot(180f); // forward is -Z, into the wall
+		player.setShiftKeyDown(true);
+		player.setLastClientInput(PUSHING);
+		player.setDeltaMovement(0, -0.08, 0);
+		PlayerTick.tick(player, 0);
+		helper.assertTrue(SquidState.isSquid(player), "squid");
+		double first = player.getDeltaMovement().y;
+		helper.assertTrue(first > 0.35 && first < 0.5, "lifted off the floor at the wall-swim speed, dy=" + first);
+		// A block higher up the same wall — the case the user reported as "not working past one block".
+		// A squid's box is half as wide, so hugging the wall puts its centre closer to it.
+		Vec3 higher = helper.absoluteVec(new Vec3(2.5, 3.0, 2.15));
+		player.setPos(higher.x, higher.y, higher.z);
+		player.setDeltaMovement(0, -0.08, 0);
+		PlayerTick.tick(player, 1);
+		double second = player.getDeltaMovement().y;
+		helper.assertTrue(second > 0.35 && second < 0.5, "still lifted a block higher up the wall, dy=" + second);
+		// Off the keys: the squid clings where it is rather than climbing on by itself.
+		player.setLastClientInput(Input.EMPTY);
+		player.setDeltaMovement(0, -0.08, 0);
+		PlayerTick.tick(player, 2);
+		helper.assertTrue(PlayerTick.isSquid(player), "squid form holds while clinging");
+		double clinging = player.getDeltaMovement().y;
+		helper.assertTrue(clinging >= 0.0 && clinging < 0.35, "clings without climbing, dy=" + clinging);
+		// Facing away from the wall is not a climb either, however hard the player pushes.
+		player.setYRot(0f); // forward is +Z, away from the wall
+		player.setLastClientInput(PUSHING);
+		player.setDeltaMovement(0, -0.08, 0);
+		PlayerTick.tick(player, 3);
+		double away = player.getDeltaMovement().y;
+		helper.assertTrue(away >= 0.0 && away < 0.35, "pushing away from the wall does not climb it, dy=" + away);
 		helper.succeed();
 	}
 
