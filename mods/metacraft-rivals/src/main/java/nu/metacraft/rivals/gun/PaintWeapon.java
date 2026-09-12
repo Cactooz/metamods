@@ -35,6 +35,7 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
+import net.minecraft.world.item.component.Consumable;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.item.component.UseEffects;
 import net.minecraft.world.level.ClipContext;
@@ -75,7 +76,9 @@ import java.util.UUID;
  * work every tick until the button is let go. The slosher stays one slosh per click — its own cadence
  * is twelve ticks, so the repeat fits inside it — and the charger has always been held, for its charge.
  * Either way the item cooldown is the fire rate, and it is checked on the server rather than trusted to
- * the client.
+ * the client. Holding takes both sides, though: a vanilla client decides for itself whether it is using
+ * an item, and it is the side that sends the release — so the client stack carries a consumable
+ * component that makes it agree. See {@link #HELD_USE}, which is where the roller's dead flick was.
  *
  * <p>Only the slosher swings the arm: it is a bucket, and the throw reads as one. The others return
  * {@link InteractionResult#CONSUME}, which takes the click without animating the hand — a swing loop on
@@ -108,6 +111,53 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 */
 	private static final UseEffects SHOOTER_USE = new UseEffects(true, false, 0.72f);
 	private static final UseEffects ROLLER_USE = new UseEffects(true, false, 1.0f);
+
+	/**
+	 * What makes a <em>vanilla</em> client hold the trigger. This is the other half of held use, and
+	 * without it the server half above was talking to itself.
+	 *
+	 * <p>The server starts using the item in {@link #use}, but the client never did, and almost
+	 * everything about holding a button is the client's decision:
+	 *
+	 * <ul>
+	 * <li>{@code Minecraft.handleKeybinds} only sends {@code RELEASE_USE_ITEM} — the packet that reaches
+	 *     {@link #releaseUsing} — while {@code player.isUsingItem()}. With the client not using, the
+	 *     roller's release never arrived, so <b>the flick never fired</b> and the {@code held} time the
+	 *     tap is told from the roll by was meaningless.</li>
+	 * <li>A client that is not using an item repeats the <em>use</em> packet every four ticks instead
+	 *     (its {@code rightClickDelay}), so the server was re-{@code startUsingItem}ing on a loop.</li>
+	 * <li>{@code minecraft:use_effects} — the no-sprint and the speed multiplier — is applied in
+	 *     {@code LocalPlayer} only while the client is using, so the shooter's 0.72 and the roller's
+	 *     no-sprint never happened at all.</li>
+	 * </ul>
+	 *
+	 * <p>26.3's {@code Item.use} starts using an item that carries a {@code minecraft:consumable}
+	 * component: it reads CONSUMABLE, calls {@code Consumable.startConsuming}, and that calls
+	 * {@code startUsingItem} whenever {@code consumeTicks() > 0}. {@code canConsume} only consults the
+	 * FOOD component, and there is none here, so it is always true. That is the whole trick: put a
+	 * consumable on the <em>client</em> stack, and a vanilla client holds the button down for us. (The
+	 * charger needs none of this — it is disguised as a spyglass, and {@code SpyglassItem.use} starts
+	 * using by itself, which is why the charger was the one weapon that always worked.)
+	 *
+	 * <p>The disguise had to change with it. {@link #getPolymerItem} used to hand out
+	 * {@code warped_fungus_on_a_stick}, and {@code FoodOnAStickItem.use} returns PASS on the client
+	 * before it ever looks at a component, so no component could have helped; a plain {@link Item} —
+	 * a stick — runs the base {@code Item.use} that reads CONSUMABLE. The client only ever sees our own
+	 * model anyway ({@link #getPolymerItemModel}), so which vanilla item is underneath is invisible.
+	 *
+	 * <p>An hour of consume time, matching {@link #getUseDuration}, the NONE animation so the hand is
+	 * not raised to a mouth, no consume particles, and the intentionally-empty sound. The last two are
+	 * belt and braces: {@code Consumable.shouldEmitParticlesAndSounds} only starts emitting after 21.875%
+	 * of the consume time has passed — thirteen minutes here — and then only every fourth tick, so a
+	 * realistic hold never reaches the first burp. Nothing ever completes, either: the server ends the
+	 * use long before the hour is up, and the server is the one that decides what the item does.
+	 */
+	private static final Consumable HELD_USE = Consumable.builder()
+			.consumeSeconds(Weapon.CHARGE_MAX_TICKS / 20.0f)
+			.animation(ItemUseAnimation.NONE)
+			.sound(BuiltInRegistries.SOUND_EVENT.wrapAsHolder(SoundEvents.EMPTY))
+			.hasConsumeParticles(false)
+			.build();
 
 	public static void register() {
 		for (Weapon weapon : Weapon.values()) {
@@ -329,6 +379,10 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 * items: the press starts using, and {@link #onUseTick} does the work every tick until the button is
 	 * let go. The slosher stays one slosh per click, because its own cadence is twelve ticks and the
 	 * four-tick repeat fits inside it; the charger is held for its charge and fires on the left click.
+	 *
+	 * <p>Held on the server is only half of it. A vanilla client decides for itself whether it is using
+	 * an item, and it is the side that sends the release — so the client stack carries a
+	 * {@link #HELD_USE} consumable that makes it agree.
 	 */
 	public boolean isHeld() {
 		return weapon == Weapon.SHOOTER || weapon == Weapon.ROLLER || weapon == Weapon.CHARGER;
@@ -758,15 +812,38 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 */
 	@Override
 	public ItemStack getPolymerItemStack(ItemStack stack, TooltipFlag flag, PacketContext context, HolderLookup.Provider lookup) {
-		GameProfile viewer = context.get(PacketContext.GAME_PROFILE);
+		// No context at all is "nobody in particular is being sent this" — a test, or a stack built off a
+		// packet — and the safe reading of that is the same as a stranger's: the idle LED.
+		GameProfile viewer = context == null ? null : context.get(PacketContext.GAME_PROFILE);
 		ItemStack masked = stack.copy();
 		InkOnScreen.put(masked, ledForViewer(stack, viewer == null ? null : viewer.id()));
-		return PolymerItem.super.getPolymerItemStack(masked, flag, context, lookup);
+		ItemStack client = PolymerItem.super.getPolymerItemStack(masked, flag, context, lookup);
+		// The two held weapons that are not the charger have to be held by the CLIENT as well as by the
+		// server: see HELD_USE. Both components go on the stack Polymer built rather than on the one it
+		// was handed, because what reaches the client is a rebuilt stack carrying the components Polymer
+		// chooses to copy, and neither of these is one a server item is expected to need on the wire.
+		if (isHeld() && weapon != Weapon.CHARGER) {
+			client.set(DataComponents.CONSUMABLE, HELD_USE);
+			client.set(DataComponents.USE_EFFECTS, weapon == Weapon.SHOOTER ? SHOOTER_USE : ROLLER_USE);
+		}
+		return client;
 	}
 
+	/**
+	 * The vanilla item the client is handed. The charger is a spyglass, for the scope: its client-side
+	 * {@code use} starts using the item by itself and the zoom is the aim.
+	 *
+	 * <p>Everything else is a plain stick, and plain is the point. It was
+	 * {@code warped_fungus_on_a_stick}, whose {@code FoodOnAStickItem.use} returns PASS on the client
+	 * before looking at a single component — so the client never held the button, and the roller's
+	 * release packet, which is the only thing that can tell a tap from a roll, was never sent. A stick
+	 * is a bare {@link Item}, so the base {@code Item.use} runs and starts using on the CONSUMABLE
+	 * component this class puts on the client stack. What the item is underneath is invisible: the
+	 * client draws {@link #getPolymerItemModel}'s model, not the stick's.
+	 */
 	@Override
 	public Item getPolymerItem(ItemStack stack, PacketContext context) {
-		return weapon == Weapon.CHARGER ? Items.SPYGLASS : Items.WARPED_FUNGUS_ON_A_STICK;
+		return weapon == Weapon.CHARGER ? Items.SPYGLASS : Items.STICK;
 	}
 
 	@Override

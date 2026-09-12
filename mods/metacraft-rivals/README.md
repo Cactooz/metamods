@@ -124,6 +124,25 @@ dedicated Rivals server wants.
   and left click is its trigger — the charge it has built if it is scoped, a snap shot at no charge if
   it is not.
 
+  **How a vanilla client is made to hold.** Starting the use on the server is only half of it, and for
+  one round it was the only half: `Minecraft.handleKeybinds` sends the `RELEASE_USE_ITEM` packet only
+  while `player.isUsingItem()` *on the client*, so with the client not using, the roller's release never
+  arrived and **its flick never fired**; the client repeated the use packet every four ticks instead,
+  re-starting the use on a loop; and `use_effects` — the no-sprint and the speed multiplier, both read
+  client-side — never applied at all. 26.3's `Item.use` starts using anything carrying a
+  `minecraft:consumable` (it calls `Consumable.startConsuming`, which calls `startUsingItem` whenever
+  `consumeTicks() > 0`; `canConsume` only asks about FOOD, and there is none), so the shooter's and the
+  roller's **client** stacks carry one: an hour long, animation `none`, no consume particles, the
+  intentionally-empty sound. Nothing ever completes it — the server ends the use — and vanilla only
+  starts the eating sounds after 21.875% of the consume time, which is thirteen minutes in.
+
+  That is also why the disguise is a **stick**. It was `warped_fungus_on_a_stick`, and
+  `FoodOnAStickItem.use` returns PASS on the client before it looks at a single component, so no
+  component could have reached it; a bare `Item` runs the base `Item.use` that reads the consumable.
+  What the item is underneath is invisible either way — the client draws the model Polymer points it
+  at. The charger stays a spyglass: `SpyglassItem.use` starts using by itself, which is why the charger
+  was the one weapon whose hold always worked.
+
   Holding an item in use costs a vanilla player their sprint and four fifths of their speed — a bow's
   behaviour, read client-side off the `minecraft:use_effects` component — so the shooter and the roller
   carry their own: the shooter keeps sprinting at 72% (about what firing costs in Splatoon) and the

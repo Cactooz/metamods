@@ -47,7 +47,10 @@ import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Input;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.ItemStack;
+import net.minecraft.world.item.ItemUseAnimation;
+import net.minecraft.world.item.component.Consumable;
 import net.minecraft.world.item.Items;
+import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.item.component.FireworkExplosion;
@@ -1614,6 +1617,52 @@ public final class RivalsGameTests {
 				helper.assertValueEqual(box.getAsJsonObject("faces").size(), 6, id + ": and it has six faces");
 			}
 			helper.assertValueEqual(leds, 1, id + ": exactly one LED element");
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * The half of held use that lives on the client. A vanilla client decides for itself whether it is
+	 * using an item, and it is the side that sends the release packet — so a client that never held the
+	 * button meant the roller's release never arrived and its flick never fired, the use packet was
+	 * repeated every four ticks instead, and the {@code use_effects} the client reads (no sprint, the
+	 * speed multiplier) were never applied at all.
+	 *
+	 * <p>26.3's {@code Item.use} starts using anything carrying a {@code minecraft:consumable}, so the
+	 * client stack carries one. It only works on a bare {@link net.minecraft.world.item.Item}: the old
+	 * {@code warped_fungus_on_a_stick} disguise overrides {@code use} and returns PASS on the client
+	 * before reading a component, which is why the disguise is a stick now.
+	 */
+	@GameTest
+	public void theClientStackMakesTheClientHoldTheTrigger(GameTestHelper helper) {
+		for (Weapon weapon : Weapon.values()) {
+			PaintWeapon item = PaintWeapon.of(weapon);
+			ItemStack server = new ItemStack(item);
+			ItemStack client = item.getPolymerItemStack(server, TooltipFlag.Default.NORMAL, PacketContext.get(),
+					helper.getLevel().registryAccess());
+			Consumable consumable = client.get(DataComponents.CONSUMABLE);
+			if (weapon == Weapon.CHARGER) {
+				// The spyglass starts using the item on its own, and its animation is the scope.
+				helper.assertValueEqual(client.getItem(), Items.SPYGLASS, "the charger is a spyglass");
+				helper.assertTrue(consumable == null, "and needs no consumable to be held");
+				continue;
+			}
+			helper.assertValueEqual(client.getItem(), Items.STICK,
+					weapon + ": a bare Item, whose use() reads the consumable (a food-on-a-stick's does not)");
+			if (weapon == Weapon.SLOSHER) {
+				helper.assertTrue(consumable == null, "the slosher is a click, not a hold");
+				continue;
+			}
+			helper.assertTrue(consumable != null, weapon + ": the client stack carries a consumable");
+			helper.assertTrue(consumable.animation() == ItemUseAnimation.NONE,
+					weapon + ": no animation, so the hand is not raised to a mouth");
+			helper.assertTrue(!consumable.hasConsumeParticles(), weapon + ": and no eating crumbs");
+			// As long as getUseDuration, which is vanilla's "as long as you like". Nothing ever completes
+			// it — the server ends the use — and the sound and particles only start after 21.875% of it.
+			helper.assertValueEqual(consumable.consumeTicks(), Weapon.CHARGE_MAX_TICKS,
+					weapon + ": held for as long as the button is");
+			UseEffects effects = client.get(DataComponents.USE_EFFECTS);
+			helper.assertTrue(effects != null, weapon + ": and the use effects reach the client, which applies them");
 		}
 		helper.succeed();
 	}
