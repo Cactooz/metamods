@@ -38,18 +38,23 @@ public final class SquidState {
 		return SQUIDS.contains(player.getUUID());
 	}
 
-	/** Become a squid. Does nothing if the player already is one. */
+	/**
+	 * Become a squid. The modifier helpers are themselves idempotent ({@code hasModifier}-guarded), so
+	 * this always adds the UUID and always calls them: a rejoin or respawn drops the transient
+	 * modifiers without touching the set, and an early return here on an already-tracked UUID would
+	 * leave {@link #isSquid} true while the attributes stayed missing.
+	 */
 	public static void enter(Player player) {
-		if (!SQUIDS.add(player.getUUID())) return;
+		SQUIDS.add(player.getUUID());
 		modifier(player, Attributes.SCALE, SCALE_ID, -0.5, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
 		modifier(player, Attributes.MOVEMENT_SPEED, SPEED_ID, 0.8, AttributeModifier.Operation.ADD_MULTIPLIED_TOTAL);
 		modifier(player, Attributes.JUMP_STRENGTH, JUMP_ID, 0.2, AttributeModifier.Operation.ADD_VALUE);
 		modifier(player, Attributes.STEP_HEIGHT, STEP_ID, 0.5, AttributeModifier.Operation.ADD_VALUE);
 	}
 
-	/** Back to a player. Does nothing if the player is not a squid. */
+	/** Back to a player. {@link #remove} is a no-op when the modifier is absent, so this is safe to call unconditionally. */
 	public static void exit(Player player) {
-		if (!SQUIDS.remove(player.getUUID())) return;
+		SQUIDS.remove(player.getUUID());
 		remove(player, Attributes.SCALE, SCALE_ID);
 		remove(player, Attributes.MOVEMENT_SPEED, SPEED_ID);
 		remove(player, Attributes.JUMP_STRENGTH, JUMP_ID);

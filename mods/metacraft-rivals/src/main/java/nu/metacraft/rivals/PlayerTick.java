@@ -150,7 +150,11 @@ public final class PlayerTick {
 	 *
 	 * <p>Paint on a wall face lives in the cell in front of that face, which is the player's own cell
 	 * (feet or head): as a paint block with the face flag pointing back at the wall, or as display
-	 * quads keyed at that same cell when the wall is not a full cube.
+	 * quads keyed at that same cell when the wall is not a full cube. A quad-painted floor slab's
+	 * quads are keyed at that same feet cell too (one cell above the tread), so the colour match alone
+	 * is not enough — the quads must also carry the horizontal face pointing from the wall back at the
+	 * player, i.e. {@code side.getOpposite()}, or a squid standing on its own paint would climb any
+	 * paintable neighbour regardless of whether that neighbour is inked.
 	 */
 	static boolean paintedWallBeside(Player player, PaintColor own) {
 		if (!(player.level() instanceof ServerLevel level)) return false;
@@ -160,7 +164,7 @@ public final class PlayerTick {
 			BlockPos wall = feet.relative(side);
 			if (!Painter.paintable(level.getBlockState(wall))) continue;
 			if (facing(level.getBlockState(feet), side, own) || facing(level.getBlockState(feet.above()), side, own)) return true;
-			if (displays.colorAt(feet) == own) return true;
+			if (displays.colorAt(feet) == own && displays.faceAt(feet) == side.getOpposite()) return true;
 		}
 		return false;
 	}

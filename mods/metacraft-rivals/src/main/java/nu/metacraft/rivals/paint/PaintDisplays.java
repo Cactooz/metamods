@@ -80,6 +80,12 @@ public final class PaintDisplays {
 		return painted == null ? null : painted.color;
 	}
 
+	/** The face the quads in {@code cell} are painted on, or null if there are none. */
+	public @Nullable Direction faceAt(BlockPos cell) {
+		Painted painted = cells.get(cell);
+		return painted == null ? null : painted.face;
+	}
+
 	/**
 	 * Quads per colour, counted as faces, dropping the cells whose paint is gone. Every colour has an entry.
 	 */

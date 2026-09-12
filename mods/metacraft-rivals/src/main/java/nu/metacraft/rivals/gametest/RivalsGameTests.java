@@ -699,6 +699,12 @@ public final class RivalsGameTests {
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(SquidState.isSquid(player), "squid");
 		helper.assertTrue(player.getDeltaMovement().y > 0.2, "lifted up the inked wall, dy=" + player.getDeltaMovement().y);
+		// Only floor paint left: the wall itself carries no paint, so the squid must not climb it.
+		helper.setBlock(new BlockPos(4, 2, 2), Blocks.AIR);
+		player.horizontalCollision = true;
+		player.setDeltaMovement(0.1, 0, 0);
+		PlayerTick.tick(player, 1);
+		helper.assertTrue(player.getDeltaMovement().y < 0.2, "not lifted without a painted wall, dy=" + player.getDeltaMovement().y);
 		helper.succeed();
 	}
 
@@ -712,9 +718,23 @@ public final class RivalsGameTests {
 		float before = player.getHealth();
 		PlayerTick.tick(player, 20);
 		helper.assertTrue(player.getHealth() <= before - 1.0f, "hurt on a damage tick, health " + player.getHealth());
+		// The guard itself, isolated from vanilla's post-hit invulnerability: at 1.5 health a drip would
+		// take the player below one, so it must not land at all.
 		player.setHealth(1.5f);
+		player.invulnerableTime = 0;
 		PlayerTick.tick(player, 40);
-		helper.assertTrue(player.getHealth() >= 1.0f, "never below one health");
+		helper.assertTrue(player.getHealth() == 1.5f, "guard skips the drip below one health, health " + player.getHealth());
+		// At 3.0 a drip lands as normal.
+		player.setHealth(3.0f);
+		player.invulnerableTime = 0;
+		PlayerTick.tick(player, 60);
+		helper.assertTrue(player.getHealth() == 2.0f, "drip lands with health to spare, health " + player.getHealth());
+		// Never below one health: without resetting invulnerableTime this would be vacuous, since vanilla
+		// itself rejects a second hit within the previous drip's invulnerability window.
+		player.setHealth(1.5f);
+		player.invulnerableTime = 0;
+		PlayerTick.tick(player, 80);
+		helper.assertTrue(player.getHealth() == 1.5f, "never below one health, health " + player.getHealth());
 		player.setHealth(before);
 		helper.succeed();
 	}
