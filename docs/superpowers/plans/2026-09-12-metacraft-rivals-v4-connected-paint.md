@@ -56,7 +56,7 @@
 **Interfaces:**
 - Produces: `enum PaintColor { DATA, IT }` with fields `id, displayName, rgb, donor, teamColor, barColor` — `donor` stays in this task (DATA → `Blocks.SCULK_VEIN`, IT → `Blocks.GLOW_LICHEN`) so v3's mapping keeps compiling; Task 3 removes it.
 
-- [ ] **Step 1: Change the enum**
+- [x] **Step 1: Change the enum**
 
 ```java
 public enum PaintColor {
@@ -68,7 +68,7 @@ public enum PaintColor {
 
 Update the class javadoc: two teams, ovve colours, "the id doubles as the vanilla team name". Keep `donorPath()`, `idList()`, `byId`, `byTeam`.
 
-- [ ] **Step 2: Lang**
+- [x] **Step 2: Lang**
 
 ```json
 	"block.metacraft-rivals.paint_data": "DATA Paint",
@@ -77,16 +77,16 @@ Update the class javadoc: two teams, ovve colours, "the id doubles as the vanill
 
 (remove the magenta/lime/cyan lines.)
 
-- [ ] **Step 3: Tests and PaintBall default**
+- [x] **Step 3: Tests and PaintBall default**
 
 Replace every colour reference in `RivalsGameTests.java`. Rule: the first colour a test uses becomes `DATA`, the second `IT`; a test that used all three (e.g. the tally share test with `1/3`) is rewritten for two colours with the expected fraction updated (`1/2` or whatever the new counts give — recompute from the test's own numbers, do not guess). Team-name strings follow (`"data"`, `"it"`). Check `grep -n 'MAGENTA\|LIME\|CYAN\|"magenta"\|"lime"\|"cyan"' src/main/java` returns nothing.
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Run: `./gradlew --offline mods:metacraft-rivals:runGameTest`
 Expected: `All 40 required tests passed` (39 ours + always_pass; the count before this task — verify with `grep -c @GameTest` and adjust if the squid pass changed it).
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/PaintColor.java mods/metacraft-rivals/src/main/resources/assets/metacraft-rivals/lang/en_us.json mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/gun/PaintBall.java mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/gametest/RivalsGameTests.java mods/metacraft-rivals/README.md
@@ -109,7 +109,7 @@ git commit -m "rivals: two teams — DATA and IT in their ovve colours"
   - `PaintStates.DONORS` = `List.of(Blocks.SCULK_VEIN, Blocks.GLOW_LICHEN, Blocks.RESIN_CLUMP, Blocks.TRIPWIRE)`
   - `PaintStates.CONNECTED_PER_COLOR = 96`, `SPLAT_PER_COLOR = 57`
 
-- [ ] **Step 1: Write the failing test** (append at the end of the test class)
+- [x] **Step 1: Write the failing test** (append at the end of the test class)
 
 ```java
 	/** Spec §2: every server paint state has its own client state, and none of them shows water or nothing. */
@@ -136,12 +136,12 @@ git commit -m "rivals: two teams — DATA and IT in their ovve colours"
 	}
 ```
 
-- [ ] **Step 2: Run it to see it fail**
+- [x] **Step 2: Run it to see it fail**
 
 Run: `./gradlew --offline mods:metacraft-rivals:runGameTest`
 Expected: compile error, `PaintStates` does not exist.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 ```java
 package nu.metacraft.rivals.paint;
@@ -228,11 +228,11 @@ public final class PaintStates {
 }
 ```
 
-- [ ] **Step 4: Run the tests**
+- [x] **Step 4: Run the tests**
 
 Expected: `All 41 required tests passed`.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/paint/PaintStates.java mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/gametest/RivalsGameTests.java
@@ -255,7 +255,7 @@ git commit -m "rivals: the client-state table — 306 paint states over four don
   - `PaintBlocks.connected(PaintColor)`, `PaintBlocks.splat(PaintColor)` (the old `of` renamed to `splat`).
   - `Painter.paintFace` unchanged signature; `Painter.isPaint(BlockState)`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```java
 	/** Spec §4: floor then wall in the same air cell → the multiface fallback with both faces. */
@@ -302,9 +302,9 @@ git commit -m "rivals: the client-state table — 306 paint states over four don
 
 (`PaintTally` needs a public no-arg constructor; the existing tally test already constructs one — follow it.)
 
-- [ ] **Step 2: Run to see them fail** — compile error on `ConnectedPaintBlock`.
+- [x] **Step 2: Run to see them fail** — compile error on `ConnectedPaintBlock`.
 
-- [ ] **Step 3: `Paint` and `ConnectedPaintBlock`**
+- [x] **Step 3: `Paint` and `ConnectedPaintBlock`**
 
 ```java
 package nu.metacraft.rivals.paint;
@@ -420,13 +420,13 @@ public final class ConnectedPaintBlock extends Block implements Paint, PolymerBl
 
 Check the exact `updateShape` signature and `getShapeForFace` visibility with `javap -p` on `net.minecraft.world.level.block.Block` / `MultifaceBlock` in `~/.gradle/caches/fabric-loom/26.2/minecraft-merged.jar`; adapt the override, not the design. If `getShapeForFace` is not accessible, define six `Block.box` slabs: DOWN `box(0,0,0,16,1,16)`, UP `box(0,15,0,16,16,16)`, NORTH `box(0,0,0,16,16,1)`, SOUTH `box(0,0,15,16,16,16)`, WEST `box(0,0,0,1,16,16)`, EAST `box(15,0,0,16,16,16)`.
 
-- [ ] **Step 4: `PaintBlock` mapping, `Paint`, registration, `PaintColor`**
+- [x] **Step 4: `PaintBlock` mapping, `Paint`, registration, `PaintColor`**
 
 `PaintBlock implements Paint`: `color()` returns the field; `faceMask` ORs the six face properties; `getPolymerBlockState` returns `PaintStates.splat(color, faceMask(state))`; delete `verifyDonor`. Remove `donor`, `donorPath()` and the `Block`/`Blocks`/`BuiltInRegistries` imports from `PaintColor`.
 
 `PaintBlocks`: two maps; ids `paint_<id>` (splat, keeps the v3 id) and `paint_<id>_face` (connected); same properties builder for both; `splat(color)`, `connected(color)`.
 
-- [ ] **Step 5: `paintFace`**
+- [x] **Step 5: `paintFace`**
 
 ```java
 	/** Either paint block. */
@@ -487,11 +487,11 @@ Check the exact `updateShape` signature and `getShapeForFace` visibility with `j
 
 Any other `instanceof PaintBlock` in the module (`grep -rn 'instanceof PaintBlock' src/main/java`) — `PlayerTick.paintUnder`, `paintedWallBeside`, `PaintDisplays`, tests — becomes `instanceof Paint paint` with `paint.color()` and `paint.faceMask(state)` in place of `paint.color` and the face-property reads. Squid detection reads "own paint under the feet": the DOWN bit of the cell's mask.
 
-- [ ] **Step 6: Run the tests**
+- [x] **Step 6: Run the tests**
 
 Expected: `All 43 required tests passed`. Existing tests that asserted `instanceof PaintBlock` after a single `paintFace` now see `ConnectedPaintBlock`: update those assertions to `instanceof Paint` (the behaviour they test is unchanged); do not weaken anything else.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/paint mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/PaintColor.java mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/PlayerTick.java mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/gametest/RivalsGameTests.java
@@ -506,7 +506,7 @@ git commit -m "rivals: connected paint cells — one face with four bits, the mu
 - Modify: `paint/ConnectedPaintBlock.java` (only if Task 3's `updateShape` does not already cover a case), `paint/Painter.java`
 - Test: append `floorPaintConnects`, `wallPaintUsesTheWorldFrame`, `overpaintReconnects`
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 ```java
 	/** Spec §7: a 3×3 floor — centre all four bits, an edge three, a corner two. */
@@ -550,7 +550,7 @@ git commit -m "rivals: connected paint cells — one face with four bits, the mu
 	}
 ```
 
-- [ ] **Step 2: Run them.** If `updateShape` fires for in-plane neighbours on `setBlock(..., UPDATE_ALL)` (it should: neighbours get shape updates for all six directions), the tests may already pass. If a bit is stale, add an explicit refresh at the end of `paintFace` after `setBlock`:
+- [x] **Step 2: Run them.** If `updateShape` fires for in-plane neighbours on `setBlock(..., UPDATE_ALL)` (it should: neighbours get shape updates for all six directions), the tests may already pass. If a bit is stale, add an explicit refresh at the end of `paintFace` after `setBlock`:
 
 ```java
 	/** Re-derive the bits of the four in-plane neighbours of {@code cell} for {@code face}, whatever colour they hold. */
@@ -568,9 +568,9 @@ git commit -m "rivals: connected paint cells — one face with four bits, the mu
 
 Call it with the attach direction for every cell that changed (including the overpaint case, where the old colour's neighbours must lose the bit — `neighbourBits` with the neighbour's own colour handles that).
 
-- [ ] **Step 3: Run the tests** — Expected: `All 46 required tests passed`.
+- [x] **Step 3: Run the tests** — Expected: `All 46 required tests passed`.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/paint mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/gametest/RivalsGameTests.java
@@ -589,7 +589,7 @@ git commit -m "rivals: connection bits follow the neighbours — floors, walls a
 **Interfaces:**
 - Produces: `PaintArt.packFiles() → Map<String, byte[]>`; `PaintArt.textureName(PaintColor, int bits)` = `paint_<id>_<bits>`; `PaintArt.modelName(Direction attach)` = `paint_face_<down|up|north|south|west|east>`; `PaintArt.encodeRed(int rgb, int bits)`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 ```java
 	/** Every client state in use has a blockstate variant; every (colour, bits) has a texture; the marker alpha is on every texel. */
@@ -620,9 +620,9 @@ git commit -m "rivals: connection bits follow the neighbours — floors, walls a
 	}
 ```
 
-- [ ] **Step 2: Run it** — compile error.
+- [x] **Step 2: Run it** — compile error.
 
-- [ ] **Step 3: Implement `PaintArt`**
+- [x] **Step 3: Implement `PaintArt`**
 
 ```java
 /**
@@ -705,11 +705,11 @@ public final class PaintArt {
 
 Concrete rules for the two `...` parts, so the implementer does not invent them: (1) connected entries reference a wrapper model `paint_<id>_<bits>_<face>` (generate all 2 × 16 × 6 = 192 tiny JSON files, `parent` = the face quad, `textures.paint` = the colour/bits texture); (2) splat entries reference `paint_<id>_mask<mask>` (2 × 57 files), each a model whose `elements` are the face quads of every set bit, all textured with `paint_<id>_15`; the six quad element definitions live in one Java method used by both the face models and the mask models. Use `JsonObject` for all JSON, never string templates for the variants file. `valueName` for `Direction`/boolean uses `Property.getName(value)`.
 
-- [ ] **Step 4: Wire the pack.** `RivalsPack.init`: `PaintArt.packFiles().forEach(builder::addData); SplatArt.packFiles().forEach(builder::addData);` and a log line `"[{}] pack: {} paint files ({} colours × 16 textures, 6 face models, {} donors), {} splat-quad files, terrain shader"`. `SplatArt.packFiles` returns only the quad items.
+- [x] **Step 4: Wire the pack.** `RivalsPack.init`: `PaintArt.packFiles().forEach(builder::addData); SplatArt.packFiles().forEach(builder::addData);` and a log line `"[{}] pack: {} paint files ({} colours × 16 textures, 6 face models, {} donors), {} splat-quad files, terrain shader"`. `SplatArt.packFiles` returns only the quad items.
 
-- [ ] **Step 5: Run the tests** — Expected: `All 47 required tests passed`.
+- [x] **Step 5: Run the tests** — Expected: `All 47 required tests passed`.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/pack mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/gametest/RivalsGameTests.java
@@ -725,7 +725,7 @@ git commit -m "rivals: the pack for connected paint — bit-carrying textures, s
 
 No game test can see it; verification is reading it back plus the in-game round. `chunkPos` (chunk-relative vertex position) and `viewPos` are provided by `terrain.vsh`; `GameTime`, `TextureSize`, `Sampler0` are vanilla uniforms already used in the file.
 
-- [ ] **Step 1: Replace the block**
+- [x] **Step 1: Replace the block**
 
 ```glsl
 	// RIVALS_GLOSS: paint texels carry alpha 229/255 = 0.898 as a marker; the window admits 228..230
@@ -791,11 +791,11 @@ No game test can see it; verification is reading it back plus the in-game round.
 
 Notes: no `dFdx`/`dFdy`/texture sampling with implicit LOD inside the branch (the four derivative values above are the only ones used). The `&` on `int` needs GLSL ≥ 1.30 (vanilla's `#version` line is higher; keep it). The `color` variable at this point is `tex * vertexColor` mixed with fog per vanilla — leave the preceding lines as they are; the bits are read from `tex`, never from `color`. Delete the v3 wobble-UV sampling and the neighbour-texel meniscus loop (they belong to the sprite era). The red nibble shifts the paint colour by at most 15/255 — invisible; do not compensate.
 
-- [ ] **Step 2: Read the file back** and check braces, that `chunkPos`/`viewPos` are declared `in vec3` at the top, and that no `sampleNearest`/`texel` identifiers from the removed code remain unused (unused is fine; undefined is not).
+- [x] **Step 2: Read the file back** and check braces, that `chunkPos`/`viewPos` are declared `in vec3` at the top, and that no `sampleNearest`/`texel` identifiers from the removed code remain unused (unused is fine; undefined is not).
 
-- [ ] **Step 3: Run the tests** — Expected still `All 47 required tests passed` (the pack test asserts the shader files are present).
+- [x] **Step 3: Run the tests** — Expected still `All 47 required tests passed` (the pack test asserts the shader files are present).
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add mods/metacraft-rivals/src/main/resources/rivals_shaders/terrain.fsh
@@ -809,11 +809,11 @@ git commit -m "rivals: the shader draws the paint border — bits from the texel
 **Files:**
 - Modify: `README.md` (teams, how connected paint works, donor caveat incl. tripwire, test count), `RivalsCommands.java` (setup message lists `data, it`; it already uses `PaintColor.idList()` — verify), `docs/superpowers/plans/2026-09-12-metacraft-rivals-v4-connected-paint.md` (tick the boxes)
 
-- [ ] **Step 1: README.** Replace the paint section: two teams (ovve colours with the hex values), connected cells vs corner fallback, the 306/317 state table, the shader-drawn border, "real sculk veins, glow lichen, resin clumps and tripwire in an arena render as paint", the count of our tests (`grep -c @GameTest`) and that runGameTest reports one more. Remove the Kenney splat-variant paragraph for blocks; keep the Kenney credit for the display-quad silhouettes and the gun models.
+- [x] **Step 1: README.** Replace the paint section: two teams (ovve colours with the hex values), connected cells vs corner fallback, the 306/317 state table, the shader-drawn border, "real sculk veins, glow lichen, resin clumps and tripwire in an arena render as paint", the count of our tests (`grep -c @GameTest`) and that runGameTest reports one more. Remove the Kenney splat-variant paragraph for blocks; keep the Kenney credit for the display-quad silhouettes and the gun models.
 
-- [ ] **Step 2: Full run** — `./gradlew --offline mods:metacraft-rivals:runGameTest` → `All 47 required tests passed`.
+- [x] **Step 2: Full run** — `./gradlew --offline mods:metacraft-rivals:runGameTest` → `All 47 required tests passed`.
 
-- [ ] **Step 3: Commit**
+- [x] **Step 3: Commit**
 
 ```bash
 git add mods/metacraft-rivals/README.md mods/metacraft-rivals/src/main/java/nu/metacraft/rivals/RivalsCommands.java docs/superpowers/plans/2026-09-12-metacraft-rivals-v4-connected-paint.md

@@ -4,23 +4,47 @@ METAmods module `mods/metacraft-rivals` (mod id `metacraft-rivals`). A Splatoon-
 prototype for vanilla clients: Fabric + [Polymer](https://polymer.pb4.eu), Minecraft 26.2, Java 25.
 Players need only the auto-served resource pack. Design: `docs/superpowers/specs/2026-09-11-metacraft-rivals-paint-prototype-design.md`
 (v1), `docs/superpowers/specs/2026-09-12-metacraft-rivals-v2-design.md` (v2: feel, art, any-block
-paint, ink) and `docs/superpowers/specs/2026-09-12-metacraft-rivals-v3-design.md` (v3: gloss that
-actually renders, real squid form, blobby bouncing shots, three more weapons); the gun's design
-sheet is next to the v1 spec.
+paint, ink), `docs/superpowers/specs/2026-09-12-metacraft-rivals-v3-design.md` (v3: gloss that
+actually renders, real squid form, blobby bouncing shots, three more weapons) and
+`docs/superpowers/specs/2026-09-12-metacraft-rivals-v4-connected-paint-design.md` (v4: two teams,
+connected paint, the shader-drawn border); the gun's design sheet is next to the v1 spec.
 
 **Standalone.** This module is not bundled into the `dist` jar (root `build.gradle`, `standaloneMods`):
-its pack retextures sculk vein and glow lichen as paint, which only a dedicated
-Rivals server wants.
+its pack retextures sculk vein, resin clump, tripwire and redstone wire as paint, which only a
+dedicated Rivals server wants.
 
 ## How it works
 
 - Two teams, one colour each, in their ovvar chapter's ovve: **DATA** `#BD3754` and **IT**
-  `#8A57BD`. A team's name is its colour id (`data`, `it`).
-- Paint is a server-side multiface block per colour (`metacraft-rivals:paint_<colour>`), sent to
-  clients as the colour's donor: data → sculk vein, it → glow lichen (vanilla's lit one; what a
-  client shows for our unlit paint block is unverified). Donors accept paint even when
-  waterlogged — the check is on the block, not the fluid state it carries.
-- One colour per cell: a hit in another colour recolours the cell and keeps its faces.
+  `#8A57BD`. A team's name is its colour id (`data`, `it`); `/rivals setup` creates both
+  (it lists `PaintColor.idList()`, so a third colour would need no command change).
+- A painted region renders as a continuous sheet, not a decal picked at random per cell. A
+  single-face cell is `ConnectedPaintBlock`: server-side properties for its face and four in-plane
+  connection bits — which of its floor/wall neighbours hold the same colour on the same face —
+  recomputed from those neighbours every time one changes. The bits travel to vanilla clients as
+  the low nibble of a texture's red channel, and the fragment shader turns them into a rounded,
+  gently wobbling edge wherever the sheet actually ends, so there are no edge tiles to draw and the
+  border is a smooth curve at any resolution (see the shader bullet below). A cell painted on more
+  than one face (a corner: floor plus wall in the same air cell) falls back to `PaintBlock`, the
+  plain multiface splat that carries no bits.
+- Both block kinds are sent to vanilla clients as blockstates borrowed from four donors that render
+  whatever the pack says and, once picked clean of the states that would misbehave (waterlogged,
+  unlit, powered), have no collision, emit no light and have no client-side behaviour:
+
+  | donor | usable states | note |
+  |---|---|---|
+  | sculk vein | 63 | six face booleans; waterlogged and the all-false state excluded |
+  | resin clump | 63 | same |
+  | tripwire | 128 | attached × disarmed × powered × n/e/s/w; thin outline shape only |
+  | redstone wire, power 0 | 81 | only power 0 is silent and carries no dust tint |
+
+  335 usable states in all; 306 are in the pool (153 per colour: 96 connected face×bits
+  combinations, then 57 corner masks). Glow lichen was considered and dropped — it lights every
+  state that has a face, which would make paint glow. The v1 caveat still applies, now for four
+  blocks instead of one: real sculk veins, resin clumps, tripwire and redstone dust a player places
+  in an arena render as paint too.
+- One colour per cell: a hit in another colour wipes the cell and starts it over as a single
+  connected face in the new colour, even if the old cell held paint on more than one face.
 - Four weapons, one item class (`PaintWeapon`) parameterised by a `Weapon` enum, given with
   `/rivals gun <shooter|sprayer|charger|slosher>` (default shooter) or all at once with
   `/rivals kit`:
@@ -61,8 +85,8 @@ Rivals server wants.
   grains hang in the middle of the camera. The shooter gets three small ones at the barrel tip
   instead, offset right and down out of the crosshair. The charger's trail starts its dust 1.5
   blocks along the shot for the same reason; the paint under the line still starts at the eyes.
-- Paint blocks only ever sit on a full face — vanilla's own attach rule for a multiface block, and
-  exactly the rule paint wants. A face that isn't full (stairs, slabs, fences, panes, walls, glass
+- Paint blocks only ever sit on a full face — the same attach rule vanilla's own multiface blocks
+  use, and exactly the rule paint wants. A face that isn't full (stairs, slabs, fences, panes, walls, glass
   panes) instead gets a set of flat splat-quad item displays that wrap the block's own outline
   shape (not its collision box, so paint on a fence sits on top of the post, not floating at
   collision height). At most three quads per cell, the largest boxes on the struck side, so a
@@ -71,15 +95,30 @@ Rivals server wants.
   once their surface is destroyed, replaced, buried, or merely changes shape (a stair turned
   under them), or once its chunk unloads — a chunk unload takes the paint with it, and unlike a
   paint block it does not come back when the chunk reloads.
-- Splat art comes from Kenney's Splat Pack (CC0): eight silhouettes, each rendered per colour at
-  four rotations (32 variants per colour), with paint texels marked at a specific alpha the gloss
-  shader looks for. The resource pack's blockstate overrides for `sculk_vein` and `glow_lichen`
-  pick one of the 32 variants per block position at random, so adjacent painted cells stop visibly
-  tiling.
-- The pack also overrides `assets/minecraft/shaders/core/terrain.vsh`/`terrain.fsh` — the pair
-  that actually draws chunk geometry in 26.2 — to add a subtle specular/fresnel gloss on paint
-  texels only; every other texel keeps vanilla's shading byte for byte. (v2 keyed this into
-  `block.vsh`/`block.fsh`, which chunk terrain never runs through, so the gloss never rendered;
+- Paint on a full block face is drawn by the pack's own art and the shader (below), not a Kenney
+  silhouette. Per colour there are 16 uniform 16×16 textures — the paint colour, alpha 229 (the
+  gloss shader's marker, unchanged since v2/v3), and the four connection bits packed into the low
+  nibble of the red channel (`r = (base & 0xF0) | bits`) — plus six shared one-quad models, one per
+  attach direction, each 0.1/16 off the face like the multiface donors. A blockstate `variants` file
+  per donor block maps every one of its states to either a wrapper model (a connected cell's face
+  quad with its (colour, bits) texture) or a mask model (a corner cell's quad-per-face, all on the
+  all-connected texture); states paint doesn't use point at an empty model, so a stray vanilla sculk
+  vein or tripwire a player places shows nothing extra beyond that block's own normal rendering.
+  Kenney's Splat Pack (CC0) now only supplies the display-quad art: eight silhouettes, kept as
+  opaque white masks and dye-tinted per shooter, for the flat quads `PaintDisplays` hangs on faces
+  that aren't full blocks (stairs, slabs, fences, panes) — the item icon still uses one variant too.
+- The pack also overrides `assets/minecraft/shaders/core/terrain.vsh`/`terrain.fsh` — the pair that
+  actually draws chunk geometry in 26.2 — inside a guard on that alpha marker. It reads the four
+  bits back out of the texel's red channel, works out the face's two in-plane axes from
+  `cross(dFdx(chunkPos), dFdy(chunkPos))`, and computes the signed distance to a rounded box in that
+  plane: unconnected sides are inset (with a slow time-and-position wobble) and rounded at a corner
+  only where both sides meeting there are unconnected, while connected sides run out past the cell
+  so the seam to the next sheet is invisible; a fragment outside that box is discarded, which is what
+  draws the border with no baked edge tile at any resolution. Inside the border it keeps v3's liquid
+  pass — a meniscus rim lit toward the light on the shape's outer edge, a moving three-wave normal,
+  and glint/sheen/fresnel mixed toward white — now computed from that same distance field instead of
+  sampling neighbour texels; every other texel keeps vanilla's shading byte for byte. (v2 keyed this
+  into `block.vsh`/`block.fsh`, which chunk terrain never runs through, so the gloss never rendered;
   those overrides are gone.) Known limit: a shader pack (e.g. Iris) replaces the core shaders
   wholesale and loses the gloss.
 - The guns' 3D models live under `assets/metacraft-rivals/models/item/`; each tank is dye-tinted
@@ -139,7 +178,7 @@ Rivals server wants.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (40 of ours, plus vanilla's always_pass: 41 in total)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (47 of ours, plus vanilla's always_pass: 48 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so
