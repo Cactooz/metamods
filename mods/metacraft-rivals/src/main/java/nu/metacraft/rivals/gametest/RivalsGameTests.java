@@ -79,7 +79,6 @@ import nu.metacraft.rivals.paint.PaintDisplays;
 import nu.metacraft.rivals.paint.Painter;
 import nu.metacraft.rivals.paint.PaintTally;
 import nu.metacraft.rivals.pack.PaintArt;
-import nu.metacraft.rivals.pack.SplatArt;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -161,7 +160,7 @@ public final class RivalsGameTests {
 				int first = image.getRGB(0, 0);
 				for (int y = 0; y < image.getHeight(); y++) {
 					for (int x = 0; x < image.getWidth(); x++) {
-						helper.assertValueEqual((image.getRGB(x, y) >>> 24) & 0xFF, SplatArt.PAINT_ALPHA, path + " alpha at " + x + "," + y);
+						helper.assertValueEqual((image.getRGB(x, y) >>> 24) & 0xFF, PaintArt.PAINT_ALPHA, path + " alpha at " + x + "," + y);
 						helper.assertValueEqual(image.getRGB(x, y), first, path + " uniform at " + x + "," + y);
 					}
 				}
@@ -796,6 +795,12 @@ public final class RivalsGameTests {
 		helper.assertTrue(helper.getBlockState(stair.above()).isAir(), "no paint block above a stair (quads instead)");
 		helper.assertValueEqual(displays.holders(), before + 1, "one holder for the cell");
 		helper.assertTrue(displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.DATA, "cell is DATA");
+		// The quads are block displays of the paint's own client state, one per outline box on the face.
+		List<BlockState> quads = displays.statesAt(helper.absolutePos(stair.above()));
+		helper.assertTrue(!quads.isEmpty() && quads.size() <= 3, "one to three quads, got " + quads.size());
+		for (BlockState quad : quads) {
+			helper.assertValueEqual(quad, PaintStates.connected(PaintColor.DATA, Direction.DOWN, 0), "the DATA floor state");
+		}
 		helper.assertTrue(displays.count(helper.getLevel()).get(PaintColor.DATA) >= 1, "counted as DATA faces");
 		boolean recoloured = Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.IT);
 		helper.assertTrue(recoloured && displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.IT, "recoloured to IT");
@@ -835,63 +840,66 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * The display quads' item assets: one 16×16 sprite, its model and its item definition, agreeing with
-	 * each other — the definition names the model, the model names the texture, and the dye tint reaches
-	 * a tinted face. The sprite itself is the silhouette an isolated paint cell has: hard-edged (every
-	 * texel either opaque or absent, never anything between), transparent in the corners and opaque in
-	 * the middle, so a quad on a slab reads as the same material as the block paint beside it.
+	 * A display quad is the paint state itself: a block display showing
+	 * {@link PaintStates#connected} for the cell's colour, its attach direction (the opposite of the face
+	 * it was painted on — floor paint on a slab top attaches DOWN, exactly as a chunk cell does) and its
+	 * connection bits. Every quad in a cell shows the same state, and the state is one of the table's own,
+	 * so the pack already has a model and a texture for it and the item shader's gloss finds the marker
+	 * alpha in it.
 	 */
 	@GameTest
-	public void quadItemAssetsAreGenerated(GameTestHelper helper) throws IOException {
-		Map<String, byte[]> files = SplatArt.packFiles();
-		String name = SplatArt.QUAD;
-		String itemPath = "assets/metacraft-rivals/items/" + name + ".json";
-		String modelPath = "assets/metacraft-rivals/models/item/" + name + ".json";
-		String texturePath = "assets/metacraft-rivals/textures/item/" + name + ".png";
-		for (String path : new String[] {itemPath, modelPath, texturePath}) {
-			helper.assertTrue(files.containsKey(path), "in pack: " + path);
+	public void displayQuadsWearRealPaintStates(GameTestHelper helper) {
+		BlockPos slab = new BlockPos(2, 1, 2);
+		helper.setBlock(slab, Blocks.STONE_SLAB.defaultBlockState());
+		PaintDisplays displays = PaintDisplays.of(helper.getLevel());
+		BlockPos cell = helper.absolutePos(slab.above());
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(slab), Direction.UP, PaintColor.DATA),
+				"slab top accepted paint");
+		List<BlockState> states = displays.statesAt(cell);
+		helper.assertTrue(!states.isEmpty(), "the cell holds quads");
+		helper.assertValueEqual(displays.bitsAt(cell), 0, "an isolated quad has no connections");
+		for (BlockState state : states) {
+			helper.assertTrue(PaintStates.all().contains(state), "a real client paint state: " + state);
+			PaintStates.Entry entry = PaintStates.entry(state);
+			helper.assertTrue(entry.color() == PaintColor.DATA, "DATA, got " + entry.color());
+			helper.assertTrue(entry.face() == Direction.DOWN, "attaches DOWN under the paint's own face, got " + entry.face());
+			helper.assertValueEqual(entry.bits(), 0, "no bits");
+			helper.assertValueEqual(state, PaintStates.connected(PaintColor.DATA, Direction.DOWN, 0), "the table's state for it");
 		}
-		helper.assertValueEqual(files.size(), 3, "one quad, three files: " + files.keySet());
-		JsonObject definition = JsonParser.parseString(new String(files.get(itemPath), StandardCharsets.UTF_8)).getAsJsonObject();
-		JsonObject modelDef = definition.getAsJsonObject("model");
-		String model = modelDef.get("model").getAsString(); // metacraft-rivals:item/paint_quad
-		String modelFile = "assets/metacraft-rivals/models/" + model.substring(model.indexOf(':') + 1) + ".json";
-		helper.assertValueEqual(modelFile, modelPath, "the definition points at the generated model");
-		// Without the dye tint the quad renders white, whatever colour the display element carries.
-		helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(),
-				"minecraft:dye", "dye tint");
-		JsonObject modelJson = JsonParser.parseString(new String(files.get(modelFile), StandardCharsets.UTF_8)).getAsJsonObject();
-		boolean tinted = false;
-		for (JsonElement element : modelJson.getAsJsonArray("elements")) {
-			for (var face : element.getAsJsonObject().getAsJsonObject("faces").entrySet()) {
-				JsonObject json = face.getValue().getAsJsonObject();
-				if (json.has("tintindex") && json.get("tintindex").getAsInt() == 0) tinted = true;
-			}
+		helper.succeed();
+	}
+
+	/**
+	 * Quads border like blocks. Two slab tops side by side each gain the bit pointing at the other, and a
+	 * paint block painted into the cell beside a quad opens that quad's border towards it — the quads are
+	 * not blocks, so nothing tells them about a new neighbour but {@link Painter} itself. The reverse does
+	 * not hold: a paint block's own bits come from {@link ConnectedPaintBlock#neighbourBits}, which reads
+	 * block states, so it leaves its edge closed against a quad.
+	 */
+	@GameTest
+	public void displayQuadsConnectToNeighbours(GameTestHelper helper) {
+		PaintDisplays displays = PaintDisplays.of(helper.getLevel());
+		BlockPos west = new BlockPos(2, 1, 4), east = new BlockPos(3, 1, 4);
+		helper.setBlock(west, Blocks.STONE_SLAB.defaultBlockState());
+		helper.setBlock(east, Blocks.STONE_SLAB.defaultBlockState());
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(west), Direction.UP, PaintColor.DATA), "west slab painted");
+		helper.assertValueEqual(displays.bitsAt(helper.absolutePos(west.above())), 0, "alone so far");
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(east), Direction.UP, PaintColor.DATA), "east slab painted");
+		// inPlane for a DOWN attach is {WEST, EAST, NORTH, SOUTH}: bit 1 is +u (east), bit 0 is -u (west).
+		helper.assertValueEqual(displays.bitsAt(helper.absolutePos(west.above())), 2, "the west quad reaches east");
+		helper.assertValueEqual(displays.bitsAt(helper.absolutePos(east.above())), 1, "the east quad reaches west");
+		for (BlockState state : displays.statesAt(helper.absolutePos(east.above()))) {
+			helper.assertValueEqual(state, PaintStates.connected(PaintColor.DATA, Direction.DOWN, 1), "and shows the bordered state");
 		}
-		helper.assertTrue(tinted, "some face carries tintindex 0, so the dye reaches it");
-		String texture = modelJson.getAsJsonObject("textures").get("splat").getAsString();
-		String textureFile = "assets/metacraft-rivals/textures/" + texture.substring(texture.indexOf(':') + 1) + ".png";
-		helper.assertValueEqual(textureFile, texturePath, "the model points at the generated texture");
-		BufferedImage sprite = ImageIO.read(new ByteArrayInputStream(files.get(texturePath)));
-		helper.assertValueEqual(sprite.getWidth(), SplatArt.SIZE, "16 px wide");
-		helper.assertValueEqual(sprite.getHeight(), SplatArt.SIZE, "16 px tall");
-		int opaque = 0;
-		for (int y = 0; y < sprite.getHeight(); y++) {
-			for (int x = 0; x < sprite.getWidth(); x++) {
-				int alpha = (sprite.getRGB(x, y) >>> 24) & 0xFF;
-				helper.assertTrue(alpha == 0 || alpha == 255, "alpha at " + x + "," + y + " is 0 or 255, got " + alpha);
-				if (alpha == 255) opaque++;
-			}
-		}
-		// The rounded square: corners cut away, middle solid, and most of the tile covered.
-		for (int[] corner : new int[][] {{0, 0}, {15, 0}, {0, 15}, {15, 15}}) {
-			helper.assertValueEqual((sprite.getRGB(corner[0], corner[1]) >>> 24) & 0xFF, 0,
-					"corner " + corner[0] + "," + corner[1] + " is cut away");
-		}
-		helper.assertValueEqual((sprite.getRGB(8, 8) >>> 24) & 0xFF, 255, "the middle is paint");
-		helper.assertValueEqual((sprite.getRGB(8, 1) >>> 24) & 0xFF, 255, "and so is the inset edge");
-		helper.assertValueEqual((sprite.getRGB(8, 0) >>> 24) & 0xFF, 0, "the outermost texel is the inset");
-		helper.assertTrue(opaque > 150 && opaque < 220, "a full square bar its corners and inset, got " + opaque);
+		// A full block north of the east slab, painted on top: its paint block lands in the cell in-plane
+		// with the quad, which is bit 2 (-v, north) for a DOWN attach.
+		BlockPos north = new BlockPos(3, 1, 3);
+		helper.setBlock(north, Blocks.STONE);
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(north), Direction.UP, PaintColor.DATA), "floor block painted");
+		helper.assertTrue(Painter.isPaint(helper.getBlockState(north.above())), "a paint block, not quads");
+		helper.assertValueEqual(displays.bitsAt(helper.absolutePos(east.above())), 1 | 4, "the quad borders the paint block too");
+		helper.assertValueEqual(ConnectedPaintBlock.bits(helper.getBlockState(north.above())) & 8, 0,
+				"and the paint block leaves its own edge closed against the quad");
 		helper.succeed();
 	}
 
@@ -1255,6 +1263,11 @@ public final class RivalsGameTests {
 		PaintDisplays displays = PaintDisplays.of(helper.getLevel());
 		helper.assertTrue(displays.colorAt(feet) == PaintColor.DATA && displays.faceAt(feet) == Direction.WEST,
 				"a pane's paint is quads in the player's own cell, facing back at the pane");
+		// A wall cell's paint attaches the other way: the quads carry the EAST state, pointing at the pane.
+		for (BlockState quad : displays.statesAt(feet)) {
+			helper.assertValueEqual(quad, PaintStates.connected(PaintColor.DATA, Direction.EAST, 0),
+					"the DATA wall state, with nothing painted in the plane beside it to border against");
+		}
 		player.setShiftKeyDown(true);
 		player.setYRot(-90f); // forward is +X, into the pane
 		player.setLastClientInput(PUSHING);
@@ -2151,7 +2164,7 @@ public final class RivalsGameTests {
 				helper.assertTrue(png != null, "texture for " + color + " bits " + bits);
 				BufferedImage image = ImageIO.read(new ByteArrayInputStream(png));
 				int argb = image.getRGB(0, 0);
-				helper.assertValueEqual(argb >>> 24, SplatArt.PAINT_ALPHA, "marker alpha");
+				helper.assertValueEqual(argb >>> 24, PaintArt.PAINT_ALPHA, "marker alpha");
 				helper.assertValueEqual((argb >> 16 & 0xFF) & 0x0F, bits, "bits in the red nibble");
 				helper.assertValueEqual(image.getRGB(15, 15), argb, "uniform");
 			}

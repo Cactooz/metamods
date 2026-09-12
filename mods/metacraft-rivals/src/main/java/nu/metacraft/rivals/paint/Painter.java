@@ -113,6 +113,9 @@ public final class Painter {
 		}
 		if (!level.setBlock(cell, next, Block.UPDATE_ALL)) return false;
 		PaintTally.of(level).track(cell);
+		// Paint blocks re-border themselves through updateShape; display quads are not blocks and get no
+		// neighbour update, so the cell tells them itself.
+		PaintDisplays.of(level).refreshAround(level, cell);
 		return true;
 	}
 

@@ -2,16 +2,12 @@ package nu.metacraft.rivals.paint;
 
 import eu.pb4.polymer.virtualentity.api.ElementHolder;
 import eu.pb4.polymer.virtualentity.api.attachment.ChunkAttachment;
-import eu.pb4.polymer.virtualentity.api.elements.ItemDisplayElement;
+import eu.pb4.polymer.virtualentity.api.elements.BlockDisplayElement;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
-import net.minecraft.core.component.DataComponents;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerLevel;
-import net.minecraft.world.item.ItemDisplayContext;
-import net.minecraft.world.item.ItemStack;
-import net.minecraft.world.item.Items;
-import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
@@ -19,11 +15,7 @@ import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
 import nu.metacraft.rivals.PaintColor;
-import nu.metacraft.rivals.Rivals;
-import nu.metacraft.rivals.pack.SplatArt;
 import org.jspecify.annotations.Nullable;
-import org.joml.Matrix3f;
-import org.joml.Quaternionf;
 import org.joml.Vector3f;
 
 import java.util.ArrayList;
@@ -35,20 +27,25 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Paint for faces a multiface block cannot sit on (stairs, slabs, fences, panes …): one flat splat quad
- * per outline-box face on the struck side, as Polymer item displays that wrap the block's real shape.
- * One holder per cell, one colour per cell; recolouring rebuilds the holder. In memory only, like the
- * tally: a restart drops them.
+ * Paint for faces a multiface block cannot sit on (stairs, slabs, fences, panes …): one flat quad per
+ * outline-box face on the struck side, as Polymer <em>block</em> displays carrying the very paint state
+ * a painted cell would carry — {@link PaintStates#connected} for the colour, the attach direction and
+ * the four connection bits — so a quad is the same material as the block paint beside it and
+ * borders against it. One holder per cell, one
+ * colour and one face per cell; recolouring rebuilds the holder. In memory only, like the tally: a
+ * restart drops them.
  *
  * <p>Quads are not blocks, so nothing tells them to fall: {@link #count} sweeps the cells and drops the
- * ones whose holder or surface is gone, the same way {@link PaintTally} sweeps its paint blocks.
+ * ones whose holder or surface is gone, the same way {@link PaintTally} sweeps its paint blocks. Nothing
+ * tells them about a new neighbour either, which is what {@link #refreshAround} is for: {@link Painter}
+ * calls it after every cell it paints, so a quad re-borders itself within the tick.
  */
 public final class PaintDisplays {
 	private static final Map<ResourceKey<Level>, PaintDisplays> ALL = new HashMap<>();
-	private static final double LIFT = 0.01;
+	private static final Direction[] DIRECTIONS = Direction.values();
 	/**
 	 * How many quads one cell may hold. A complex shape (a wall post plus four arms, a pane cross) can
-	 * report a dozen outline boxes, and a quad per box is a dozen item displays in one cell for every
+	 * report a dozen outline boxes, and a quad per box is a dozen block displays in one cell for every
 	 * client in range; three of them, the largest on the struck side, already read as a splat.
 	 */
 	static final int MAX_QUADS_PER_CELL = 3;
@@ -56,9 +53,29 @@ public final class PaintDisplays {
 	/**
 	 * A painted cell. {@code state} is the surface's block state at paint time: the quads are cut to
 	 * that shape, so a surface that changes shape under them (a stair turned, a slab filled to a double
-	 * slab) leaves them wrong and they are dropped rather than moved.
+	 * slab) leaves them wrong and they are dropped rather than moved. {@code bits} is the cell's current
+	 * connection nibble, shared by every quad in it — the neighbour test is per cell, not per box.
 	 */
-	private record Painted(PaintColor color, ElementHolder holder, int quads, BlockPos surface, Direction face, BlockState state) {}
+	private static final class Painted {
+		private final PaintColor color;
+		private final ElementHolder holder;
+		private final List<BlockDisplayElement> quads;
+		private final BlockPos surface;
+		private final Direction face;
+		private final BlockState state;
+		private int bits;
+
+		private Painted(PaintColor color, ElementHolder holder, List<BlockDisplayElement> quads,
+				BlockPos surface, Direction face, BlockState state, int bits) {
+			this.color = color;
+			this.holder = holder;
+			this.quads = quads;
+			this.surface = surface;
+			this.face = face;
+			this.state = state;
+			this.bits = bits;
+		}
+	}
 
 	private final Map<BlockPos, Painted> cells = new HashMap<>();
 
@@ -86,6 +103,21 @@ public final class PaintDisplays {
 		return painted == null ? null : painted.face;
 	}
 
+	/** The connection nibble the quads in {@code cell} carry, or -1 if there are none. For tests. */
+	public int bitsAt(BlockPos cell) {
+		Painted painted = cells.get(cell);
+		return painted == null ? -1 : painted.bits;
+	}
+
+	/** The client states the quads in {@code cell} show, empty if there are none. For tests. */
+	public List<BlockState> statesAt(BlockPos cell) {
+		Painted painted = cells.get(cell);
+		if (painted == null) return List.of();
+		List<BlockState> states = new ArrayList<>();
+		for (BlockDisplayElement quad : painted.quads) states.add(quad.getBlockState());
+		return states;
+	}
+
 	/**
 	 * Quads per colour, counted as faces, dropping the cells whose paint is gone. Every colour has an entry.
 	 */
@@ -101,7 +133,7 @@ public final class PaintDisplays {
 				it.remove();
 				continue;
 			}
-			counts.merge(painted.color, painted.quads, Integer::sum);
+			counts.merge(painted.color, painted.quads.size(), Integer::sum);
 		}
 		return counts;
 	}
@@ -162,13 +194,20 @@ public final class PaintDisplays {
 		if (existing != null) existing.holder.destroy();
 		ElementHolder holder = new ElementHolder();
 		Vec3 origin = Vec3.atLowerCornerOf(cell);
-		int quads = 0;
+		Direction attach = face.getOpposite();
+		// The cell's own bits have to be known before the quads are built: the state they show carries them.
+		// The cell is not in the map yet, so this sees the neighbours only, which is what it wants.
+		int bits = bits(level, cell, attach, color, face);
+		List<BlockDisplayElement> quads = new ArrayList<>();
 		for (AABB box : boxes) {
-			holder.addElement(quad(box, surface, face, color, origin));
-			quads++;
+			BlockDisplayElement quad = quad(box, surface, face, color, bits, origin);
+			holder.addElement(quad);
+			quads.add(quad);
 		}
 		ChunkAttachment.of(holder, level, origin);
-		cells.put(cell, new Painted(color, holder, quads, surface.immutable(), face, state));
+		cells.put(cell, new Painted(color, holder, quads, surface.immutable(), face, state, bits));
+		// The neighbours gain a bit pointing back at this cell.
+		refreshAround(level, cell);
 		return true;
 	}
 
@@ -187,35 +226,73 @@ public final class PaintDisplays {
 		return w * h;
 	}
 
-	/** One paint quad on the {@code face} side of {@code box} (box coordinates are local to the surface block). */
-	private static ItemDisplayElement quad(AABB box, BlockPos surface, Direction face, PaintColor color, Vec3 origin) {
-		Vector3f n = new Vector3f(face.getStepX(), face.getStepY(), face.getStepZ());
-		// In-plane axes: u is the model's X, v the model's Y. v is the "up" of the quad — world +Z on the
-		// horizontal faces, world +Y on the four sides — and u = v × n, which keeps (u, v, n) right-handed
-		// for all six faces: a left-handed basis is a reflection, and setFromNormalized would read it as
-		// some other rotation entirely. A sign flip in u only mirrors the blob across its own axis.
-		Vector3f v = face.getAxis() == Direction.Axis.Y ? new Vector3f(0, 0, 1) : new Vector3f(0, 1, 0);
-		Vector3f u = new Vector3f(v).cross(n);
-		double w = face.getAxis() == Direction.Axis.X ? box.getZsize() : box.getXsize();
-		double h = face.getAxis() == Direction.Axis.Y ? box.getZsize() : box.getYsize();
-		Vec3 centre = box.getCenter();
+	/**
+	 * One paint quad on the {@code face} side of {@code box} (box coordinates are local to the surface
+	 * block). A block display draws the block model with the model's own origin at the element's
+	 * position, so there is no rotation to work out: the paint state's attach direction already puts the
+	 * model's one quad against the right side of its unit cube (at local 0 when the attach direction
+	 * points negative, at local 1 when it points positive, a tenth of a texel clear of the face, exactly
+	 * as vanilla's multiface models are). Placing it is therefore two numbers per axis: where the box's
+	 * face plane is on the face axis, and the box's own extent on the other two.
+	 */
+	private static BlockDisplayElement quad(AABB box, BlockPos surface, Direction face, PaintColor color,
+			int bits, Vec3 origin) {
+		Direction attach = face.getOpposite();
+		Direction.Axis axis = face.getAxis();
 		double along = switch (face) {
 			case UP -> box.maxY; case DOWN -> box.minY; case EAST -> box.maxX; case WEST -> box.minX; case SOUTH -> box.maxZ; case NORTH -> box.minZ;
 		};
-		Vec3 faceCentre = switch (face.getAxis()) {
-			case X -> new Vec3(along, centre.y, centre.z);
-			case Y -> new Vec3(centre.x, along, centre.z);
-			case Z -> new Vec3(centre.x, centre.y, along);
-		};
-		Vec3 world = Vec3.atLowerCornerOf(surface).add(faceCentre).add(new Vec3(n.x, n.y, n.z).scale(LIFT));
-		ItemStack stack = new ItemStack(Items.STICK);
-		stack.set(DataComponents.ITEM_MODEL, Rivals.id(SplatArt.QUAD));
-		stack.set(DataComponents.DYED_COLOR, new DyedItemColor(color.rgb));
-		ItemDisplayElement element = new ItemDisplayElement(stack);
-		element.setItemDisplayContext(ItemDisplayContext.FIXED);
-		element.setOffset(world.subtract(origin));
-		element.setScale(new Vector3f((float) w, (float) h, 1f));
-		element.setLeftRotation(new Quaternionf().setFromNormalized(new Matrix3f(u, v, n)));
+		double plane = along - (attach.getAxisDirection() == Direction.AxisDirection.POSITIVE ? 1.0 : 0.0);
+		Vec3 corner = new Vec3(
+				axis == Direction.Axis.X ? plane : box.minX,
+				axis == Direction.Axis.Y ? plane : box.minY,
+				axis == Direction.Axis.Z ? plane : box.minZ);
+		BlockDisplayElement element = new BlockDisplayElement(PaintStates.connected(color, attach, bits));
+		element.setOffset(Vec3.atLowerCornerOf(surface).add(corner).subtract(origin));
+		element.setScale(new Vector3f(
+				axis == Direction.Axis.X ? 1f : (float) box.getXsize(),
+				axis == Direction.Axis.Y ? 1f : (float) box.getYsize(),
+				axis == Direction.Axis.Z ? 1f : (float) box.getZsize()));
 		return element;
+	}
+
+	/**
+	 * The connection nibble for a quad cell: the same four in-plane neighbours
+	 * {@link ConnectedPaintBlock#neighbourBits} reads for a paint block, plus the neighbouring cells that
+	 * hold quads of this colour on this face. A quad counts as a neighbour of a block and the other way
+	 * round, so a slab beside a painted floor reads as one sheet of ink.
+	 */
+	private int bits(BlockGetter level, BlockPos cell, Direction attach, PaintColor color, Direction face) {
+		int bits = ConnectedPaintBlock.neighbourBits(level, cell, attach, color);
+		Direction[] around = ConnectedPaintBlock.inPlane(attach);
+		for (int i = 0; i < 4; i++) {
+			Painted other = cells.get(cell.relative(around[i]));
+			if (other != null && other.color == color && other.face == face) bits |= 1 << i;
+		}
+		return bits;
+	}
+
+	/**
+	 * Recompute the bits of the quads in {@code cell} and, if they changed, show the state that carries
+	 * them. Polymer sends the element's new state on the holder's next tick.
+	 */
+	private void refresh(ServerLevel level, BlockPos cell) {
+		Painted painted = cells.get(cell);
+		if (painted == null) return;
+		Direction attach = painted.face.getOpposite();
+		int bits = bits(level, cell, attach, painted.color, painted.face);
+		if (bits == painted.bits) return;
+		painted.bits = bits;
+		BlockState state = PaintStates.connected(painted.color, attach, bits);
+		for (BlockDisplayElement quad : painted.quads) quad.setBlockState(state);
+	}
+
+	/**
+	 * Re-border every quad cell touching {@code cell}. Called by {@link Painter} for every cell it paints,
+	 * whether that cell became a paint block or quads of its own: either way the quads next to it have a
+	 * new neighbour and their border has to open towards it.
+	 */
+	public void refreshAround(ServerLevel level, BlockPos cell) {
+		for (Direction d : DIRECTIONS) refresh(level, cell.relative(d));
 	}
 }

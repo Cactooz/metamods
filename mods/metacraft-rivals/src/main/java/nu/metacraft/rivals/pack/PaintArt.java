@@ -11,7 +11,11 @@ import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.Rivals;
 import nu.metacraft.rivals.paint.PaintStates;
 
+import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
+import java.io.ByteArrayOutputStream;
+import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
 import java.util.Comparator;
 import java.util.HashSet;
@@ -37,6 +41,13 @@ public final class PaintArt {
 	public static final int SIZE = 16;
 	/** Connection-bit patterns per colour: one texture (and one wrapper per face) each. */
 	public static final int BITS = 16;
+	/**
+	 * The alpha every paint texel carries, and nothing else does: the marker the gloss shaders key on.
+	 * No texture in either atlas an item pipeline draws (blocks, items) and no chunk texture has an alpha
+	 * in the 233..237 the shaders' window admits — the nearest that exist are 232 (nether_portal) and 238
+	 * (frosted_ice), neither of them in a paint-carrying atlas.
+	 */
+	public static final int PAINT_ALPHA = 235;
 	private static final Direction[] DIRECTIONS = Direction.values();
 	/** How far off the attach face a quad sits, in sixteenths, as in vanilla's own multiface models. */
 	private static final double OFFSET = 0.1;
@@ -101,11 +112,22 @@ public final class PaintArt {
 	/** One flat colour over the whole tile: the marker in alpha, the bits in red, the colour in the rest. */
 	static byte[] uniform(int rgb, int bits) {
 		BufferedImage image = new BufferedImage(SIZE, SIZE, BufferedImage.TYPE_INT_ARGB);
-		int argb = SplatArt.PAINT_ALPHA << 24 | encodeRed(rgb, bits) << 16 | (rgb & 0xFFFF);
+		int argb = PAINT_ALPHA << 24 | encodeRed(rgb, bits) << 16 | (rgb & 0xFFFF);
 		for (int y = 0; y < SIZE; y++) {
 			for (int x = 0; x < SIZE; x++) image.setRGB(x, y, argb);
 		}
-		return SplatArt.png(image);
+		return png(image);
+	}
+
+	/** PNG bytes: the one encoder the paint art uses. */
+	static byte[] png(BufferedImage image) {
+		try {
+			ByteArrayOutputStream out = new ByteArrayOutputStream();
+			if (!ImageIO.write(image, "png", out)) throw new IOException("no PNG writer available");
+			return out.toByteArray();
+		} catch (IOException e) {
+			throw new UncheckedIOException("could not encode paint art", e);
+		}
 	}
 
 	/** One paper-thin element against the attach face, both sides textured with {@code #paint}, no tint. */
