@@ -164,7 +164,7 @@ public final class PaintDisplays {
 		Vec3 origin = Vec3.atLowerCornerOf(cell);
 		int quads = 0;
 		for (AABB box : boxes) {
-			holder.addElement(quad(box, surface, face, color, origin, level.getRandom().nextInt(SplatArt.SHAPES.length)));
+			holder.addElement(quad(box, surface, face, color, origin));
 			quads++;
 		}
 		ChunkAttachment.of(holder, level, origin);
@@ -187,8 +187,8 @@ public final class PaintDisplays {
 		return w * h;
 	}
 
-	/** One splat quad on the {@code face} side of {@code box} (box coordinates are local to the surface block). */
-	private static ItemDisplayElement quad(AABB box, BlockPos surface, Direction face, PaintColor color, Vec3 origin, int shape) {
+	/** One paint quad on the {@code face} side of {@code box} (box coordinates are local to the surface block). */
+	private static ItemDisplayElement quad(AABB box, BlockPos surface, Direction face, PaintColor color, Vec3 origin) {
 		Vector3f n = new Vector3f(face.getStepX(), face.getStepY(), face.getStepZ());
 		// In-plane axes: u is the model's X, v the model's Y. v is the "up" of the quad — world +Z on the
 		// horizontal faces, world +Y on the four sides — and u = v × n, which keeps (u, v, n) right-handed
@@ -209,7 +209,7 @@ public final class PaintDisplays {
 		};
 		Vec3 world = Vec3.atLowerCornerOf(surface).add(faceCentre).add(new Vec3(n.x, n.y, n.z).scale(LIFT));
 		ItemStack stack = new ItemStack(Items.STICK);
-		stack.set(DataComponents.ITEM_MODEL, Rivals.id("splat_quad_" + SplatArt.SHAPES[shape]));
+		stack.set(DataComponents.ITEM_MODEL, Rivals.id(SplatArt.QUAD));
 		stack.set(DataComponents.DYED_COLOR, new DyedItemColor(color.rgb));
 		ItemDisplayElement element = new ItemDisplayElement(stack);
 		element.setItemDisplayContext(ItemDisplayContext.FIXED);

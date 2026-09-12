@@ -836,43 +836,63 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * The display quads' item assets are generated for every shape, and the three files agree: the item
-	 * definition names the model, the model names the texture, and the dye tint reaches a tinted face.
+	 * The display quads' item assets: one 16×16 sprite, its model and its item definition, agreeing with
+	 * each other — the definition names the model, the model names the texture, and the dye tint reaches
+	 * a tinted face. The sprite itself is the silhouette an isolated paint cell has: hard-edged (every
+	 * texel either opaque or absent, never anything between), transparent in the corners and opaque in
+	 * the middle, so a quad on a slab reads as the same material as the block paint beside it.
 	 */
 	@GameTest
-	public void quadItemAssetsAreGenerated(GameTestHelper helper) {
+	public void quadItemAssetsAreGenerated(GameTestHelper helper) throws IOException {
 		Map<String, byte[]> files = SplatArt.packFiles();
-		for (String shape : SplatArt.SHAPES) {
-			String name = "splat_quad_" + shape;
-			String itemPath = "assets/metacraft-rivals/items/" + name + ".json";
-			String modelPath = "assets/metacraft-rivals/models/item/" + name + ".json";
-			String texturePath = "assets/metacraft-rivals/textures/item/" + name + ".png";
-			for (String path : new String[] {itemPath, modelPath, texturePath}) {
-				helper.assertTrue(files.containsKey(path), "in pack: " + path);
-			}
-			JsonObject definition = JsonParser.parseString(new String(files.get(itemPath), StandardCharsets.UTF_8)).getAsJsonObject();
-			JsonObject modelDef = definition.getAsJsonObject("model");
-			String model = modelDef.get("model").getAsString(); // metacraft-rivals:item/splat_quad_xx
-			String modelFile = "assets/metacraft-rivals/models/" + model.substring(model.indexOf(':') + 1) + ".json";
-			helper.assertValueEqual(modelFile, modelPath, name + ": the definition points at the generated model");
-			helper.assertTrue(files.containsKey(modelFile), "model in pack: " + modelFile);
-			// Without the dye tint the quad renders white, whatever colour the display element carries.
-			helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(),
-					"minecraft:dye", name + ": dye tint");
-			JsonObject modelJson = JsonParser.parseString(new String(files.get(modelFile), StandardCharsets.UTF_8)).getAsJsonObject();
-			boolean tinted = false;
-			for (JsonElement element : modelJson.getAsJsonArray("elements")) {
-				for (var face : element.getAsJsonObject().getAsJsonObject("faces").entrySet()) {
-					JsonObject json = face.getValue().getAsJsonObject();
-					if (json.has("tintindex") && json.get("tintindex").getAsInt() == 0) tinted = true;
-				}
-			}
-			helper.assertTrue(tinted, name + ": some face carries tintindex 0, so the dye reaches it");
-			String texture = modelJson.getAsJsonObject("textures").get("splat").getAsString();
-			String textureFile = "assets/metacraft-rivals/textures/" + texture.substring(texture.indexOf(':') + 1) + ".png";
-			helper.assertValueEqual(textureFile, texturePath, name + ": the model points at the generated texture");
-			helper.assertTrue(files.containsKey(textureFile), "texture in pack: " + textureFile);
+		String name = SplatArt.QUAD;
+		String itemPath = "assets/metacraft-rivals/items/" + name + ".json";
+		String modelPath = "assets/metacraft-rivals/models/item/" + name + ".json";
+		String texturePath = "assets/metacraft-rivals/textures/item/" + name + ".png";
+		for (String path : new String[] {itemPath, modelPath, texturePath}) {
+			helper.assertTrue(files.containsKey(path), "in pack: " + path);
 		}
+		helper.assertValueEqual(files.size(), 3, "one quad, three files: " + files.keySet());
+		JsonObject definition = JsonParser.parseString(new String(files.get(itemPath), StandardCharsets.UTF_8)).getAsJsonObject();
+		JsonObject modelDef = definition.getAsJsonObject("model");
+		String model = modelDef.get("model").getAsString(); // metacraft-rivals:item/paint_quad
+		String modelFile = "assets/metacraft-rivals/models/" + model.substring(model.indexOf(':') + 1) + ".json";
+		helper.assertValueEqual(modelFile, modelPath, "the definition points at the generated model");
+		// Without the dye tint the quad renders white, whatever colour the display element carries.
+		helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(),
+				"minecraft:dye", "dye tint");
+		JsonObject modelJson = JsonParser.parseString(new String(files.get(modelFile), StandardCharsets.UTF_8)).getAsJsonObject();
+		boolean tinted = false;
+		for (JsonElement element : modelJson.getAsJsonArray("elements")) {
+			for (var face : element.getAsJsonObject().getAsJsonObject("faces").entrySet()) {
+				JsonObject json = face.getValue().getAsJsonObject();
+				if (json.has("tintindex") && json.get("tintindex").getAsInt() == 0) tinted = true;
+			}
+		}
+		helper.assertTrue(tinted, "some face carries tintindex 0, so the dye reaches it");
+		String texture = modelJson.getAsJsonObject("textures").get("splat").getAsString();
+		String textureFile = "assets/metacraft-rivals/textures/" + texture.substring(texture.indexOf(':') + 1) + ".png";
+		helper.assertValueEqual(textureFile, texturePath, "the model points at the generated texture");
+		BufferedImage sprite = ImageIO.read(new ByteArrayInputStream(files.get(texturePath)));
+		helper.assertValueEqual(sprite.getWidth(), SplatArt.SIZE, "16 px wide");
+		helper.assertValueEqual(sprite.getHeight(), SplatArt.SIZE, "16 px tall");
+		int opaque = 0;
+		for (int y = 0; y < sprite.getHeight(); y++) {
+			for (int x = 0; x < sprite.getWidth(); x++) {
+				int alpha = (sprite.getRGB(x, y) >>> 24) & 0xFF;
+				helper.assertTrue(alpha == 0 || alpha == 255, "alpha at " + x + "," + y + " is 0 or 255, got " + alpha);
+				if (alpha == 255) opaque++;
+			}
+		}
+		// The rounded square: corners cut away, middle solid, and most of the tile covered.
+		for (int[] corner : new int[][] {{0, 0}, {15, 0}, {0, 15}, {15, 15}}) {
+			helper.assertValueEqual((sprite.getRGB(corner[0], corner[1]) >>> 24) & 0xFF, 0,
+					"corner " + corner[0] + "," + corner[1] + " is cut away");
+		}
+		helper.assertValueEqual((sprite.getRGB(8, 8) >>> 24) & 0xFF, 255, "the middle is paint");
+		helper.assertValueEqual((sprite.getRGB(8, 1) >>> 24) & 0xFF, 255, "and so is the inset edge");
+		helper.assertValueEqual((sprite.getRGB(8, 0) >>> 24) & 0xFF, 0, "the outermost texel is the inset");
+		helper.assertTrue(opaque > 150 && opaque < 220, "a full square bar its corners and inset, got " + opaque);
 		helper.succeed();
 	}
 
