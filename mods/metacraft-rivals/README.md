@@ -9,15 +9,17 @@ actually renders, real squid form, blobby bouncing shots, three more weapons); t
 sheet is next to the v1 spec.
 
 **Standalone.** This module is not bundled into the `dist` jar (root `build.gradle`, `standaloneMods`):
-its pack retextures sculk vein, resin clump and glow lichen as paint, which only a dedicated
+its pack retextures sculk vein and glow lichen as paint, which only a dedicated
 Rivals server wants.
 
 ## How it works
 
+- Two teams, one colour each, in their ovvar chapter's ovve: **DATA** `#BD3754` and **IT**
+  `#8A57BD`. A team's name is its colour id (`data`, `it`).
 - Paint is a server-side multiface block per colour (`metacraft-rivals:paint_<colour>`), sent to
-  clients as the colour's donor: magenta → sculk vein, lime → resin clump, cyan → glow lichen
-  (vanilla's lit one; what a client shows for our unlit paint block is unverified). Donors accept
-  paint even when waterlogged — the check is on the block, not the fluid state it carries.
+  clients as the colour's donor: data → sculk vein, it → glow lichen (vanilla's lit one; what a
+  client shows for our unlit paint block is unverified). Donors accept paint even when
+  waterlogged — the check is on the block, not the fluid state it carries.
 - One colour per cell: a hit in another colour recolours the cell and keeps its faces.
 - Four weapons, one item class (`PaintWeapon`) parameterised by a `Weapon` enum, given with
   `/rivals gun <shooter|sprayer|charger|slosher>` (default shooter) or all at once with
@@ -71,9 +73,9 @@ Rivals server wants.
   paint block it does not come back when the chunk reloads.
 - Splat art comes from Kenney's Splat Pack (CC0): eight silhouettes, each rendered per colour at
   four rotations (32 variants per colour), with paint texels marked at a specific alpha the gloss
-  shader looks for. The resource pack's blockstate overrides for `sculk_vein`, `resin_clump` and
-  `glow_lichen` pick one of the 32 variants per block position at random, so adjacent painted
-  cells stop visibly tiling.
+  shader looks for. The resource pack's blockstate overrides for `sculk_vein` and `glow_lichen`
+  pick one of the 32 variants per block position at random, so adjacent painted cells stop visibly
+  tiling.
 - The pack also overrides `assets/minecraft/shaders/core/terrain.vsh`/`terrain.fsh` — the pair
   that actually draws chunk geometry in 26.2 — to add a subtle specular/fresnel gloss on paint
   texels only; every other texel keeps vanilla's shading byte for byte. (v2 keyed this into
@@ -120,8 +122,8 @@ Rivals server wants.
 ## Play
 
 ```
-/rivals setup            teams magenta, lime, cyan
-/team join magenta @s
+/rivals setup            teams data and it
+/team join data @s
 /rivals gun              shooter, the default
 /rivals gun slosher      or sprayer / charger
 /rivals kit              one of every weapon

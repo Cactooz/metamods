@@ -94,7 +94,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private static final double DROPLET_SPEED = 0.5;
 	private static final double DROPLET_SCATTER = 0.15;
 
-	private PaintColor color = PaintColor.MAGENTA;
+	private PaintColor color = PaintColor.DATA;
 	private int bounces = 1;
 	private int lifetime = 0;
 	private int splatRadius = Painter.RADIUS;

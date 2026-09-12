@@ -13,16 +13,17 @@ import java.util.List;
 import java.util.Optional;
 
 /**
- * The paint colours. Each one owns a vanilla multiface block that clients are shown instead of the
- * paint block and whose texture the resource pack replaces with a splat. Sculk vein and resin clump
- * emit no light; glow lichen is vanilla's lit one (light 7), which is why it is the third, "special"
- * colour — what a client actually shows for our unlit paint block is unverified. The id doubles as the
- * vanilla team name.
+ * The two team colours: the ovves of the DATA and IT chapters, sampled the way ovvar's mockups do.
+ * Each one owns a vanilla multiface block that clients are shown instead of the paint block and whose
+ * texture the resource pack replaces with a splat. Sculk vein emits no light; glow lichen is vanilla's
+ * lit one (light 7) — what a client actually shows for our unlit paint block is unverified. The id
+ * doubles as the vanilla team name.
  */
 public enum PaintColor {
-	MAGENTA("magenta", "Magenta", 0xEA2C8E, Blocks.SCULK_VEIN, TeamColor.LIGHT_PURPLE, BossEvent.BossBarColor.PINK),
-	LIME("lime", "Lime", 0x8DE800, Blocks.RESIN_CLUMP, TeamColor.GREEN, BossEvent.BossBarColor.GREEN),
-	CYAN("cyan", "Cyan", 0x00D5F5, Blocks.GLOW_LICHEN, TeamColor.AQUA, BossEvent.BossBarColor.BLUE);
+	/** The Data chapter's ovve, sampled from art/ovvar/data.png the way ovvar's mockups do. */
+	DATA("data", "DATA", 0xBD3754, Blocks.SCULK_VEIN, TeamColor.RED, BossEvent.BossBarColor.RED),
+	/** The IT chapter's ovve, from art/ovvar/it.png. */
+	IT("it", "IT", 0x8A57BD, Blocks.GLOW_LICHEN, TeamColor.DARK_PURPLE, BossEvent.BossBarColor.PURPLE);
 
 	public final String id;
 	public final String displayName;

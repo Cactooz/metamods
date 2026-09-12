@@ -171,11 +171,11 @@ public final class RivalsGameTests {
 	public void floorSplatPaintsCellAbove(GameTestHelper helper) {
 		stoneFloor(helper, 5);
 		BlockPos struck = new BlockPos(2, 1, 2);
-		int painted = Painter.splat(helper.getLevel(), helper.absolutePos(struck), Direction.UP, PaintColor.MAGENTA,
+		int painted = Painter.splat(helper.getLevel(), helper.absolutePos(struck), Direction.UP, PaintColor.DATA,
 				helper.getLevel().getRandom());
 		helper.assertTrue(painted >= 5 && painted <= 9, "painted " + painted + " faces, expected 5..9");
 		BlockState cell = helper.getBlockState(struck.above());
-		helper.assertTrue(cell.is(PaintBlocks.of(PaintColor.MAGENTA)), Component.literal("cell above the hit is magenta paint, got " + cell));
+		helper.assertTrue(cell.is(PaintBlocks.of(PaintColor.DATA)), Component.literal("cell above the hit is DATA paint, got " + cell));
 		helper.assertTrue(cell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
 		helper.succeed();
 	}
@@ -185,7 +185,7 @@ public final class RivalsGameTests {
 	public void blobStaysWithinRadiusAndOnSurfaces(GameTestHelper helper) {
 		stoneFloor(helper, 5);
 		helper.setBlock(new BlockPos(1, 1, 2), Blocks.AIR); // a hole beside the hit, not a corner
-		Painter.splat(helper.getLevel(), helper.absolutePos(new BlockPos(2, 1, 2)), Direction.UP, PaintColor.LIME,
+		Painter.splat(helper.getLevel(), helper.absolutePos(new BlockPos(2, 1, 2)), Direction.UP, PaintColor.DATA,
 				helper.getLevel().getRandom());
 		for (int x = 0; x < 5; x++) {
 			for (int z = 0; z < 5; z++) {
@@ -197,10 +197,10 @@ public final class RivalsGameTests {
 				}
 			}
 		}
-		helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.LIME)), "centre is painted");
+		helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.DATA)), "centre is painted");
 		for (BlockPos edge : new BlockPos[] {new BlockPos(3, 2, 2), new BlockPos(2, 2, 1), new BlockPos(2, 2, 3)}) {
 			BlockState cell = helper.getBlockState(edge);
-			helper.assertTrue(cell.is(PaintBlocks.of(PaintColor.LIME)), Component.literal("edge " + edge + " should be lime paint, got " + cell));
+			helper.assertTrue(cell.is(PaintBlocks.of(PaintColor.DATA)), Component.literal("edge " + edge + " should be DATA paint, got " + cell));
 			helper.assertTrue(cell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "edge " + edge + " has its down face set");
 		}
 		helper.assertTrue(helper.getBlockState(new BlockPos(1, 2, 2)).isAir(), "edge over the hole stays air");
@@ -213,13 +213,13 @@ public final class RivalsGameTests {
 		helper.setBlock(new BlockPos(2, 1, 2), Blocks.STONE); // floor under the cell
 		helper.setBlock(new BlockPos(2, 2, 1), Blocks.STONE); // wall north of the cell
 		BlockPos cell = new BlockPos(2, 2, 2);
-		helper.setBlock(cell, PaintBlocks.of(PaintColor.MAGENTA).defaultBlockState()
+		helper.setBlock(cell, PaintBlocks.of(PaintColor.DATA).defaultBlockState()
 				.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true)
 				.setValue(MultifaceBlock.getFaceProperty(Direction.NORTH), true));
-		boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(2, 1, 2)), Direction.UP, PaintColor.LIME);
+		boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(2, 1, 2)), Direction.UP, PaintColor.IT);
 		helper.assertTrue(painted, "the cell counts as newly painted");
 		BlockState after = helper.getBlockState(cell);
-		helper.assertTrue(after.is(PaintBlocks.of(PaintColor.LIME)), Component.literal("cell is lime now, got " + after));
+		helper.assertTrue(after.is(PaintBlocks.of(PaintColor.IT)), Component.literal("cell is IT now, got " + after));
 		helper.assertTrue(after.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "down face kept");
 		helper.assertTrue(after.getValue(MultifaceBlock.getFaceProperty(Direction.NORTH)), "north face kept");
 		helper.assertValueEqual(faces(after), 2, "face count");
@@ -237,33 +237,34 @@ public final class RivalsGameTests {
 		helper.setBlock(new BlockPos(2, 1, 2), Blocks.STONE);
 		helper.setBlock(new BlockPos(2, 2, 1), Blocks.STONE);
 		helper.setBlock(new BlockPos(4, 1, 4), Blocks.STONE);
-		BlockPos magentaCell = new BlockPos(2, 2, 2);
-		BlockPos limeCell = new BlockPos(4, 2, 4);
-		helper.setBlock(magentaCell, PaintBlocks.of(PaintColor.MAGENTA).defaultBlockState()
+		BlockPos dataCell = new BlockPos(2, 2, 2);
+		BlockPos itCell = new BlockPos(4, 2, 4);
+		helper.setBlock(dataCell, PaintBlocks.of(PaintColor.DATA).defaultBlockState()
 				.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true)
 				.setValue(MultifaceBlock.getFaceProperty(Direction.NORTH), true));
-		helper.setBlock(limeCell, PaintBlocks.of(PaintColor.LIME).defaultBlockState()
+		helper.setBlock(itCell, PaintBlocks.of(PaintColor.IT).defaultBlockState()
 				.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true));
 		// count() folds in the level's display quads, which belong to whatever else is running: take the
 		// baseline first and read every figure below as this test's own contribution on top of it.
 		Map<PaintColor, Integer> quads = PaintDisplays.of(helper.getLevel()).count(helper.getLevel());
 		PaintTally tally = new PaintTally();
-		tally.track(helper.absolutePos(magentaCell));
-		tally.track(helper.absolutePos(limeCell));
+		tally.track(helper.absolutePos(dataCell));
+		tally.track(helper.absolutePos(itCell));
 		tally.track(helper.absolutePos(new BlockPos(0, 5, 0))); // air: must be dropped, not counted
 		Map<PaintColor, Integer> counts = tally.count(helper.getLevel());
 		Map<PaintColor, Integer> mine = new EnumMap<>(PaintColor.class);
 		for (PaintColor color : PaintColor.values()) mine.put(color, counts.get(color) - quads.get(color));
-		helper.assertValueEqual(mine.get(PaintColor.MAGENTA), 2, "magenta faces");
-		helper.assertValueEqual(mine.get(PaintColor.LIME), 1, "lime faces");
-		helper.assertValueEqual(mine.get(PaintColor.CYAN), 0, "cyan faces");
+		helper.assertValueEqual(mine.get(PaintColor.DATA), 2, "DATA faces");
+		helper.assertValueEqual(mine.get(PaintColor.IT), 1, "IT faces");
 		helper.assertValueEqual(tally.cells(), 2, "the air cell was dropped");
-		helper.assertTrue(Math.abs(PaintTally.share(mine, PaintColor.LIME) - 1f / 3f) < 1e-6, "lime share is a third");
+		// Two faces to one out of three painted faces in all: a third of them are IT's.
+		helper.assertTrue(Math.abs(PaintTally.share(mine, PaintColor.IT) - 1f / 3f) < 1e-6, "IT share is a third");
+		helper.assertTrue(Math.abs(PaintTally.share(mine, PaintColor.DATA) - 2f / 3f) < 1e-6, "DATA share is two thirds");
 		int quadsBefore = PaintDisplays.of(helper.getLevel()).holders(); // reset clears the level's quads too
 		int removed = tally.reset(helper.getLevel());
 		helper.assertValueEqual(removed - quadsBefore, 2, "reset removed both cells");
-		helper.assertTrue(helper.getBlockState(magentaCell).isAir() && helper.getBlockState(limeCell).isAir(), "cells are air after reset");
-		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.MAGENTA), 0, "nothing left to count");
+		helper.assertTrue(helper.getBlockState(dataCell).isAir() && helper.getBlockState(itCell).isAir(), "cells are air after reset");
+		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.DATA), 0, "nothing left to count");
 		helper.assertValueEqual(tally.cells(), 0, "and no cells left to count it from");
 		helper.succeed();
 	}
@@ -306,22 +307,22 @@ public final class RivalsGameTests {
 	@GameTest
 	public void gunOnTeamThrowsColouredBall(GameTestHelper helper) {
 		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		InteractionResult result = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(result.consumesAction(), "use succeeds on a team");
 		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
 		helper.assertValueEqual(balls.size(), 1, "one paint ball");
 		PaintBall ball = balls.getFirst();
-		helper.assertTrue(ball.color() == PaintColor.MAGENTA, "ball is magenta");
+		helper.assertTrue(ball.color() == PaintColor.DATA, "ball is DATA");
 		ItemStack shown = ball.getItem();
 		helper.assertTrue(shown.is(Items.FIREWORK_STAR), Component.literal("ball shows a firework star, got " + shown));
 		FireworkExplosion explosion = shown.get(DataComponents.FIREWORK_EXPLOSION);
-		helper.assertTrue(explosion != null && explosion.colors().contains(PaintColor.MAGENTA.rgb), "star is tinted magenta");
+		helper.assertTrue(explosion != null && explosion.colors().contains(PaintColor.DATA.rgb), "star is tinted DATA");
 		helper.assertTrue(player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)), "cooldown started");
 		ItemStack held = player.getItemInHand(InteractionHand.MAIN_HAND);
 		PaintWeapon.of(Weapon.SHOOTER).inventoryTick(held, helper.getLevel(), player, EquipmentSlot.MAINHAND);
 		DyedItemColor dye = held.get(DataComponents.DYED_COLOR);
-		helper.assertTrue(dye != null && dye.rgb() == PaintColor.MAGENTA.rgb, "the held gun's tank is dyed magenta");
+		helper.assertTrue(dye != null && dye.rgb() == PaintColor.DATA.rgb, "the held gun's tank is dyed DATA");
 		balls.forEach(Entity::discard);
 		helper.succeed();
 	}
@@ -329,9 +330,9 @@ public final class RivalsGameTests {
 	/** The gun stack carries the team colour as a dye, nothing without a team, and loses a stale dye. */
 	@GameTest
 	public void gunTankTakesTeamColour(GameTestHelper helper) {
-		ItemStack onTeam = PaintWeapon.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), team(helper, PaintColor.LIME));
+		ItemStack onTeam = PaintWeapon.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), team(helper, PaintColor.DATA));
 		DyedItemColor dye = onTeam.get(DataComponents.DYED_COLOR);
-		helper.assertTrue(dye != null && dye.rgb() == PaintColor.LIME.rgb, "tank dyed lime");
+		helper.assertTrue(dye != null && dye.rgb() == PaintColor.DATA.rgb, "tank dyed DATA");
 		ItemStack noTeam = PaintWeapon.withTankColor(new ItemStack(Items.WARPED_FUNGUS_ON_A_STICK), null);
 		helper.assertTrue(noTeam.get(DataComponents.DYED_COLOR) == null, "no dye without a team");
 		ItemStack left = PaintWeapon.withTankColor(onTeam, null);
@@ -383,7 +384,7 @@ public final class RivalsGameTests {
 	@GameTest
 	public void paintBallPaintsWhereItLands(GameTestHelper helper) {
 		stoneFloor(helper, 5);
-		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.CYAN);
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.DATA);
 		Vec3 from = helper.absoluteVec(new Vec3(2.5, 4, 2.5));
 		ball.setPos(from.x, from.y, from.z);
 		ball.setDeltaMovement(0, -0.6, 0); // straight down onto the floor block at relative (2, 1, 2)
@@ -391,8 +392,8 @@ public final class RivalsGameTests {
 		helper.runAfterDelay(10, () -> {
 			BlockPos cell = new BlockPos(2, 2, 2);
 			BlockState state = helper.getBlockState(cell);
-			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.CYAN)),
-					Component.literal("the cell where the ball landed should be cyan paint, got " + state));
+			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.DATA)),
+					Component.literal("the cell where the ball landed should be DATA paint, got " + state));
 			helper.assertTrue(state.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
 			// A default ball carries the shooter's bounces, so ten ticks on it is still in the air on its
 			// way back up from the floor it just painted (along with the droplets that bounce threw off);
@@ -418,7 +419,7 @@ public final class RivalsGameTests {
 		helper.assertTrue(helper.getLevel().addFreshEntity(target), "the target player joined the level");
 		float health = target.getHealth();
 		// gunner() is a different mock player: a projectile never hits its own owner.
-		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.MAGENTA);
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.DATA);
 		Vec3 from = helper.absoluteVec(new Vec3(2.5, 2.6, 0.5));
 		ball.setPos(from.x, from.y, from.z);
 		// Flat and fast at the player's chest, not dropped on their head: a ball that missed would
@@ -429,8 +430,8 @@ public final class RivalsGameTests {
 		helper.getLevel().addFreshEntity(ball);
 		helper.runAfterDelay(10, () -> {
 			BlockState state = helper.getBlockState(new BlockPos(2, 2, 2));
-			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.MAGENTA)),
-					Component.literal("the floor under the player should be magenta paint, got " + state));
+			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.DATA)),
+					Component.literal("the floor under the player should be DATA paint, got " + state));
 			helper.assertTrue(state.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
 			helper.assertTrue(target.getHealth() == health,
 					"the player took no damage, health " + target.getHealth() + " was " + health);
@@ -446,11 +447,11 @@ public final class RivalsGameTests {
 		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.STONE); // wall east of the hit
 		BlockPos struck = new BlockPos(3, 1, 2);
 		Vec3 impact = helper.absoluteVec(new Vec3(3.6, 2.0, 2.5));
-		int changed = Painter.splash(helper.getLevel(), impact, helper.absolutePos(struck), Direction.UP, PaintColor.CYAN,
+		int changed = Painter.splash(helper.getLevel(), impact, helper.absolutePos(struck), Direction.UP, PaintColor.DATA,
 				helper.getLevel().getRandom(), null);
 		helper.assertTrue(changed >= 5, "blob plus rays painted at least five cells, got " + changed);
 		BlockState floorCell = helper.getBlockState(new BlockPos(3, 2, 2));
-		helper.assertTrue(floorCell.is(PaintBlocks.of(PaintColor.CYAN)) && floorCell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)),
+		helper.assertTrue(floorCell.is(PaintBlocks.of(PaintColor.DATA)) && floorCell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)),
 				"floor cell painted");
 		BlockState wallCell = helper.getBlockState(new BlockPos(3, 2, 2)); // same cell holds the wall's west face
 		helper.assertTrue(wallCell.getValue(MultifaceBlock.getFaceProperty(Direction.EAST)),
@@ -478,7 +479,7 @@ public final class RivalsGameTests {
 	@GameTest
 	public void recoilIsSafeWithoutConnection(GameTestHelper helper) {
 		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.LIME));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		int before = Recoil.pending();
 		InteractionResult result = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(result.consumesAction(), "shot succeeds");
@@ -500,18 +501,18 @@ public final class RivalsGameTests {
 		helper.setBlock(stair, Blocks.STONE_STAIRS.defaultBlockState());
 		PaintDisplays displays = PaintDisplays.of(helper.getLevel());
 		int before = displays.holders();
-		boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.LIME);
+		boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.DATA);
 		helper.assertTrue(painted, "stair top accepted paint");
 		helper.assertTrue(helper.getBlockState(stair.above()).isAir(), "no paint block above a stair (quads instead)");
 		helper.assertValueEqual(displays.holders(), before + 1, "one holder for the cell");
-		helper.assertTrue(displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.LIME, "cell is lime");
-		helper.assertTrue(displays.count(helper.getLevel()).get(PaintColor.LIME) >= 1, "counted as lime faces");
-		boolean recoloured = Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.CYAN);
-		helper.assertTrue(recoloured && displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.CYAN, "recoloured to cyan");
+		helper.assertTrue(displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.DATA, "cell is DATA");
+		helper.assertTrue(displays.count(helper.getLevel()).get(PaintColor.DATA) >= 1, "counted as DATA faces");
+		boolean recoloured = Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.IT);
+		helper.assertTrue(recoloured && displays.colorAt(helper.absolutePos(stair.above())) == PaintColor.IT, "recoloured to IT");
 		helper.assertValueEqual(displays.holders(), before + 1, "recolour reuses the cell");
 		BlockPos wet = new BlockPos(5, 1, 5);
 		helper.setBlock(wet, Blocks.STONE_STAIRS.defaultBlockState().setValue(BlockStateProperties.WATERLOGGED, true));
-		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(wet), Direction.UP, PaintColor.LIME),
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(wet), Direction.UP, PaintColor.DATA),
 				"a waterlogged stair still takes paint");
 		// The quads die with their surface. A chunk unload does the same thing by another route — Polymer
 		// destroys the holder's attachment — but a game test cannot unload its own chunks, so this half of
@@ -521,20 +522,20 @@ public final class RivalsGameTests {
 		helper.assertTrue(displays.colorAt(helper.absolutePos(stair.above())) == null, "the broken stair took its cell with it");
 		helper.assertValueEqual(displays.holders(), before + 1, "only the waterlogged stair's holder is left");
 		helper.setBlock(stair, Blocks.STONE_STAIRS.defaultBlockState());
-		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.CYAN),
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(stair), Direction.UP, PaintColor.IT),
 				"a rebuilt stair takes the same colour again");
 		PaintTally tally = new PaintTally();
-		helper.assertTrue(tally.count(helper.getLevel()).get(PaintColor.CYAN) >= 1, "the tally counts the quads as cyan faces");
+		helper.assertTrue(tally.count(helper.getLevel()).get(PaintColor.IT) >= 1, "the tally counts the quads as IT faces");
 		int removed = tally.reset(helper.getLevel()); // a reset clears the level's display quads too
 		helper.assertTrue(removed >= 1 && displays.holders() == 0, "clear removed the quads");
-		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.CYAN), 0, "nothing left to count");
+		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.IT), 0, "nothing left to count");
 		// A surface that only changes shape keeps its position, so every check above still passes, but the
 		// quads were cut to the old shape and now hang over nothing: the cell must be dropped.
 		BlockPos turned = new BlockPos(6, 1, 6);
 		helper.setBlock(turned, Blocks.STONE_STAIRS.defaultBlockState()); // default facing is north
-		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(turned), Direction.UP, PaintColor.LIME),
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(turned), Direction.UP, PaintColor.DATA),
 				"the stair took paint");
-		helper.assertTrue(displays.colorAt(helper.absolutePos(turned.above())) == PaintColor.LIME, "turned stair's cell is lime");
+		helper.assertTrue(displays.colorAt(helper.absolutePos(turned.above())) == PaintColor.DATA, "turned stair's cell is DATA");
 		helper.setBlock(turned, Blocks.STONE_STAIRS.defaultBlockState().setValue(StairBlock.FACING, Direction.SOUTH));
 		displays.count(helper.getLevel()); // the sweep
 		helper.assertTrue(displays.colorAt(helper.absolutePos(turned.above())) == null,
@@ -600,7 +601,7 @@ public final class RivalsGameTests {
 	@GameTest
 	public void inkDrainsRefillsAndTopsUp(GameTestHelper helper) {
 		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "fresh gun is full");
 		PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
@@ -640,12 +641,12 @@ public final class RivalsGameTests {
 	/** The action-bar text has ten cells, one per four ink, and says REFILLING while a refill runs. */
 	@GameTest
 	public void inkBarText(GameTestHelper helper) {
-		String full = InkHud.bar(PaintColor.LIME, Ink.MAX, false, false).getString();
+		String full = InkHud.bar(PaintColor.DATA, Ink.MAX, false, false).getString();
 		helper.assertTrue(full.startsWith("INK ") && full.contains("40/40") && full.chars().filter(c -> c == '\u2588').count() == 10, "full bar: " + full);
-		String half = InkHud.bar(PaintColor.LIME, 20, false, false).getString();
+		String half = InkHud.bar(PaintColor.DATA, 20, false, false).getString();
 		helper.assertTrue(half.chars().filter(c -> c == '\u2588').count() == 5 && half.chars().filter(c -> c == '\u2591').count() == 5, "half bar: " + half);
-		helper.assertTrue(InkHud.bar(PaintColor.LIME, 0, true, false).getString().contains("REFILLING"), "refilling text");
-		helper.assertTrue(InkHud.bar(PaintColor.LIME, 5, false, true).getString().contains("SQUID"), "squid tag");
+		helper.assertTrue(InkHud.bar(PaintColor.DATA, 0, true, false).getString().contains("REFILLING"), "refilling text");
+		helper.assertTrue(InkHud.bar(PaintColor.DATA, 5, false, true).getString().contains("SQUID"), "squid tag");
 		// No team is still a real tank: same text, grey instead of a team colour.
 		Component noTeam = InkHud.bar(null, Ink.MAX, false, false);
 		helper.assertValueEqual(noTeam.getString(), full, "the no-team bar reads the same");
@@ -659,9 +660,9 @@ public final class RivalsGameTests {
 	public void squidFormAndEnemySlowness(GameTestHelper helper) {
 		helper.setBlock(new BlockPos(4, 2, 4), Blocks.STONE);
 		Player player = gunner(helper); // stands at relative (4, 3, 4), i.e. in the cell above that stone
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
-		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.MAGENTA);
-		helper.assertTrue(PlayerTick.paintUnder(player) == PaintColor.MAGENTA, "own paint under the player");
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.DATA);
+		helper.assertTrue(PlayerTick.paintUnder(player) == PaintColor.DATA, "own paint under the player");
 		player.setShiftKeyDown(true);
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(PlayerTick.isSquid(player), "squid form on");
@@ -693,7 +694,7 @@ public final class RivalsGameTests {
 		helper.assertTrue(!player.getAttribute(Attributes.SNEAKING_SPEED).hasModifier(SquidState.SNEAK_ID)
 				&& !player.getAttribute(Attributes.SAFE_FALL_DISTANCE).hasModifier(SquidState.SAFE_FALL_ID)
 				&& !player.getAttribute(Attributes.GRAVITY).hasModifier(SquidState.GRAVITY_ID), "dive modifiers removed on exit");
-		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.LIME);
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.IT);
 		PlayerTick.tick(player, 2);
 		helper.assertTrue(player.hasEffect(MobEffects.SLOWNESS), "enemy paint slows");
 		helper.assertValueEqual(player.getEffect(MobEffects.SLOWNESS).getAmplifier(), 1, "Slowness II");
@@ -706,8 +707,8 @@ public final class RivalsGameTests {
 	public void squidDiveSurges(GameTestHelper helper) {
 		helper.setBlock(new BlockPos(4, 2, 4), Blocks.STONE);
 		Player player = gunner(helper); // stands at relative (4, 3, 4), i.e. in the cell above that stone
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
-		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.MAGENTA);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.DATA);
 		player.setYRot(-90f); // look +X
 		player.setXRot(0f);
 		helper.assertTrue(!player.isShiftKeyDown(), "not sneaking yet");
@@ -735,11 +736,11 @@ public final class RivalsGameTests {
 		Player player = helper.makeMockPlayer(GameType.SURVIVAL);
 		Vec3 at = helper.absoluteVec(new Vec3(4.5, 2.5, 4.5)); // standing on top of the bottom slab
 		player.setPos(at.x, at.y, at.z);
-		boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(slab), Direction.UP, PaintColor.MAGENTA);
+		boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(slab), Direction.UP, PaintColor.DATA);
 		helper.assertTrue(painted, "slab top accepted paint");
 		helper.assertTrue(PaintDisplays.of(helper.getLevel()).colorAt(helper.absolutePos(slab)) == null,
 				"quads are keyed one cell above the slab, not at the slab's own cell");
-		helper.assertTrue(PlayerTick.paintUnder(player) == PaintColor.MAGENTA,
+		helper.assertTrue(PlayerTick.paintUnder(player) == PaintColor.DATA,
 				"paint on the slab tread is found from the player's feet cell below it");
 		helper.succeed();
 	}
@@ -750,11 +751,11 @@ public final class RivalsGameTests {
 		stoneFloor(helper, 5);
 		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.STONE);
 		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
 		player.setPos(at.x, at.y, at.z);
-		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(3, 1, 2)), Direction.UP, PaintColor.MAGENTA); // floor under
-		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 2)), Direction.WEST, PaintColor.MAGENTA); // wall beside
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(3, 1, 2)), Direction.UP, PaintColor.DATA); // floor under
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 2)), Direction.WEST, PaintColor.DATA); // wall beside
 		player.setShiftKeyDown(true);
 		player.horizontalCollision = true;
 		player.setDeltaMovement(0.1, 0, 0);
@@ -780,15 +781,15 @@ public final class RivalsGameTests {
 		stoneFloor(helper, 5);
 		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.GLASS_PANE);
 		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
 		player.setPos(at.x, at.y, at.z);
 		BlockPos feet = helper.absolutePos(new BlockPos(3, 2, 2));
-		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(3, 1, 2)), Direction.UP, PaintColor.MAGENTA); // floor under
-		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 2)), Direction.WEST, PaintColor.MAGENTA),
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(3, 1, 2)), Direction.UP, PaintColor.DATA); // floor under
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 2)), Direction.WEST, PaintColor.DATA),
 				"the pane took paint");
 		PaintDisplays displays = PaintDisplays.of(helper.getLevel());
-		helper.assertTrue(displays.colorAt(feet) == PaintColor.MAGENTA && displays.faceAt(feet) == Direction.WEST,
+		helper.assertTrue(displays.colorAt(feet) == PaintColor.DATA && displays.faceAt(feet) == Direction.WEST,
 				"a pane's paint is quads in the player's own cell, facing back at the pane");
 		player.setShiftKeyDown(true);
 		player.horizontalCollision = true;
@@ -818,14 +819,14 @@ public final class RivalsGameTests {
 		stoneFloor(helper, 5);
 		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.STONE);
 		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		Vec3 at = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
 		player.setPos(at.x, at.y, at.z);
 		// Painted one cell up from the feet (head height): a full-cube wall face lands as a real
 		// PaintBlock in the cell in front of it — the feet cell itself if painted at feet height, which
 		// paintUnder would find directly and defeat the point of this test. Painting at head height
 		// instead keeps the feet cell (and its own paintUnder check) genuinely clean.
-		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 3, 2)), Direction.WEST, PaintColor.MAGENTA);
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 3, 2)), Direction.WEST, PaintColor.DATA);
 		helper.assertTrue(PlayerTick.paintUnder(player) == null, "no paint under the feet");
 		player.setShiftKeyDown(true);
 		player.horizontalCollision = false;
@@ -847,8 +848,8 @@ public final class RivalsGameTests {
 	public void enemyInkDripDamage(GameTestHelper helper) {
 		helper.setBlock(new BlockPos(4, 2, 4), Blocks.STONE);
 		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.MAGENTA));
-		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.LIME);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 4)), Direction.UP, PaintColor.IT);
 		float before = player.getHealth();
 		PlayerTick.tick(player, 20);
 		helper.assertTrue(player.getHealth() <= before - 1.0f, "hurt on a damage tick, health " + player.getHealth());
@@ -880,7 +881,7 @@ public final class RivalsGameTests {
 	@GameTest(maxTicks = 100)
 	public void paintBallBouncesTwice(GameTestHelper helper) {
 		stoneFloor(helper, 5);
-		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.CYAN, Weapon.SHOOTER_BOUNCES, 0);
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.DATA, Weapon.SHOOTER_BOUNCES, 0);
 		Vec3 at = helper.absoluteVec(new Vec3(2.5, 4, 2.5));
 		ball.setPos(at.x, at.y, at.z);
 		ball.setDeltaMovement(0, -0.8, 0);
@@ -906,7 +907,7 @@ public final class RivalsGameTests {
 		helper.runAfterDelay(6, () -> {
 			helper.assertTrue(!ball.isRemoved(), "still flying after the first impact");
 			helper.assertValueEqual(ball.bouncesLeft(), Weapon.SHOOTER_BOUNCES - 1, "one of the two bounces used");
-			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.CYAN)), "first impact painted");
+			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.DATA)), "first impact painted");
 			// Neither reading is the instant of the bounce — the ball was still accelerating when the last
 			// downward one was taken, and drag and gravity had already run when the upward one was — so
 			// the ratio lands near BOUNCE_RESTITUTION rather than on it.
@@ -929,7 +930,7 @@ public final class RivalsGameTests {
 	@GameTest(maxTicks = 40)
 	public void bounceSpawnsDroplets(GameTestHelper helper) {
 		stoneFloor(helper, 5);
-		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.MAGENTA, 1, 0);
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.DATA, 1, 0);
 		Vec3 at = helper.absoluteVec(new Vec3(2.5, 4, 2.5));
 		ball.setPos(at.x, at.y, at.z);
 		ball.setDeltaMovement(0, -0.8, 0);
@@ -976,7 +977,7 @@ public final class RivalsGameTests {
 	@GameTest
 	public void dropletSplashesAfterLifetime(GameTestHelper helper) {
 		stoneFloor(helper, 5);
-		PaintBall drop = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.LIME, 0, 12);
+		PaintBall drop = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.DATA, 0, 12);
 		Vec3 at = helper.absoluteVec(new Vec3(2.5, 3.2, 2.5));
 		drop.setPos(at.x, at.y, at.z);
 		drop.setDeltaMovement(0, 0.02, 0); // hovering: only the lifetime can end it
@@ -984,7 +985,7 @@ public final class RivalsGameTests {
 		helper.getLevel().addFreshEntity(drop);
 		helper.runAfterDelay(16, () -> {
 			helper.assertTrue(drop.isRemoved(), "droplet expired");
-			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.LIME)), "floor under the droplet painted");
+			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.DATA)), "floor under the droplet painted");
 			helper.succeed();
 		});
 	}
@@ -992,7 +993,7 @@ public final class RivalsGameTests {
 	/** The blob display follows the ball and is torn down with it. */
 	@GameTest
 	public void blobFollowsTheBall(GameTestHelper helper) {
-		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.MAGENTA, 0, 0);
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.DATA, 0, 0);
 		Vec3 at = helper.absoluteVec(new Vec3(2.5, 5, 2.5));
 		ball.setPos(at.x, at.y, at.z);
 		ball.setNoGravity(true);
@@ -1012,7 +1013,7 @@ public final class RivalsGameTests {
 	public void sprayerThrowsThreeDroplets(GameTestHelper helper) {
 		Player player = gunner(helper);
 		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.SPRAYER)));
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.LIME));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		InteractionResult result = PaintWeapon.of(Weapon.SPRAYER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(result.consumesAction(), "sprays");
 		List<PaintBall> drops = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
@@ -1036,7 +1037,7 @@ public final class RivalsGameTests {
 	public void slosherThrowsFourInAFan(GameTestHelper helper) {
 		Player player = gunner(helper);
 		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.SLOSHER)));
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.CYAN));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		InteractionResult result = PaintWeapon.of(Weapon.SLOSHER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
 		helper.assertTrue(result.consumesAction(), "sloshes");
 		helper.assertTrue(result == InteractionResult.SUCCESS_SERVER, "the slosher swings the arm, got " + result);
@@ -1093,7 +1094,7 @@ public final class RivalsGameTests {
 		Player player = gunner(helper);
 		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
 		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.CYAN));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		Vec3 at = helper.absoluteVec(new Vec3(0.5, 2.0, 3.5));
 		player.setPos(at.x, at.y, at.z);
 		player.setYRot(-90f); // look +X
@@ -1102,7 +1103,7 @@ public final class RivalsGameTests {
 		helper.assertTrue(fired, "full charge fires");
 		int painted = 0;
 		for (int x = 1; x <= 5; x++) {
-			if (helper.getBlockState(new BlockPos(x, 2, 3)).is(PaintBlocks.of(PaintColor.CYAN))) painted++;
+			if (helper.getBlockState(new BlockPos(x, 2, 3)).is(PaintBlocks.of(PaintColor.DATA))) painted++;
 		}
 		helper.assertTrue(painted >= 3, "floor painted along the line, got " + painted);
 		helper.assertTrue(helper.getBlockState(new BlockPos(5, 2, 3)).getValue(MultifaceBlock.getFaceProperty(Direction.EAST)), "end wall splatted");
@@ -1121,7 +1122,7 @@ public final class RivalsGameTests {
 		Player player = gunner(helper);
 		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
 		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.CYAN));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		Vec3 at = helper.absoluteVec(new Vec3(0.5, 2.0, 3.5));
 		player.setPos(at.x, at.y, at.z);
 		player.setYRot(-90f); // look +X
@@ -1134,9 +1135,9 @@ public final class RivalsGameTests {
 		helper.getLevel().addFreshEntity(target);
 		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - Weapon.CHARGE_FULL_TICKS);
 		helper.assertTrue(fired, "full charge fires");
-		helper.assertTrue(helper.getBlockState(new BlockPos(3, 2, 3)).is(PaintBlocks.of(PaintColor.CYAN)),
+		helper.assertTrue(helper.getBlockState(new BlockPos(3, 2, 3)).is(PaintBlocks.of(PaintColor.DATA)),
 				"the floor under the player in the way is painted");
-		helper.assertTrue(!helper.getBlockState(new BlockPos(5, 2, 3)).is(PaintBlocks.of(PaintColor.CYAN)),
+		helper.assertTrue(!helper.getBlockState(new BlockPos(5, 2, 3)).is(PaintBlocks.of(PaintColor.DATA)),
 				"the line stopped at the player: the wall behind them is clean");
 		target.discard();
 		helper.succeed();
@@ -1148,7 +1149,7 @@ public final class RivalsGameTests {
 		Player player = gunner(helper);
 		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
 		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.CYAN));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - 2);
 		helper.assertTrue(!fired && Ink.get(charger) == Ink.MAX, "a tap does nothing and costs nothing");
 		helper.succeed();
