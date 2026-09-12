@@ -54,6 +54,24 @@ public final class ModComponents {
 	public static final DataComponentType<Boolean> ON_STAND = register("on_stand",
 			DataComponentType.<Boolean>builder().persistent(Codec.BOOL).networkSynchronized(ByteBufCodecs.BOOL));
 
+	/**
+	 * Whose ovve this is: the design (the sewn patches) is filed under this player in the design
+	 * store ({@link metacraft.ovvar.store.Designs}), and {@link #PATCHES} on an owned ovve is only a
+	 * copy of it for drawing. Set by the first player whose inventory ticks it (config
+	 * {@code designs.bind_on_pickup}) or by {@code /ovvar give}. Absent: an unowned ovve, whose
+	 * patches are its own (stands set up by command).
+	 */
+	public static final DataComponentType<UUID> OWNER = register("owner",
+			DataComponentType.<UUID>builder().persistent(UUIDUtil.CODEC));
+
+	/**
+	 * A seat patch sewn at the smithing table, applied to the result's {@link #PATCHES} but not yet
+	 * written to the owner's design; the ovve's next inventory tick commits it (and refunds the
+	 * patch if the store refuses).
+	 */
+	public static final DataComponentType<Placement> PENDING_SEW = register("pending_sew",
+			DataComponentType.<Placement>builder().persistent(Placement.CODEC));
+
 	/** On a patch item stack used as a display entity: which piece of the art ({@link PatchPieces.Piece#key}), flat 1:1, instead of the inventory icon. Never saved. */
 	public static final DataComponentType<String> FLAT = register("flat",
 			DataComponentType.<String>builder().networkSynchronized(ByteBufCodecs.STRING_UTF8));
@@ -65,6 +83,6 @@ public final class ModComponents {
 	public static void init() {
 		// Registered types land in a synced registry; without this Fabric's registry sync kicks
 		// vanilla clients ("requires Fabric Loader"). Polymer hides them and never sends them.
-		PolymerComponent.registerDataComponent(PATCHES, PREVIEW, TOP_UP, FEET_CHANNEL, WRAPPED, WRAPPED_TOP, ON_STAND, FLAT);
+		PolymerComponent.registerDataComponent(PATCHES, PREVIEW, TOP_UP, FEET_CHANNEL, WRAPPED, WRAPPED_TOP, ON_STAND, OWNER, PENDING_SEW, FLAT);
 	}
 }

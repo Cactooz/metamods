@@ -10,6 +10,7 @@ import metacraft.ovvar.recipe.SewRecipe;
 import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.sewing.StandDisplays;
 import metacraft.ovvar.sewing.StandSewing;
+import metacraft.ovvar.store.Designs;
 import net.fabricmc.api.ModInitializer;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -33,6 +34,7 @@ public class Ovvar implements ModInitializer {
 		StandSewing.init();
 		StandDisplays.init();
 		Combos.init();
+		Designs.init();
 		ModCommands.init();
 
 		PolymerResourcePackUtils.addModAssets(MOD_ID);
