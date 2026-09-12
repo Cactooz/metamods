@@ -121,7 +121,11 @@ dedicated Rivals server wants.
   plane: unconnected sides are inset (with a slow time-and-position wobble) and rounded at a corner
   only where both sides meeting there are unconnected, while connected sides run out past the cell
   so the seam to the next sheet is invisible; a fragment outside that box is discarded, which is what
-  draws the border with no baked edge tile at any resolution. Inside the border it keeps v3's liquid
+  draws the border with no baked edge tile at any resolution. Everything that decision and the look
+  depend on — the in-plane cell coordinate, the wobble's unwrapped coordinate and the position the
+  waves and highlights are sampled at — is first snapped to the centre of its 1/16-block texel, so the
+  paint reads as pixel art on the vanilla grid: stepped corners, a wobble that moves in whole texels
+  (time stays continuous, so texels flip rather than slide) and blocky highlights. Inside the border it keeps v3's liquid
   pass — a meniscus rim lit toward the light on the shape's outer edge, a moving three-wave normal,
   and glint/sheen/fresnel mixed toward white — now computed from that same distance field instead of
   sampling neighbour texels; every other texel keeps vanilla's shading byte for byte. (v2 keyed this

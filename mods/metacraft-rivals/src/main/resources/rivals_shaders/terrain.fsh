@@ -15,6 +15,9 @@ in vec3 chunkPos;
 
 out vec4 fragColor;
 
+/** Texels to a block: the grid the paint's border, wobble and highlights are all snapped to. */
+const float TEXELS = 16.0;
+
 vec4 sampleNearest(sampler2D source, vec2 uv, vec2 pixelSize, vec2 du, vec2 dv, vec2 texelScreenSize) {
 	// Convert our UV back up to texel coordinates and find out how far over we are from the center of each pixel
 	vec2 uvTexelCoords = uv / pixelSize;
@@ -116,6 +119,14 @@ void main() {
 		else { p = chunkPos.xy; }
 		along = p;
 		p = fract(p);
+		// Pixel art, not vector art: everything the border and the look are computed from is snapped to
+		// the centre of its 1/16-block texel, so the discard decision is taken once per texel (corners
+		// come out stepped rather than smooth), the wobble moves in whole-texel steps, and the
+		// highlights are blocky too. Time stays continuous — texels flip, they never slide. The radius
+		// (0.28) and the inset (0.06) stay in block units: about 4.5 and 1 texels.
+		p = (floor(p * TEXELS) + 0.5) / TEXELS;
+		along = (floor(along * TEXELS) + 0.5) / TEXELS;
+		vec3 gridPos = (floor(chunkPos * TEXELS) + 0.5) / TEXELS;
 		float t = GameTime * 1200.0;
 		bool negU = (bits & 1) != 0, posU = (bits & 2) != 0, negV = (bits & 4) != 0, posV = (bits & 8) != 0;
 		// Inset each unconnected side by 0.06 plus a slow wobble; connected sides run out past the cell.
@@ -136,9 +147,9 @@ void main() {
 		vec3 v = normalize(-viewPos);
 		vec3 l = normalize(vec3(0.3 + 0.15 * sin(t), 0.8, 0.5 + 0.15 * cos(t)));
 		vec3 wave = vec3(
-			sin(chunkPos.x * 6.0 + t * 0.9) * 0.4 + sin((chunkPos.x + chunkPos.z) * 11.0 + t * 1.4) * 0.35 + sin(chunkPos.z * 17.0 - t * 2.3) * 0.25,
+			sin(gridPos.x * 6.0 + t * 0.9) * 0.4 + sin((gridPos.x + gridPos.z) * 11.0 + t * 1.4) * 0.35 + sin(gridPos.z * 17.0 - t * 2.3) * 0.25,
 			0.0,
-			cos(chunkPos.z * 6.0 + t * 0.9) * 0.4 + cos((chunkPos.z - chunkPos.x) * 11.0 + t * 1.4) * 0.35 + cos(chunkPos.x * 17.0 - t * 2.3) * 0.25);
+			cos(gridPos.z * 6.0 + t * 0.9) * 0.4 + cos((gridPos.z - gridPos.x) * 11.0 + t * 1.4) * 0.35 + cos(gridPos.x * 17.0 - t * 2.3) * 0.25);
 		n = normalize(n + 0.05 * wave);
 		vec3 lightened = mix(color.rgb, vec3(1.0), 0.35);
 		// The meniscus: the outer 0.08 of the shape is a bevel, lit on the side facing the light.

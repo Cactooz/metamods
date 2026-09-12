@@ -709,6 +709,9 @@ public final class RivalsGameTests {
 		// The in-plane cell coordinate the border is cut from: the pair has to agree or the paint is untextured.
 		helper.assertTrue(vsh.contains("out vec3 chunkPos"), "vertex shader exports the chunk-relative position");
 		helper.assertTrue(fsh.contains("in vec3 chunkPos"), "fragment shader reads the chunk-relative position");
+		// Pixel art: the border, the wobble and the highlights are all read off texel centres.
+		helper.assertTrue(fsh.contains("TEXELS") && fsh.contains("floor(p * TEXELS) + 0.5") && fsh.contains("floor(chunkPos * TEXELS) + 0.5"),
+				"the paint snaps to the 16-px grid before it decides anything");
 		helper.assertTrue(RivalsPack.class.getResource("/rivals_shaders/block.fsh") == null, "the block shader override is gone");
 		helper.succeed();
 	}
