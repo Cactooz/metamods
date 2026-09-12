@@ -6,6 +6,7 @@ import nu.metacraft.rivals.gun.InkHud;
 import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Recoil;
+import nu.metacraft.rivals.gun.WeaponTuning;
 import nu.metacraft.rivals.paint.PaintBlocks;
 import nu.metacraft.rivals.pack.RivalsPack;
 import org.slf4j.Logger;
@@ -14,8 +15,9 @@ import org.slf4j.LoggerFactory;
 /**
  * Metacraft Rivals: a Splatoon-style paint prototype for vanilla clients, via Polymer.
  *
- * Order matters: blocks and the entity first (the gun refers to both), then the pack (which must be
- * required because a client without it sees sculk veins instead of paint), then commands and score.
+ * Order matters: blocks and the entity first (the gun refers to both), then the weapons and the
+ * tuning that overrides their numbers, then the pack (which must be required because a client without
+ * it sees sculk veins instead of paint), then commands and score.
  */
 public class Rivals implements ModInitializer {
 	public static final String MOD_ID = "metacraft-rivals";
@@ -30,6 +32,7 @@ public class Rivals implements ModInitializer {
 		PaintBlocks.register();
 		PaintBall.register();
 		PaintWeapon.register();
+		WeaponTuning.load();
 		RivalsPack.init();
 		RivalsCommands.register();
 		ScoreBars.init();

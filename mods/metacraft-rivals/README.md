@@ -208,6 +208,36 @@ dedicated Rivals server wants.
 /rivals reset
 ```
 
+### Tuning
+
+Every number a shot is made of is adjustable from inside the game, per weapon, and lands on the next
+click — no restart, no reload:
+
+```
+/rivals tune                            everything that is off its default
+/rivals tune shooter                    one weapon's whole sheet, defaults in [brackets]
+/rivals tune shooter velocity           one number
+/rivals tune shooter velocity 2.4       set it; the reply says what it was
+/rivals tune shooter reset              that weapon back to its defaults
+/rivals tune reset                      all four back to theirs
+```
+
+Weapon ids and parameter names both tab-complete, and a name that does not exist answers with the
+ones that do. The three ball weapons take `velocity`, `spread`, `gravity`, `bounces`, `restitution`,
+`lifetime`, `splat_radius`, `ink`, `cooldown`, `kick`, `damage`, `count` (balls per shot), `fan_yaw`
+and `fan_pitch` (the fan those balls go out in), and `spatter_count` / `spatter_lifetime` /
+`spatter_speed` / `spatter_scatter` / `spatter_damage` (what a bounce throws off). The charger, which
+throws no ball, takes `ink`, `cooldown` and `kick` plus its own `charge_min`, `charge_full`,
+`range_min`, `range_full`, `charge_ink_min`, `charge_ink_full`, `charge_damage_min` and
+`charge_damage_full` — the `*_min` at no charge, the `*_full` at a full one, with everything between
+interpolated.
+
+The tuning lives in `config/metacraft-rivals/weapons.json` and is written after every change. Only
+what differs from the defaults is kept, so a fresh file is `{}` and a default changed in the code
+still reaches everyone who never touched it. The defaults themselves are the constants in
+`Weapon.java` and `PaintBall.java`; a missing or unreadable file is a warning in the log and the
+defaults stand.
+
 Or just get dressed: wearing an ovvar ovve puts you on that chapter's team within the second, creating
 the teams if nobody has run `/rivals setup` yet. Matched on the item's registry id (`ovvar:data_*` →
 DATA, `ovvar:it_*` → IT), so there is no dependency on ovvar and an arena without it plays exactly as
@@ -218,7 +248,7 @@ before; taking the ovve off leaves you on the team you were on.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (47 of ours, plus vanilla's always_pass: 48 in total)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (59 of ours, plus vanilla's always_pass: 60 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so

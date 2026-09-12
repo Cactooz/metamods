@@ -41,6 +41,7 @@ import net.minecraft.world.scores.PlayerTeam;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.PlayerTick;
 import nu.metacraft.rivals.Rivals;
+import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.paint.Painter;
 import org.jspecify.annotations.Nullable;
 
@@ -115,8 +116,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		Optional<PaintColor> ready = ready(serverLevel, player, gun); // team, refill, squid
 		if (ready.isEmpty()) return InteractionResult.FAIL;
 		PaintColor color = ready.get();
+		WeaponTuning tuning = WeaponTuning.get(weapon);
 		// A tank that cannot cover the shot is as good as empty: one ink must not buy a fifteen-ink slosh.
-		if (Ink.get(gun) < weapon.inkPerShot) {
+		if (Ink.get(gun) < tuning.intValue(Param.INK)) {
 			outOfInk(serverLevel, player, gun);
 			return InteractionResult.FAIL;
 		}
@@ -128,45 +130,39 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		}
 		fire(serverLevel, player, color);
 		feel(serverLevel, player, color);
-		Ink.add(gun, -weapon.inkPerShot);
-		player.getCooldowns().addCooldown(gun, weapon.cooldownTicks);
+		Ink.add(gun, -tuning.intValue(Param.INK));
+		player.getCooldowns().addCooldown(gun, tuning.intValue(Param.COOLDOWN));
 		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 		return weapon == Weapon.SLOSHER ? InteractionResult.SUCCESS_SERVER : InteractionResult.CONSUME;
 	}
 
-	/** Throw this weapon's paint from the shooter's eyes along their view. */
+	/**
+	 * Throw this weapon's paint from the shooter's eyes along their view. Three of the four weapons are
+	 * the same shot with different numbers — {@code count} balls, spread {@code fan_yaw} degrees apart
+	 * around the view and pitched by {@code fan_pitch}, each carrying the weapon's gravity, bounces,
+	 * lifetime, splat radius and damage — so there is one loop rather than an arm apiece: a shooter's
+	 * single flat ball is that fan with one ball in it, a sprayer's cone is three of them at nine
+	 * degrees of inaccuracy, a slosher's four at ten degrees of deliberate yaw. Every number is read
+	 * from {@link WeaponTuning} here, at the shot, so {@code /rivals tune} lands on the next click.
+	 */
 	public void fire(ServerLevel level, Player player, PaintColor color) {
-		switch (weapon) {
-			case SHOOTER -> {
-				PaintBall ball = new PaintBall(level, player, color, Weapon.SHOOTER_BOUNCES, 0);
-				ball.setDamage(weapon.damage);
-				ball.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0f, weapon.velocity, weapon.inaccuracy);
-				level.addFreshEntity(ball);
-			}
-			// Three droplets down one barrel: the spread is what separates them, and each paints only the
-			// face it lands on, so a held trigger reads as a cone of mist rather than three fat blobs.
-			case SPRAYER -> {
-				for (int i = 0; i < Weapon.SPRAYER_DROPLETS; i++) {
-					PaintBall drop = new PaintBall(level, player, color, 0, Weapon.SPRAYER_LIFETIME);
-					drop.setSplatRadius(0);
-					drop.setDamage(weapon.damage);
-					drop.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0f, weapon.velocity, weapon.inaccuracy);
-					level.addFreshEntity(drop);
-				}
-			}
-			// A deliberate fan, not a spread: fixed yaw offsets so the four arcs land side by side every time.
-			case SLOSHER -> {
-				for (float offset : Weapon.SLOSHER_FAN) {
-					PaintBall ball = new PaintBall(level, player, color, 0, 0);
-					ball.setSplatRadius(Weapon.SLOSHER_SPLAT_RADIUS);
-					ball.setDamage(weapon.damage);
-					ball.setGravity(Weapon.SLOSHER_GRAVITY);
-					ball.shootFromRotation(player, player.getXRot() + Weapon.SLOSHER_PITCH, player.getYRot() + offset,
-							0.0f, weapon.velocity, weapon.inaccuracy);
-					level.addFreshEntity(ball);
-				}
-			}
-			case CHARGER -> {} // the charger fires on release; see releaseUsing
+		if (weapon == Weapon.CHARGER) return; // the charger fires on release; see releaseUsing
+		WeaponTuning tuning = WeaponTuning.get(weapon);
+		int count = tuning.intValue(Param.COUNT);
+		float fanYaw = tuning.floatValue(Param.FAN_YAW);
+		float pitch = player.getXRot() + tuning.floatValue(Param.FAN_PITCH);
+		for (int i = 0; i < count; i++) {
+			// Centred on the view: an odd count puts one ball down the crosshair, an even one straddles it.
+			float offset = (i - (count - 1) / 2.0f) * fanYaw;
+			PaintBall ball = new PaintBall(level, player, color,
+					tuning.intValue(Param.BOUNCES), tuning.intValue(Param.LIFETIME));
+			ball.setWeapon(weapon);
+			ball.setSplatRadius(tuning.intValue(Param.SPLAT_RADIUS));
+			ball.setDamage(tuning.floatValue(Param.DAMAGE));
+			ball.setGravity(tuning.value(Param.GRAVITY));
+			ball.shootFromRotation(player, pitch, player.getYRot() + offset, 0.0f,
+					tuning.floatValue(Param.VELOCITY), tuning.floatValue(Param.SPREAD));
+			level.addFreshEntity(ball);
 		}
 	}
 
@@ -195,23 +191,27 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	public boolean releaseUsing(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {
 		// Only the server has the paint, the tank and the scoreboard; the client never fires this.
 		if (weapon != Weapon.CHARGER || !(level instanceof ServerLevel serverLevel) || !(entity instanceof Player player)) return false;
+		WeaponTuning tuning = WeaponTuning.get(weapon);
 		int held = getUseDuration(stack, entity) - timeLeft;
-		if (held < Weapon.MIN_CHARGE_TICKS) {
+		if (held < tuning.intValue(Param.CHARGE_MIN)) {
 			// A tap costs nothing, which also means it gives no feedback at all: without a word the weapon
 			// reads as broken to anyone clicking it the way the other three are clicked.
 			actionBar(player, Component.literal("Hold to charge").withStyle(ChatFormatting.GRAY));
 			return false;
 		}
-		float charge = Math.min(1.0f, held / (float) Weapon.CHARGE_FULL_TICKS);
+		// A full charge in no ticks at all would divide by zero; one tick is the shortest charge there is.
+		float charge = Math.min(1.0f, held / (float) Math.max(1, tuning.intValue(Param.CHARGE_FULL)));
 		Optional<PaintColor> ready = ready(serverLevel, player, stack);
 		if (ready.isEmpty()) return false;
 		PaintColor color = ready.get();
-		int cost = Math.round(Weapon.CHARGE_BASE_COST + Weapon.CHARGE_EXTRA_COST * charge);
+		double inkMin = tuning.value(Param.CHARGE_INK_MIN);
+		int cost = (int) Math.round(inkMin + (tuning.value(Param.CHARGE_INK_FULL) - inkMin) * charge);
 		if (Ink.get(stack) < cost) {
 			outOfInk(serverLevel, player, stack);
 			return false;
 		}
-		double range = Weapon.CHARGE_BASE_RANGE + Weapon.CHARGE_EXTRA_RANGE * charge;
+		double rangeMin = tuning.value(Param.RANGE_MIN);
+		double range = rangeMin + (tuning.value(Param.RANGE_FULL) - rangeMin) * charge;
 		Vec3 from = entity.getEyePosition();
 		Vec3 reach = entity.getLookAngle().scale(range);
 		Vec3 to = from.add(reach);
@@ -235,7 +235,8 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			// The one weapon whose damage rides the charge: a full-charge line is the hardest hit in the
 			// game, a barely-held one is a poke. Attributed to the player, so a kill goes on their name.
 			if (PaintBall.hostile(color, inTheWay.getEntity())) {
-				float hurt = Weapon.CHARGE_BASE_DAMAGE + Weapon.CHARGE_EXTRA_DAMAGE * charge;
+				float damageMin = tuning.floatValue(Param.CHARGE_DAMAGE_MIN);
+				float hurt = damageMin + (tuning.floatValue(Param.CHARGE_DAMAGE_FULL) - damageMin) * charge;
 				inTheWay.getEntity().hurtServer(serverLevel, serverLevel.damageSources().indirectMagic(player, player), hurt);
 			}
 		} else if (struck) {
@@ -243,9 +244,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		}
 		Rivals.LOGGER.debug("charger: charge {}, range {}, {} cells painted", charge, range, painted);
 		Ink.add(stack, -cost);
-		player.getCooldowns().addCooldown(stack, weapon.cooldownTicks);
+		player.getCooldowns().addCooldown(stack, tuning.intValue(Param.COOLDOWN));
 		// A half charge should not buck like a full one, so the kick rides the charge.
-		Recoil.kick(player, weapon.kickPitch * charge);
+		Recoil.kick(player, tuning.floatValue(Param.KICK) * charge);
 		muzzle(serverLevel, player, color);
 		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 		return true;
@@ -293,7 +294,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 
 	/** The chunk of a shot: camera kick, a nudge back, a muzzle burst in the team colour, layered sounds. */
 	void feel(ServerLevel level, Player shooter, PaintColor color) {
-		Recoil.kick(shooter, weapon.kickPitch);
+		Recoil.kick(shooter, WeaponTuning.get(weapon).floatValue(Param.KICK));
 		muzzle(level, shooter, color);
 	}
 

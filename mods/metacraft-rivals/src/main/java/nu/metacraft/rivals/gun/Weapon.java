@@ -10,6 +10,11 @@ import java.util.stream.Stream;
  * per value, at {@code metacraft-rivals:<id>}; the shooter keeps v2's {@code paint_gun} id so its
  * model, item definition and any stack already in a world carry over untouched.
  *
+ * <p>Every number here is a <em>default</em>: {@link WeaponTuning} is built from them at startup and
+ * the fire modes read it, not these fields, so {@code /rivals tune} can move any of them for the rest
+ * of the session without a restart. Change one here and you have changed what a fresh config, and
+ * {@code /rivals tune <weapon> reset}, go back to.
+ *
  * <p>{@code velocity} and {@code inaccuracy} feed {@code shootFromRotation}; the charger fires a
  * hitscan line instead of a projectile, so both are 0 for it and its {@code inkPerShot} is only the
  * base cost, with the charge surcharge added at release. {@code damage} is the same story: a direct
@@ -40,8 +45,8 @@ public enum Weapon {
 	public final float damage;
 
 	// Everything else that separates one weapon from the next. They live here rather than on the item so
-	// that one weapon is one place to look, instead of half its numbers being in PaintWeapon; each set is
-	// read by exactly the arm of PaintWeapon.fire (or releaseUsing) that the weapon takes.
+	// that one weapon is one place to look, instead of half its numbers being in PaintWeapon; each is the
+	// default behind the WeaponTuning parameter of the same meaning, named in its javadoc.
 
 	/**
 	 * Shooter: how many block hits reflect the ball instead of ending it. Two rather than one — a single

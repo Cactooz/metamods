@@ -1,11 +1,14 @@
 package nu.metacraft.rivals;
 
+import com.mojang.brigadier.arguments.DoubleArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
+import com.mojang.brigadier.suggestion.SuggestionProvider;
 import me.lucko.fabric.api.permissions.v0.Permissions;
 import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
+import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerScoreboard;
@@ -17,15 +20,23 @@ import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Weapon;
+import nu.metacraft.rivals.gun.WeaponTuning;
+import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.paint.PaintTally;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
 
 import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
-/** {@code /rivals setup | gun [weapon] | kit | score | reset}, for game masters (permission {@code metacraft.rivals}). */
+/**
+ * {@code /rivals setup | gun [weapon] | kit | score | reset | tune}, for game masters (permission
+ * {@code metacraft.rivals}).
+ */
 public final class RivalsCommands {
 	private RivalsCommands() {}
 
@@ -53,6 +64,20 @@ public final class RivalsCommands {
 									}
 									return gun(ctx.getSource(), weapon.get());
 								})))
+						// Everything a shot is made of, live. Weapons and parameters are plain words rather than
+						// enum arguments for the same reason /rivals gun is: an unknown one should answer with
+						// what is on offer instead of failing to parse, and "reset" sits in the same slot.
+						.then(literal("tune")
+								.executes(ctx -> tuneAll(ctx.getSource()))
+								.then(argument("weapon", StringArgumentType.word()).suggests(WEAPONS)
+										.executes(ctx -> tuneWeapon(ctx.getSource(), StringArgumentType.getString(ctx, "weapon")))
+										.then(argument("param", StringArgumentType.word()).suggests(PARAMS)
+												.executes(ctx -> tuneParam(ctx.getSource(), StringArgumentType.getString(ctx, "weapon"),
+														StringArgumentType.getString(ctx, "param")))
+												.then(argument("value", DoubleArgumentType.doubleArg())
+														.executes(ctx -> tuneSet(ctx.getSource(), StringArgumentType.getString(ctx, "weapon"),
+																StringArgumentType.getString(ctx, "param"),
+																DoubleArgumentType.getDouble(ctx, "value")))))))
 						.then(literal("kit").executes(ctx -> kit(ctx.getSource())))
 						.then(literal("score").executes(ctx -> score(ctx.getSource())))
 						.then(literal("reset").executes(ctx -> reset(ctx.getSource())))));
@@ -118,5 +143,149 @@ public final class RivalsCommands {
 			source.sendSuccess(() -> Component.literal("Removed " + removed + " paint blocks").withStyle(ChatFormatting.YELLOW), true);
 		}
 		return removed;
+	}
+
+	/** Weapon ids, plus the {@code reset} that takes the whole lot back to the defaults. */
+	private static final SuggestionProvider<CommandSourceStack> WEAPONS = (ctx, builder) ->
+			SharedSuggestionProvider.suggest(
+					Stream.concat(Stream.of(Weapon.values()).map(Weapon::commandId), Stream.of("reset")), builder);
+
+	/**
+	 * The parameters the weapon already typed answers to, plus its own {@code reset}. A weapon nobody
+	 * recognises suggests nothing rather than everything: the next word is only meaningful once the
+	 * first one is, and the failure message is where the valid names belong.
+	 */
+	private static final SuggestionProvider<CommandSourceStack> PARAMS = (ctx, builder) -> {
+		Optional<Weapon> weapon = Weapon.byId(StringArgumentType.getString(ctx, "weapon"));
+		if (weapon.isEmpty()) return builder.buildFuture();
+		return SharedSuggestionProvider.suggest(
+				Stream.concat(WeaponTuning.params(weapon.get()).stream().map(param -> param.id), Stream.of("reset")), builder);
+	};
+
+	/** Every weapon's tuning that is off its default, or a word to say that none of it is. */
+	private static int tuneAll(CommandSourceStack source) {
+		if (WeaponTuning.allDefault()) {
+			source.sendSuccess(() -> Component.literal("Weapon tuning: all defaults. " + WeaponTuning.configPath()), false);
+			return 0;
+		}
+		int changed = 0;
+		for (Weapon weapon : Weapon.values()) {
+			WeaponTuning tuning = WeaponTuning.get(weapon);
+			List<Param> params = tuning.changed();
+			if (params.isEmpty()) continue;
+			changed += params.size();
+			String line = weapon.commandId() + ": " + params.stream()
+					.map(param -> param.id + " " + num(tuning.value(param)) + " [" + num(tuning.defaultValue(param)) + "]")
+					.collect(Collectors.joining(", "));
+			source.sendSuccess(() -> Component.literal(line), false);
+		}
+		return changed;
+	}
+
+	/**
+	 * One weapon's whole sheet, defaults in brackets behind anything that has moved — or, for the word
+	 * {@code reset} in the weapon's place, every weapon back to the numbers it shipped with.
+	 */
+	private static int tuneWeapon(CommandSourceStack source, String weaponId) {
+		if ("reset".equalsIgnoreCase(weaponId)) {
+			int changed = 0;
+			for (Weapon weapon : Weapon.values()) changed += WeaponTuning.get(weapon).changed().size();
+			WeaponTuning.resetAll();
+			WeaponTuning.save();
+			int total = changed;
+			source.sendSuccess(() -> Component.literal("Every weapon back to its defaults: " + total + " values")
+					.withStyle(ChatFormatting.YELLOW), true);
+			return total;
+		}
+		Optional<Weapon> found = weaponOr(source, weaponId);
+		if (found.isEmpty()) return 0;
+		Weapon weapon = found.get();
+		WeaponTuning tuning = WeaponTuning.get(weapon);
+		List<Param> params = WeaponTuning.params(weapon);
+		source.sendSuccess(() -> Component.literal(weapon.displayName + " (" + weapon.commandId() + ")")
+				.withStyle(ChatFormatting.AQUA), false);
+		for (Param param : params) {
+			boolean untouched = tuning.isDefault(param);
+			String line = "  " + param.id + ": " + num(tuning.value(param))
+					+ (untouched ? "" : " [" + num(tuning.defaultValue(param)) + "]");
+			source.sendSuccess(() -> Component.literal(line).withStyle(untouched ? ChatFormatting.GRAY : ChatFormatting.WHITE), false);
+		}
+		return params.size();
+	}
+
+	/** One number — or, for the word {@code reset} in the parameter's place, this weapon's whole sheet. */
+	private static int tuneParam(CommandSourceStack source, String weaponId, String paramId) {
+		Optional<Weapon> found = weaponOr(source, weaponId);
+		if (found.isEmpty()) return 0;
+		Weapon weapon = found.get();
+		WeaponTuning tuning = WeaponTuning.get(weapon);
+		if ("reset".equalsIgnoreCase(paramId)) {
+			int changed = tuning.changed().size();
+			tuning.reset();
+			WeaponTuning.save();
+			source.sendSuccess(() -> Component.literal(weapon.displayName + " back to its defaults: " + changed + " values")
+					.withStyle(ChatFormatting.YELLOW), true);
+			return changed;
+		}
+		Optional<Param> wanted = paramOr(source, weapon, paramId);
+		if (wanted.isEmpty()) return 0;
+		Param param = wanted.get();
+		String line = weapon.commandId() + " " + param.id + ": " + num(tuning.value(param))
+				+ (tuning.isDefault(param) ? " (default)" : " [default " + num(tuning.defaultValue(param)) + "]");
+		source.sendSuccess(() -> Component.literal(line), false);
+		return 1;
+	}
+
+	/**
+	 * Move one number and write the file. Reported old → new because a tuning session is a series of
+	 * small nudges, and what the number just was is the thing you want back when a nudge went wrong.
+	 */
+	private static int tuneSet(CommandSourceStack source, String weaponId, String paramId, double value) {
+		Optional<Weapon> found = weaponOr(source, weaponId);
+		if (found.isEmpty()) return 0;
+		Weapon weapon = found.get();
+		Optional<Param> wanted = paramOr(source, weapon, paramId);
+		if (wanted.isEmpty()) return 0;
+		Param param = wanted.get();
+		WeaponTuning tuning = WeaponTuning.get(weapon);
+		double was = tuning.set(param, value);
+		WeaponTuning.save();
+		source.sendSuccess(() -> Component.literal(weapon.commandId() + " " + param.id + ": "
+				+ num(was) + " → " + num(value)
+				+ (tuning.isDefault(param) ? " (the default)" : " [default " + num(tuning.defaultValue(param)) + "]")), true);
+		return 1;
+	}
+
+	/** The named weapon, or a failure that says which names there are. */
+	private static Optional<Weapon> weaponOr(CommandSourceStack source, String id) {
+		Optional<Weapon> weapon = Weapon.byId(id);
+		if (weapon.isEmpty()) {
+			source.sendFailure(Component.literal("No weapon called \"" + id + "\". Try one of: " + Weapon.idList())
+					.withStyle(ChatFormatting.RED));
+		}
+		return weapon;
+	}
+
+	/**
+	 * The named parameter of that weapon, or a failure that lists the ones it has. Only the ones it
+	 * has: offering the charger's {@code range_full} on the slosher would be offering a number that
+	 * nothing reads.
+	 */
+	private static Optional<Param> paramOr(CommandSourceStack source, Weapon weapon, String id) {
+		Optional<Param> param = Param.byId(id).filter(found -> WeaponTuning.applies(weapon, found));
+		if (param.isEmpty()) {
+			source.sendFailure(Component.literal("The " + weapon.displayName + " has no parameter called \"" + id
+					+ "\". Try one of: " + WeaponTuning.paramList(weapon)).withStyle(ChatFormatting.RED));
+		}
+		return param;
+	}
+
+	/**
+	 * A tuning number as a player wants to read it: whole numbers without the {@code .0} that would
+	 * make {@code bounces} look like a fraction, everything else to three decimals.
+	 */
+	private static String num(double value) {
+		if (value == Math.rint(value) && Math.abs(value) < 1.0e9) return String.valueOf((long) value);
+		return String.valueOf(Math.round(value * 1000.0) / 1000.0);
 	}
 }

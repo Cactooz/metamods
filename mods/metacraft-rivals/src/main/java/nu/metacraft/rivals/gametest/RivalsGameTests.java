@@ -8,6 +8,8 @@ import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSource;
+import net.minecraft.commands.CommandSourceStack;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.particles.BlockParticleOption;
@@ -19,6 +21,7 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.Identifier;
+import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -59,6 +62,8 @@ import nu.metacraft.rivals.RivalsCommands;
 import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Weapon;
+import nu.metacraft.rivals.gun.WeaponTuning;
+import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.gun.Recoil;
 import nu.metacraft.rivals.paint.ConnectedPaintBlock;
 import nu.metacraft.rivals.paint.Paint;
@@ -77,6 +82,8 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
+import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashSet;
@@ -1716,6 +1723,176 @@ public final class RivalsGameTests {
 				helper.assertTrue(json.contains("\"" + PaintArt.variantKey(state) + "\""), "variant for " + state);
 			}
 		}
+		helper.succeed();
+	}
+
+	/**
+	 * The tuning starts where the weapons were written: every parameter's default is the constant the
+	 * fire modes used to read, so turning the tuning on changed nothing about how anything shoots.
+	 */
+	@GameTest
+	public void tuningDefaultsMatchTheEnum(GameTestHelper helper) {
+		WeaponTuning.resetAll();
+		for (Weapon weapon : Weapon.values()) {
+			WeaponTuning tuning = WeaponTuning.get(weapon);
+			helper.assertValueEqual(tuning.value("velocity"), (double) weapon.velocity, weapon.commandId() + " velocity");
+			helper.assertValueEqual(tuning.value("spread"), (double) weapon.inaccuracy, weapon.commandId() + " spread");
+			helper.assertValueEqual(tuning.value("ink"), (double) weapon.inkPerShot, weapon.commandId() + " ink");
+			helper.assertValueEqual(tuning.value("cooldown"), (double) weapon.cooldownTicks, weapon.commandId() + " cooldown");
+			helper.assertValueEqual(tuning.value("kick"), (double) weapon.kickPitch, weapon.commandId() + " kick");
+			helper.assertValueEqual(tuning.value("damage"), (double) weapon.damage, weapon.commandId() + " damage");
+			helper.assertValueEqual(tuning.value("restitution"), PaintBall.BOUNCE_RESTITUTION, weapon.commandId() + " restitution");
+		}
+		// The ball weapons: the numbers each arm of fire used to spell out for itself.
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("bounces"), (double) Weapon.SHOOTER_BOUNCES, "shooter bounces");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("count"), 1.0, "shooter fires one ball");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("gravity"), PaintBall.GRAVITY, "shooter gravity");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("splat_radius"), (double) Painter.RADIUS, "shooter splat radius");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SPRAYER).value("count"), (double) Weapon.SPRAYER_DROPLETS, "sprayer droplets");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SPRAYER).value("lifetime"), (double) Weapon.SPRAYER_LIFETIME, "sprayer lifetime");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SPRAYER).value("splat_radius"), 0.0, "a droplet paints a single face");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("count"), (double) Weapon.SLOSHER_FAN.length, "slosher balls");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("gravity"), Weapon.SLOSHER_GRAVITY, "slosher gravity");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("fan_pitch"), (double) Weapon.SLOSHER_PITCH, "slosher lob");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("splat_radius"), (double) Weapon.SLOSHER_SPLAT_RADIUS, "slosher 5x5");
+		// fan_yaw is the hand-written fan {-15, -5, 5, 15} as one number: four balls, ten degrees apart.
+		double step = WeaponTuning.get(Weapon.SLOSHER).value("fan_yaw");
+		for (int i = 0; i < Weapon.SLOSHER_FAN.length; i++) {
+			helper.assertValueEqual((double) Weapon.SLOSHER_FAN[i], (i - (Weapon.SLOSHER_FAN.length - 1) / 2.0) * step,
+					"slosher fan offset " + i);
+		}
+		// And the charger's own, which no other weapon reads.
+		WeaponTuning charger = WeaponTuning.get(Weapon.CHARGER);
+		helper.assertValueEqual(charger.value("charge_min"), (double) Weapon.MIN_CHARGE_TICKS, "charger minimum charge");
+		helper.assertValueEqual(charger.value("charge_full"), (double) Weapon.CHARGE_FULL_TICKS, "charger full charge");
+		helper.assertValueEqual(charger.value("range_min"), Weapon.CHARGE_BASE_RANGE, "charger range at no charge");
+		helper.assertValueEqual(charger.value("range_full"), Weapon.CHARGE_BASE_RANGE + Weapon.CHARGE_EXTRA_RANGE,
+				"charger range at a full charge");
+		helper.assertValueEqual(charger.value("charge_ink_full"), (double) (Weapon.CHARGE_BASE_COST + Weapon.CHARGE_EXTRA_COST),
+				"charger ink at a full charge");
+		helper.assertValueEqual(charger.value("charge_damage_full"), (double) (Weapon.CHARGE_BASE_DAMAGE + Weapon.CHARGE_EXTRA_DAMAGE),
+				"charger damage at a full charge");
+		helper.assertTrue(!WeaponTuning.applies(Weapon.SLOSHER, Param.RANGE_FULL), "the slosher has no charge to tune");
+		helper.assertTrue(!WeaponTuning.applies(Weapon.CHARGER, Param.BOUNCES), "the charger throws nothing to bounce");
+		helper.succeed();
+	}
+
+	/** A tuned number is in the next shot: no restart, no re-registering, just the next click. */
+	@GameTest
+	public void tuningChangesReachTheShot(GameTestHelper helper) {
+		WeaponTuning.resetAll();
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		WeaponTuning shooter = WeaponTuning.get(Weapon.SHOOTER);
+		shooter.set(Param.VELOCITY, 0.5);
+		shooter.set(Param.BOUNCES, 0.0);
+		PaintBall slow = onlyBall(helper, player);
+		// The spread is still on, and vanilla adds its jitter to the unit direction before scaling by the
+		// velocity, so the speed is the tuned one give or take a few per cent — not give or take 1.3.
+		helper.assertTrue(Math.abs(slow.getDeltaMovement().length() - 0.5) < 0.06,
+				"the tuned velocity is the shot's: " + slow.getDeltaMovement().length());
+		helper.assertValueEqual(slow.bouncesLeft(), 0, "the tuned bounces are the ball's");
+		slow.discard();
+		WeaponTuning.resetAll();
+		PaintBall fast = onlyBall(helper, player);
+		helper.assertTrue(Math.abs(fast.getDeltaMovement().length() - Weapon.SHOOTER.velocity) < 0.15,
+				"a reset puts the default velocity back: " + fast.getDeltaMovement().length());
+		helper.assertValueEqual(fast.bouncesLeft(), Weapon.SHOOTER_BOUNCES, "and the default bounces");
+		fast.discard();
+		helper.succeed();
+	}
+
+	/** One click of the shooter, and the ball it threw. */
+	private static PaintBall onlyBall(GameTestHelper helper, Player player) {
+		InteractionResult result = PaintWeapon.of(Weapon.SHOOTER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(result.consumesAction(), "shoots");
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
+		helper.assertValueEqual(balls.size(), 1, "one ball");
+		return balls.get(0);
+	}
+
+	/**
+	 * The file keeps what has been tuned and nothing else, and reading it back puts exactly that on top
+	 * of the defaults — so a default that moves in the code moves for everyone who never touched it.
+	 */
+	@GameTest
+	public void tuningRoundTripsThroughJson(GameTestHelper helper) throws IOException {
+		WeaponTuning.resetAll();
+		WeaponTuning.get(Weapon.SHOOTER).set(Param.VELOCITY, 0.5);
+		WeaponTuning.get(Weapon.SLOSHER).set(Param.GRAVITY, 0.2);
+		Path file = Files.createTempFile("rivals-weapons", ".json");
+		try {
+			WeaponTuning.save(file);
+			WeaponTuning.resetAll();
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("velocity"), (double) Weapon.SHOOTER.velocity,
+					"a reset instance is back at the defaults before the load");
+			WeaponTuning.load(file);
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("velocity"), 0.5, "the shooter's velocity came back");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("gravity"), 0.2, "the slosher's gravity came back");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.SPRAYER).value("velocity"), (double) Weapon.SPRAYER.velocity,
+					"a weapon nobody tuned is untouched by the file");
+			JsonObject root = JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject();
+			helper.assertValueEqual(root.keySet(), Set.of("shooter", "slosher"), "only the two tuned weapons are in the file");
+			helper.assertValueEqual(root.getAsJsonObject("shooter").keySet(), Set.of("velocity"), "and only the one key");
+			helper.assertValueEqual(root.getAsJsonObject("slosher").keySet(), Set.of("gravity"), "and only the one key");
+			// Nothing tuned is an empty object, not a full dump of every default.
+			WeaponTuning.resetAll();
+			WeaponTuning.save(file);
+			helper.assertValueEqual(Files.readString(file, StandardCharsets.UTF_8).trim(), "{}", "a fresh tuning writes {}");
+		} finally {
+			Files.deleteIfExists(file);
+			WeaponTuning.resetAll();
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * A parameter nobody has heard of is a failure that says what the weapon does have, rather than a
+	 * silent no-op: the whole point of the command is that you can find the knobs from inside the game.
+	 */
+	@GameTest
+	public void tuneCommandRejectsUnknownParameters(GameTestHelper helper) {
+		WeaponTuning.resetAll();
+		List<String> said = new ArrayList<>();
+		CommandSource sink = new CommandSource() {
+			@Override
+			public void sendSystemMessage(Component message) {
+				said.add(message.getString());
+			}
+
+			@Override
+			public boolean acceptsSuccess() {
+				return true;
+			}
+
+			@Override
+			public boolean acceptsFailure() {
+				return true;
+			}
+
+			@Override
+			public boolean shouldInformAdmins() {
+				return false; // nothing here is worth telling the whole server about
+			}
+		};
+		MinecraftServer server = helper.getLevel().getServer();
+		CommandSourceStack source = server.createCommandSourceStack().withSource(sink);
+		server.getCommands().performPrefixedCommand(source, "rivals tune shooter nope 1");
+		String text = String.join(" | ", said);
+		helper.assertTrue(text.contains("nope"), "the failure names what was typed: " + text);
+		helper.assertTrue(text.contains("velocity") && text.contains("bounces") && text.contains("splat_radius"),
+				"the failure lists the names that would have worked: " + text);
+		helper.assertTrue(!text.contains("range_full"), "and not the charger's, on a shooter: " + text);
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("velocity"), (double) Weapon.SHOOTER.velocity,
+				"a refused set changed nothing");
+		// The same command with a name that exists does land.
+		said.clear();
+		server.getCommands().performPrefixedCommand(source, "rivals tune shooter velocity 0.7");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("velocity"), 0.7, "a known parameter is set");
+		helper.assertTrue(String.join(" | ", said).contains("0.7"), "and the reply says so: " + said);
+		server.getCommands().performPrefixedCommand(source, "rivals tune reset");
+		helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("velocity"), (double) Weapon.SHOOTER.velocity,
+				"/rivals tune reset puts every weapon back");
 		helper.succeed();
 	}
 }

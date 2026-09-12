@@ -52,8 +52,8 @@ import java.util.Optional;
  * hits; never hurts anything.
  *
  * <p>Two knobs on top of v2's straight flight. {@code bounces} lets a shot reflect off the face it
- * struck at {@link #BOUNCE_RESTITUTION} of its speed and keep going (the shooter's balls bounce
- * {@link Weapon#SHOOTER_BOUNCES} times, pancaking against each face and throwing off droplets);
+ * struck at the firing weapon's {@code restitution} of its speed and keep going (the shooter's balls
+ * bounce twice by default, pancaking against each face and throwing off droplets);
  * {@code lifetime} makes a ball that has not hit anything splash the ground under itself and
  * vanish, which is what turns the same entity into a short-range sprayer droplet — and into the
  * spray a bounce throws off.
@@ -67,9 +67,9 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 			.noSave()
 			.build(ResourceKey.create(Registries.ENTITY_TYPE, Rivals.id("paint_ball")));
 
-	/** How much speed a bounce keeps. */
+	/** How much speed a bounce keeps, by default; the live number is the weapon's {@code restitution}. */
 	public static final double BOUNCE_RESTITUTION = 0.62;
-	/** A lobbed arc, heavier than a vanilla snowball's 0.03. */
+	/** A lobbed arc, heavier than a vanilla snowball's 0.03; the default behind {@code gravity}. */
 	public static final double GRAVITY = 0.05;
 	/** How far down {@link #expire} looks for a floor to splash. */
 	private static final double EXPIRE_RAY = 4.0;
@@ -91,13 +91,19 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private static final double ORIENT_EPSILON = 1.0e-3;
 	/** Lifted off the struck face so the bounced ball does not start inside it. */
 	private static final double BOUNCE_LIFT = 0.05;
-	/** What a bounce throws off: how many droplets, how long each lives, and how they leave. */
-	private static final int BOUNCE_DROPLETS = 2;
-	private static final int DROPLET_LIFETIME = 8;
-	private static final double DROPLET_SPEED = 0.5;
-	private static final double DROPLET_SCATTER = 0.15;
+	/**
+	 * What a bounce throws off by default: how many droplets, how long each lives, and how they leave.
+	 * These are the defaults {@link WeaponTuning} is built from; what a bounce actually throws is the
+	 * live {@code spatter_*} of the weapon that fired the ball.
+	 */
+	public static final int BOUNCE_DROPLETS = 2;
+	public static final int DROPLET_LIFETIME = 8;
+	public static final double DROPLET_SPEED = 0.5;
+	public static final double DROPLET_SCATTER = 0.15;
 
 	private PaintColor color = PaintColor.DATA;
+	/** Which weapon's tuning this ball reads on a bounce; the shooter for a ball nobody claimed. */
+	private Weapon weapon = Weapon.SHOOTER;
 	private int bounces = 1;
 	private int lifetime = 0;
 	private int splatRadius = Painter.RADIUS;
@@ -145,6 +151,19 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 
 	public PaintColor color() {
 		return color;
+	}
+
+	/**
+	 * The weapon this ball came out of. Everything a ball does once it has left the barrel — how much
+	 * speed a bounce keeps, what that bounce spatters — is that weapon's tuning, read at the bounce
+	 * rather than copied onto the ball, so the numbers a ball in flight obeys are the current ones.
+	 */
+	public Weapon weapon() {
+		return weapon;
+	}
+
+	public void setWeapon(Weapon weapon) {
+		this.weapon = weapon;
 	}
 
 	/** How far the impact splat reaches on the struck face: 0 is a single face, 2 the slosher's 5x5. */
@@ -335,7 +354,8 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 			bounces--;
 			Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getUnitVec3i());
 			Vec3 v = getDeltaMovement();
-			Vec3 reflected = v.subtract(normal.scale(2 * v.dot(normal))).scale(BOUNCE_RESTITUTION);
+			Vec3 reflected = v.subtract(normal.scale(2 * v.dot(normal)))
+					.scale(WeaponTuning.get(weapon).value(WeaponTuning.Param.RESTITUTION));
 			setDeltaMovement(reflected);
 			setPos(hit.getLocation().add(normal.scale(BOUNCE_LIFT)));
 			impact = IMPACT_HOLD + IMPACT_BLEND;
@@ -355,16 +375,21 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private void spatter(ServerLevel level, Vec3 at, Vec3 reflected) {
 		level.playSound(null, at.x, at.y, at.z, SoundEvents.SLIME_BLOCK_STEP, SoundSource.BLOCKS, 0.5f, 1.6f);
 		if (droplet) return;
+		WeaponTuning tuning = WeaponTuning.get(weapon);
 		LivingEntity shooter = getOwner() instanceof LivingEntity living ? living : null;
-		for (int i = 0; i < BOUNCE_DROPLETS; i++) {
-			PaintBall drop = new PaintBall(level, shooter, color, 0, DROPLET_LIFETIME);
+		int count = tuning.intValue(WeaponTuning.Param.SPATTER_COUNT);
+		double scatterBy = tuning.value(WeaponTuning.Param.SPATTER_SCATTER);
+		double speed = tuning.value(WeaponTuning.Param.SPATTER_SPEED);
+		for (int i = 0; i < count; i++) {
+			PaintBall drop = new PaintBall(level, shooter, color, 0, tuning.intValue(WeaponTuning.Param.SPATTER_LIFETIME));
+			drop.setWeapon(weapon);
 			drop.setDroplet(true);
 			drop.setSplatRadius(0);
-			drop.setDamage(Weapon.DROPLET_DAMAGE);
+			drop.setDamage(tuning.floatValue(WeaponTuning.Param.SPATTER_DAMAGE));
 			drop.setPos(at.x, at.y, at.z);
 			Vec3 scatter = new Vec3(random.nextDouble() * 2 - 1, random.nextDouble() * 2 - 1, random.nextDouble() * 2 - 1);
-			if (scatter.lengthSqr() > 1.0e-6) scatter = scatter.normalize().scale(DROPLET_SCATTER);
-			drop.setDeltaMovement(reflected.scale(DROPLET_SPEED).add(scatter));
+			if (scatter.lengthSqr() > 1.0e-6) scatter = scatter.normalize().scale(scatterBy);
+			drop.setDeltaMovement(reflected.scale(speed).add(scatter));
 			level.addFreshEntity(drop);
 		}
 	}
