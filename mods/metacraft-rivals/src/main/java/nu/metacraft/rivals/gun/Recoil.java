@@ -14,7 +14,6 @@ import java.util.List;
  * Only real server players with a connection get packets; mock players are skipped.
  */
 public final class Recoil {
-	public static final float KICK_PITCH = -2.5f;
 	/** The ease-back is a fraction of whatever went up, so a heavy kick settles from higher. */
 	public static final float SETTLE_FRACTION = 0.72f;
 	private static final int SETTLE_DELAY_TICKS = 2;
@@ -45,11 +44,6 @@ public final class Recoil {
 		// belong to the server that is going away: keeping them would leak the players and, since the
 		// tick count restarts at 0, hold entries that never come due.
 		ServerLifecycleEvents.SERVER_STOPPING.register(server -> SETTLE_QUEUE.clear());
-	}
-
-	/** The default kick, for callers with no weapon of their own. */
-	public static void kick(Player shooter) {
-		kick(shooter, KICK_PITCH);
 	}
 
 	/** A kick of {@code pitch} degrees (negative is up), eased back two ticks later. */

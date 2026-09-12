@@ -65,29 +65,6 @@ import java.util.Optional;
 public final class PaintWeapon extends Item implements PolymerItem {
 	private static final Map<Weapon, PaintWeapon> ITEMS = new EnumMap<>(Weapon.class);
 
-	/** How many droplets one sprayer click throws, and how long each lives before it splashes the floor. */
-	public static final int SPRAYER_DROPLETS = 3;
-	public static final int SPRAYER_LIFETIME = 12;
-	/** Yaw offsets of the slosher's fan, degrees from the look direction. */
-	public static final float[] SLOSHER_FAN = {-15.0f, -5.0f, 5.0f, 15.0f};
-	/** The slosher lobs: it aims above the crosshair and falls harder than a shooter's ball. */
-	public static final float SLOSHER_PITCH = -20.0f;
-	public static final double SLOSHER_GRAVITY = 0.06;
-	/** 5x5 on impact. */
-	public static final int SLOSHER_SPLAT_RADIUS = 2;
-	/** The charger is held to charge; vanilla's cap for "as long as you like". */
-	public static final int CHARGE_MAX_TICKS = 72000;
-	/** A full charge, in ticks held; holding longer adds nothing. */
-	public static final int CHARGE_FULL_TICKS = 20;
-	/** Below this the release is a tap, not a shot: no line, no ink, no cooldown. */
-	public static final int MIN_CHARGE_TICKS = 5;
-	/** Ink at no charge, and what a full charge adds on top. */
-	public static final int CHARGE_BASE_COST = 4;
-	public static final int CHARGE_EXTRA_COST = 8;
-	/** Hitscan reach in blocks, at no charge and what a full charge adds. */
-	public static final double CHARGE_BASE_RANGE = 10.0;
-	public static final double CHARGE_EXTRA_RANGE = 30.0;
-
 	private final Weapon weapon;
 
 	public PaintWeapon(Weapon weapon, Properties properties) {
@@ -113,15 +90,18 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	}
 
 	/**
-	 * One of every weapon, dropped at the player's feet if the inventory is full. Returns how many were
-	 * handed out (always one per weapon; the count is what the command reports).
+	 * One of every weapon, dropped at the player's feet if the inventory is full. Returns how many went
+	 * into the inventory — not how many were made — so a full inventory reports what it actually took.
 	 */
 	public static int giveKit(Player player) {
 		int given = 0;
 		for (Weapon weapon : Weapon.values()) {
 			ItemStack stack = new ItemStack(of(weapon));
-			if (!player.getInventory().add(stack)) player.drop(stack, false);
-			given++;
+			if (player.getInventory().add(stack)) {
+				given++;
+			} else {
+				player.drop(stack, false);
+			}
 		}
 		return given;
 	}
@@ -130,8 +110,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	public InteractionResult use(Level level, Player player, InteractionHand hand) {
 		if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.PASS;
 		ItemStack gun = player.getItemInHand(hand);
-		if (!ready(serverLevel, player, gun)) return InteractionResult.FAIL; // team, refill, squid
-		PaintColor color = PaintColor.byTeam(player.getTeam()).orElseThrow(); // ready() checked it
+		Optional<PaintColor> ready = ready(serverLevel, player, gun); // team, refill, squid
+		if (ready.isEmpty()) return InteractionResult.FAIL;
+		PaintColor color = ready.get();
 		// A tank that cannot cover the shot is as good as empty: one ink must not buy a fifteen-ink slosh.
 		if (Ink.get(gun) < weapon.inkPerShot) {
 			outOfInk(serverLevel, player, gun);
@@ -162,8 +143,8 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			// Three droplets down one barrel: the spread is what separates them, and each paints only the
 			// face it lands on, so a held trigger reads as a cone of mist rather than three fat blobs.
 			case SPRAYER -> {
-				for (int i = 0; i < SPRAYER_DROPLETS; i++) {
-					PaintBall drop = new PaintBall(level, player, color, 0, SPRAYER_LIFETIME);
+				for (int i = 0; i < Weapon.SPRAYER_DROPLETS; i++) {
+					PaintBall drop = new PaintBall(level, player, color, 0, Weapon.SPRAYER_LIFETIME);
 					drop.setSplatRadius(0);
 					drop.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0f, weapon.velocity, weapon.inaccuracy);
 					level.addFreshEntity(drop);
@@ -171,11 +152,11 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			}
 			// A deliberate fan, not a spread: fixed yaw offsets so the four arcs land side by side every time.
 			case SLOSHER -> {
-				for (float offset : SLOSHER_FAN) {
+				for (float offset : Weapon.SLOSHER_FAN) {
 					PaintBall ball = new PaintBall(level, player, color, 0, 0);
-					ball.setSplatRadius(SLOSHER_SPLAT_RADIUS);
-					ball.setGravity(SLOSHER_GRAVITY);
-					ball.shootFromRotation(player, player.getXRot() + SLOSHER_PITCH, player.getYRot() + offset,
+					ball.setSplatRadius(Weapon.SLOSHER_SPLAT_RADIUS);
+					ball.setGravity(Weapon.SLOSHER_GRAVITY);
+					ball.shootFromRotation(player, player.getXRot() + Weapon.SLOSHER_PITCH, player.getYRot() + offset,
 							0.0f, weapon.velocity, weapon.inaccuracy);
 					level.addFreshEntity(ball);
 				}
@@ -186,7 +167,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 
 	@Override
 	public int getUseDuration(ItemStack stack, LivingEntity entity) {
-		return weapon == Weapon.CHARGER ? CHARGE_MAX_TICKS : 0;
+		return weapon == Weapon.CHARGER ? Weapon.CHARGE_MAX_TICKS : 0;
 	}
 
 	@Override
@@ -208,16 +189,22 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		// Only the server has the paint, the tank and the scoreboard; the client never fires this.
 		if (weapon != Weapon.CHARGER || !(level instanceof ServerLevel serverLevel) || !(entity instanceof Player player)) return false;
 		int held = getUseDuration(stack, entity) - timeLeft;
-		if (held < MIN_CHARGE_TICKS) return false;
-		float charge = Math.min(1.0f, held / (float) CHARGE_FULL_TICKS);
-		if (!ready(serverLevel, player, stack)) return false;
-		PaintColor color = PaintColor.byTeam(player.getTeam()).orElseThrow();
-		int cost = Math.round(CHARGE_BASE_COST + CHARGE_EXTRA_COST * charge);
+		if (held < Weapon.MIN_CHARGE_TICKS) {
+			// A tap costs nothing, which also means it gives no feedback at all: without a word the weapon
+			// reads as broken to anyone clicking it the way the other three are clicked.
+			actionBar(player, Component.literal("Hold to charge").withStyle(ChatFormatting.GRAY));
+			return false;
+		}
+		float charge = Math.min(1.0f, held / (float) Weapon.CHARGE_FULL_TICKS);
+		Optional<PaintColor> ready = ready(serverLevel, player, stack);
+		if (ready.isEmpty()) return false;
+		PaintColor color = ready.get();
+		int cost = Math.round(Weapon.CHARGE_BASE_COST + Weapon.CHARGE_EXTRA_COST * charge);
 		if (Ink.get(stack) < cost) {
 			outOfInk(serverLevel, player, stack);
 			return false;
 		}
-		double range = CHARGE_BASE_RANGE + CHARGE_EXTRA_RANGE * charge;
+		double range = Weapon.CHARGE_BASE_RANGE + Weapon.CHARGE_EXTRA_RANGE * charge;
 		Vec3 from = entity.getEyePosition();
 		Vec3 reach = entity.getLookAngle().scale(range);
 		Vec3 to = from.add(reach);
@@ -232,13 +219,14 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		EntityHitResult inTheWay = ProjectileUtil.getEntityHitResult(serverLevel, entity, from, end, along,
 				candidate -> candidate != entity && candidate.isAlive() && !candidate.isSpectator(), 0.0f);
 		if (inTheWay != null) end = inTheWay.getLocation();
-		Painter.line(serverLevel, from, end, color, serverLevel.getRandom(), entity);
+		int painted = Painter.line(serverLevel, from, end, color, entity);
 		if (inTheWay != null) {
 			BlockPos below = inTheWay.getEntity().blockPosition().below();
-			Painter.splash(serverLevel, end, below, Direction.UP, color, serverLevel.getRandom(), entity);
+			painted += Painter.splash(serverLevel, end, below, Direction.UP, color, serverLevel.getRandom(), entity);
 		} else if (struck) {
-			Painter.splash(serverLevel, end, hit.getBlockPos(), hit.getDirection(), color, serverLevel.getRandom(), entity);
+			painted += Painter.splash(serverLevel, end, hit.getBlockPos(), hit.getDirection(), color, serverLevel.getRandom(), entity);
 		}
+		Rivals.LOGGER.debug("charger: charge {}, range {}, {} cells painted", charge, range, painted);
 		Ink.add(stack, -cost);
 		player.getCooldowns().addCooldown(stack, weapon.cooldownTicks);
 		// A half charge should not buck like a full one, so the kick rides the charge.
@@ -250,22 +238,25 @@ public final class PaintWeapon extends Item implements PolymerItem {
 
 	/**
 	 * The checks every shot shares: a team to paint for, a tank that is not mid-refill, and hands rather
-	 * than fins. Says why when it refuses.
+	 * than fins. Says why when it refuses, and hands back the colour it found: a shot that is allowed is
+	 * exactly a shot that has one, so looking the team up again afterwards was a second call that could
+	 * only have failed if this one had.
 	 */
-	private boolean ready(ServerLevel level, Player player, ItemStack gun) {
-		if (PaintColor.byTeam(player.getTeam()).isEmpty()) {
+	private Optional<PaintColor> ready(ServerLevel level, Player player, ItemStack gun) {
+		Optional<PaintColor> color = PaintColor.byTeam(player.getTeam());
+		if (color.isEmpty()) {
 			actionBar(player, Component.literal("Join a team first: /team join " + PaintColor.values()[0].id)
 					.withStyle(ChatFormatting.RED));
-			return false;
+			return Optional.empty();
 		}
 		long now = level.getServer().getTickCount();
 		Ink.finishIfDue(gun, now);
-		if (Ink.isRefilling(gun, now)) return false;
+		if (Ink.isRefilling(gun, now)) return Optional.empty();
 		if (isSquid(player)) {
 			actionBar(player, Component.literal("Can't shoot in squid form").withStyle(ChatFormatting.RED));
-			return false;
+			return Optional.empty();
 		}
-		return true;
+		return color;
 	}
 
 	/** An empty tank: start the refill, and hold the gun on cooldown until it is done. */

@@ -163,16 +163,27 @@ public final class PlayerTick {
 	 * is not enough — the quads must also carry the horizontal face pointing from the wall back at the
 	 * player, i.e. {@code side.getOpposite()}, or a squid standing on its own paint would climb any
 	 * paintable neighbour regardless of whether that neighbour is inked.
+	 *
+	 * <p>The head-height paint is matched against the neighbour at head height rather than the one beside
+	 * the ankles: paint a cell up belongs to whatever wall is a cell up, and a shoulder-high ledge with
+	 * air below it is still a wall to climb.
 	 */
 	static boolean paintedWallBeside(Player player, PaintColor own) {
 		if (!(player.level() instanceof ServerLevel level)) return false;
 		BlockPos feet = player.blockPosition();
+		BlockPos head = feet.above();
 		PaintDisplays displays = PaintDisplays.of(level);
+		// None of these four vary with the direction, and three are chunk lookups: read them once.
+		BlockState atFeet = level.getBlockState(feet);
+		BlockState atHead = level.getBlockState(head);
+		PaintColor quadColor = displays.colorAt(feet);
+		Direction quadFace = displays.faceAt(feet);
 		for (Direction side : Direction.Plane.HORIZONTAL) {
-			BlockPos wall = feet.relative(side);
-			if (!Painter.paintable(level.getBlockState(wall))) continue;
-			if (facing(level.getBlockState(feet), side, own) || facing(level.getBlockState(feet.above()), side, own)) return true;
-			if (displays.colorAt(feet) == own && displays.faceAt(feet) == side.getOpposite()) return true;
+			if (Painter.paintable(level.getBlockState(feet.relative(side)))) {
+				if (facing(atFeet, side, own)) return true;
+				if (quadColor == own && quadFace == side.getOpposite()) return true;
+			}
+			if (facing(atHead, side, own) && Painter.paintable(level.getBlockState(head.relative(side)))) return true;
 		}
 		return false;
 	}

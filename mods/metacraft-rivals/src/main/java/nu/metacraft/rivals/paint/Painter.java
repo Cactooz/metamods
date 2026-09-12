@@ -120,8 +120,7 @@ public final class Painter {
 	 * That is what makes a charger shot read as a line drawn on the floor rather than as a single splat
 	 * at the far end. Returns how many cells changed.
 	 */
-	public static int line(ServerLevel level, Vec3 from, Vec3 to, PaintColor color, RandomSource random,
-			@Nullable Entity source) {
+	public static int line(ServerLevel level, Vec3 from, Vec3 to, PaintColor color, @Nullable Entity source) {
 		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.4f);
 		double length = from.distanceTo(to);
 		int steps = (int) Math.ceil(length / LINE_STEP);

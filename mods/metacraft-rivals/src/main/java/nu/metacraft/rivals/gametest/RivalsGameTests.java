@@ -972,7 +972,7 @@ public final class RivalsGameTests {
 		player.setPos(at.x, at.y, at.z);
 		player.setYRot(-90f); // look +X
 		player.setXRot(0f);
-		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, 72000 - PaintWeapon.CHARGE_FULL_TICKS);
+		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - Weapon.CHARGE_FULL_TICKS);
 		helper.assertTrue(fired, "full charge fires");
 		int painted = 0;
 		for (int x = 1; x <= 5; x++) {
@@ -1006,7 +1006,7 @@ public final class RivalsGameTests {
 		Vec3 stand = helper.absoluteVec(new Vec3(3.5, 2.0, 3.5));
 		target.setPos(stand.x, stand.y, stand.z);
 		helper.getLevel().addFreshEntity(target);
-		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, 72000 - PaintWeapon.CHARGE_FULL_TICKS);
+		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - Weapon.CHARGE_FULL_TICKS);
 		helper.assertTrue(fired, "full charge fires");
 		helper.assertTrue(helper.getBlockState(new BlockPos(3, 2, 3)).is(PaintBlocks.of(PaintColor.CYAN)),
 				"the floor under the player in the way is painted");
@@ -1023,7 +1023,7 @@ public final class RivalsGameTests {
 		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
 		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.CYAN));
-		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, 72000 - 2);
+		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - 2);
 		helper.assertTrue(!fired && Ink.get(charger) == Ink.MAX, "a tap does nothing and costs nothing");
 		helper.succeed();
 	}

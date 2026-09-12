@@ -30,6 +30,35 @@ public enum Weapon {
 	/** Relative pitch nudge on the shot, in degrees; negative is up. */
 	public final float kickPitch;
 
+	// Everything else that separates one weapon from the next. They live here rather than on the item so
+	// that one weapon is one place to look, instead of half its numbers being in PaintWeapon; each set is
+	// read by exactly the arm of PaintWeapon.fire (or releaseUsing) that the weapon takes.
+
+	/** Sprayer: how many droplets one click throws, and how long each lives before it splashes the floor. */
+	public static final int SPRAYER_DROPLETS = 3;
+	public static final int SPRAYER_LIFETIME = 12;
+
+	/** Slosher: yaw offsets of the fan, degrees from the look direction. */
+	public static final float[] SLOSHER_FAN = {-15.0f, -5.0f, 5.0f, 15.0f};
+	/** Slosher: it lobs, so it aims above the crosshair and falls harder than a shooter's ball. */
+	public static final float SLOSHER_PITCH = -20.0f;
+	public static final double SLOSHER_GRAVITY = 0.06;
+	/** Slosher: 5x5 on impact. */
+	public static final int SLOSHER_SPLAT_RADIUS = 2;
+
+	/** Charger: it is held to charge, so vanilla's cap for "as long as you like". */
+	public static final int CHARGE_MAX_TICKS = 72000;
+	/** Charger: a full charge, in ticks held; holding longer adds nothing. */
+	public static final int CHARGE_FULL_TICKS = 20;
+	/** Charger: below this the release is a tap, not a shot — no line, no ink, no cooldown. */
+	public static final int MIN_CHARGE_TICKS = 5;
+	/** Charger: ink at no charge, and what a full charge adds on top. */
+	public static final int CHARGE_BASE_COST = 4;
+	public static final int CHARGE_EXTRA_COST = 8;
+	/** Charger: hitscan reach in blocks, at no charge and what a full charge adds. */
+	public static final double CHARGE_BASE_RANGE = 10.0;
+	public static final double CHARGE_EXTRA_RANGE = 30.0;
+
 	Weapon(String id, String displayName, int inkPerShot, int cooldownTicks, float velocity, float inaccuracy, float kickPitch) {
 		this.id = id;
 		this.displayName = displayName;

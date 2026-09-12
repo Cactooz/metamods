@@ -27,7 +27,7 @@ Rivals server wants.
   |---|---|---|---|
   | shooter | 1 | 4 ticks | one ball, one bounce, 3×3 splat |
   | sprayer | 1/click | 4 ticks | 3 short-lived droplets in a cone, single-face splat + rays, no bounce |
-  | charger | 4 + 8 × charge | 20 ticks | hold to charge (up to 20 ticks), release for a hitscan line with a splash where it stops |
+  | charger | 4 + 8 × charge | 20 ticks | hold to charge (up to 20 ticks), release for a hitscan line, stopped by the first block or player in it |
   | slosher | 15 | 14 ticks | 4 balls in a fan, gravity-heavy lob, 5×5 splat, no bounce |
 
   Only the slosher swings the arm on use — it's a bucket, and the throw reads as one — so its
@@ -119,7 +119,7 @@ Rivals server wants.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (34 of ours, plus vanilla's always_pass: 35 in total)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (36 of ours, plus vanilla's always_pass: 37 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so
