@@ -51,6 +51,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import nu.metacraft.rivals.pack.RivalsPack;
 
 /**
  * Server-side game tests (Fabric GameTest API). Run headless with
@@ -323,6 +324,7 @@ public final class RivalsGameTests {
 			JsonObject model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
 			JsonArray elements = model.getAsJsonArray("elements");
 			helper.assertTrue(elements.size() >= 5, "model has elements");
+			helper.assertTrue(elements.size() <= 400, "model stays under 400 elements, got " + elements.size());
 			boolean tinted = false;
 			for (JsonElement e : elements) {
 				JsonObject box = e.getAsJsonObject();
@@ -468,6 +470,17 @@ public final class RivalsGameTests {
 		int removed = tally.reset(helper.getLevel()); // a reset clears the level's display quads too
 		helper.assertTrue(removed >= 1 && displays.holders() == 0, "clear removed the quads");
 		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.CYAN), 0, "nothing left to count");
+		helper.succeed();
+	}
+
+	/** The gloss shader ships in the pack and keys on the paint alpha marker. */
+	@GameTest
+	public void glossShaderCarriesTheMarkerGuard(GameTestHelper helper) {
+		String fsh = new String(RivalsPack.shader("block.fsh"), StandardCharsets.UTF_8);
+		String vsh = new String(RivalsPack.shader("block.vsh"), StandardCharsets.UTF_8);
+		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.85") && fsh.contains("0.95"), "fragment shader guards on the marker alpha");
+		helper.assertTrue(fsh.contains("#ifdef ALPHA_CUTOUT"), "vanilla cutout path kept");
+		helper.assertTrue(vsh.contains("out vec3 viewPos"), "vertex shader exports the view position");
 		helper.succeed();
 	}
 }
