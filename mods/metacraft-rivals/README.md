@@ -136,6 +136,15 @@ dedicated Rivals server wants.
   intentionally-empty sound. Nothing ever completes it — the server ends the use — and vanilla only
   starts the eating sounds after 21.875% of the consume time, which is thirteen minutes in.
 
+  It buys a second thing: the item definition can now switch on `minecraft:using_item`, which is true
+  exactly while the client is using the item. `items/roller.json` is a `minecraft:condition` on it, so
+  **holding the button swaps the roller's model** for `item/roller_rolling` — the same geometry as a
+  child model, with the head pitched nose-down, pushed ahead and scaled up by a third, so it reads as
+  pressed against the floor instead of carried in front of your face; third person is lowered and pushed
+  ahead too, so everyone else sees the head down. The transforms are in `tools/weapon_models.py`'s
+  `ROLLING_DISPLAY` and were solved against the same first-person camera chain the LED used to be solved
+  against: at 1080p the drum sits on the bottom edge, slightly clipped, with the grip rising above it.
+
   That is also why the disguise is a **stick**. It was `warped_fungus_on_a_stick`, and
   `FoodOnAStickItem.use` returns PASS on the client before it looks at a single component, so no
   component could have reached it; a bare `Item` runs the base `Item.use` that reads the consumable.

@@ -157,6 +157,52 @@ def led_element(centre):
     ])
 
 
+# The roller's second pose: what it looks like while the button is held and the head is on the floor.
+# `items/roller.json` switches to `item/roller_rolling` on minecraft:using_item, which is true only while
+# the client is using the item — which it now is (PaintWeapon.HELD_USE), and which is the whole reason
+# this pose can exist at all.
+#
+# How it was chosen: the model's drum is its -z end and its grip is its +z end, and the base
+# firstperson pose is rotation [0, -15, -5], translation [-1, -1, -5], scale 0.43. Rolling pitches it
+# nose-down (a NEGATIVE x rotation lowers the -z end), pushes it further ahead and further down, and
+# scales it up about a third, so the head reads as pressed against the floor rather than carried. The
+# numbers were solved against the same first-person camera chain `--report` walks: at 1920x1080 they put
+# the drum at y -34..173 px above the bottom edge — sitting on the edge, slightly clipped, which is what
+# "on the floor" looks like from inside the head — with the grip above it at y 230..289 and the whole
+# thing ahead of the player rather than off to the side.
+#
+# The third-person pose is lowered and pushed ahead by the same idea, so other players see the head down.
+# It is a translation only: nothing here can be checked against a running client, and guessing at a
+# rotation for a pose nobody has seen is how you get a roller held sideways through someone's chest.
+ROLLING_DISPLAY = collections.OrderedDict([
+    ("thirdperson_righthand", {"rotation": [90, 0, 0], "translation": [0, 0.6, 2.2], "scale": [0.8, 0.8, 0.8]}),
+    ("thirdperson_lefthand", {"rotation": [90, 0, 0], "translation": [0, 0.6, 2.2], "scale": [0.8, 0.8, 0.8]}),
+    ("firstperson_righthand", {"rotation": [-45, -10, -5], "translation": [-5, -3, -9], "scale": [0.58, 0.58, 0.58]}),
+    ("firstperson_lefthand", {"rotation": [-45, 10, 5], "translation": [-5, -3, -9], "scale": [0.58, 0.58, 0.58]}),
+])
+# Which weapons get a rolling variant, and what it is called.
+ROLLING = {"roller": "roller_rolling"}
+
+
+def rolling(name):
+    """Write the held-down pose as a child model: same geometry, different display.
+
+    A child model inherits its parent's elements and textures, and its own `display` entries override
+    the parent's one perspective at a time — so this file is four transforms and nothing else, and the
+    geometry, the tints and the data LED element stay in exactly one place. The LED needs no solving of
+    its own any more either: item.vsh pins it to a fixed screen quad and throws its model position away.
+    """
+    model = collections.OrderedDict([
+        ("credit", CREDIT + "; rolling pose (held right click), display only"),
+        ("parent", "metacraft-rivals:item/" + name),
+        ("display", ROLLING_DISPLAY),
+    ])
+    with open(os.path.join(OUT, ROLLING[name] + ".json"), "w") as handle:
+        json.dump(model, handle, indent="\t")
+        handle.write("\n")
+    print("%-10s rolling pose -> %s.json" % (name, ROLLING[name]))
+
+
 def convert(name, path, report):
     with open(path) as handle:
         source = json.load(handle, object_pairs_hook=collections.OrderedDict)
@@ -186,6 +232,8 @@ def convert(name, path, report):
                   % (name, width, height, min(p[0] for p in box), max(p[0] for p in box), width / 2,
                      min(p[1] for p in box), max(p[1] for p in box)))
     print("%-10s %d elements, LED centre %r" % (name, len(model["elements"]), centre))
+    if name in ROLLING:
+        rolling(name)
 
 
 report = "--report" in sys.argv

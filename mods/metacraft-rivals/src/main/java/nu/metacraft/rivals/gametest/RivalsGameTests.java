@@ -627,9 +627,19 @@ public final class RivalsGameTests {
 			}
 			try (InputStream in = Rivals.class.getResourceAsStream(base + "items/" + id + ".json")) {
 				JsonObject definition = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
-				JsonObject modelDef = definition.getAsJsonObject("model");
-				helper.assertValueEqual(modelDef.get("model").getAsString(), Rivals.MOD_ID + ":item/" + id, id + ": definition points at the model");
-				helper.assertValueEqual(modelDef.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(), "minecraft:dye", id + ": dye tint");
+				// One model, or a condition with one on each side: the roller swaps to its rolling pose
+				// while the button is held. Every branch has to be this weapon's own model and take the
+				// team dye, or holding the button would change the weapon rather than the pose.
+				boolean own = false;
+				for (JsonObject branch : modelBranches(definition.getAsJsonObject("model"))) {
+					String points = branch.get("model").getAsString();
+					helper.assertTrue(points.startsWith(Rivals.MOD_ID + ":item/" + id),
+							id + ": definition points at the model, got " + points);
+					own |= points.equals(Rivals.MOD_ID + ":item/" + id);
+					helper.assertValueEqual(branch.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(),
+							"minecraft:dye", id + ": dye tint");
+				}
+				helper.assertTrue(own, id + ": and one of them is the plain model");
 			}
 		}
 		helper.succeed();
@@ -1457,12 +1467,17 @@ public final class RivalsGameTests {
 		// element whose faces take that tint.
 		for (String id : new String[] {"paint_gun", "charger", "slosher", "roller"}) {
 			try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/items/" + id + ".json")) {
-				JsonArray tints = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8))
-						.getAsJsonObject().getAsJsonObject("model").getAsJsonArray("tints");
-				JsonObject tint = tints.get(1).getAsJsonObject();
-				helper.assertValueEqual(tint.get("type").getAsString(), "minecraft:custom_model_data", id + ": LED tint source");
-				helper.assertValueEqual(tint.get("index").getAsInt(), 0, id + ": colour 0");
-				helper.assertValueEqual(tint.get("default").getAsInt(), InkOnScreen.IDLE, id + ": dark until the server says otherwise");
+				JsonObject model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8))
+						.getAsJsonObject().getAsJsonObject("model");
+				// Every branch of the definition, because the roller's is a condition on using_item with a
+				// second model for the rolling pose: an LED that is only on one of the two would go dark
+				// the moment the button went down.
+				for (JsonObject branch : modelBranches(model)) {
+					JsonObject tint = branch.getAsJsonArray("tints").get(1).getAsJsonObject();
+					helper.assertValueEqual(tint.get("type").getAsString(), "minecraft:custom_model_data", id + ": LED tint source");
+					helper.assertValueEqual(tint.get("index").getAsInt(), 0, id + ": colour 0");
+					helper.assertValueEqual(tint.get("default").getAsInt(), InkOnScreen.IDLE, id + ": dark until the server says otherwise");
+				}
 			}
 			try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/items/" + id + ".json")) {
 				JsonObject definition = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
@@ -1574,6 +1589,72 @@ public final class RivalsGameTests {
 			if ((image.getRGB(x, image.getHeight() - 1) >>> 24) == 255) bottom = true;
 		}
 		return left && right && top && bottom;
+	}
+
+	/** Every {@code minecraft:model} leaf of an item definition: one, or both sides of a condition. */
+	private static List<JsonObject> modelBranches(JsonObject model) {
+		if ("minecraft:model".equals(model.get("type").getAsString())) return List.of(model);
+		return List.of(modelBranches(model.getAsJsonObject("on_true")).get(0),
+				modelBranches(model.getAsJsonObject("on_false")).get(0));
+	}
+
+	/**
+	 * The roller's second pose. With the client actually using the item now (the consumable on the
+	 * client stack), the item definition can switch on {@code minecraft:using_item}: holding the button
+	 * swaps in a model that is the same geometry with the head pitched down, pushed ahead and scaled up,
+	 * so the roller reads as pressed against the floor rather than carried in front of the face.
+	 *
+	 * <p>The rolling model is a <em>child</em> of the plain one — display transforms and nothing else —
+	 * so the geometry, the tints and the data LED element all stay in one place.
+	 */
+	@GameTest
+	public void theRollerSwapsToARollingPoseWhileTheButtonIsHeld(GameTestHelper helper) throws IOException {
+		JsonObject definition;
+		try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/items/roller.json")) {
+			definition = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+		}
+		JsonObject model = definition.getAsJsonObject("model");
+		helper.assertValueEqual(model.get("type").getAsString(), "minecraft:condition", "the roller picks a model");
+		helper.assertValueEqual(model.get("property").getAsString(), "minecraft:using_item",
+				"on whether the player is using it, which is what holding the button now means");
+		helper.assertValueEqual(model.getAsJsonObject("on_true").get("model").getAsString(),
+				Rivals.MOD_ID + ":item/roller_rolling", "held: the rolling pose");
+		helper.assertValueEqual(model.getAsJsonObject("on_false").get("model").getAsString(),
+				Rivals.MOD_ID + ":item/roller", "let go: the plain one");
+		JsonObject pose;
+		try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/models/item/roller_rolling.json")) {
+			helper.assertTrue(in != null, "the rolling model is a real file");
+			pose = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+		}
+		helper.assertValueEqual(pose.get("parent").getAsString(), Rivals.MOD_ID + ":item/roller",
+				"and is the same geometry: a child model, display only");
+		helper.assertTrue(!pose.has("elements"), "with no geometry of its own to drift from the parent's");
+		JsonObject plain;
+		try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/models/item/roller.json")) {
+			plain = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+		}
+		for (String view : new String[] {"firstperson_righthand", "firstperson_lefthand",
+				"thirdperson_righthand", "thirdperson_lefthand"}) {
+			JsonObject rolling = pose.getAsJsonObject("display").getAsJsonObject(view);
+			helper.assertTrue(rolling != null, "the rolling pose overrides " + view);
+			helper.assertTrue(!rolling.toString().equals(plain.getAsJsonObject("display").getAsJsonObject(view).toString()),
+					view + ": and it is a different pose from the plain one");
+		}
+		// The head goes down and forward, and the whole thing gets bigger: that is the pose, and it is
+		// the one thing here worth asserting in numbers rather than trusting to a screenshot nobody took.
+		JsonArray held = pose.getAsJsonObject("display").getAsJsonObject("firstperson_righthand")
+				.getAsJsonArray("rotation");
+		JsonObject base = plain.getAsJsonObject("display").getAsJsonObject("firstperson_righthand");
+		helper.assertTrue(held.get(0).getAsDouble() < base.getAsJsonArray("rotation").get(0).getAsDouble(),
+				"pitched nose-down: the drum is the model's -z end, so a lower x rotation puts it on the floor");
+		JsonObject rolling = pose.getAsJsonObject("display").getAsJsonObject("firstperson_righthand");
+		helper.assertTrue(rolling.getAsJsonArray("translation").get(1).getAsDouble()
+						< base.getAsJsonArray("translation").get(1).getAsDouble(), "and lower");
+		helper.assertTrue(rolling.getAsJsonArray("translation").get(2).getAsDouble()
+						< base.getAsJsonArray("translation").get(2).getAsDouble(), "and further ahead");
+		helper.assertTrue(rolling.getAsJsonArray("scale").get(0).getAsDouble()
+						> base.getAsJsonArray("scale").get(0).getAsDouble(), "and bigger");
+		helper.succeed();
 	}
 
 	/**
