@@ -901,7 +901,7 @@ public final class RivalsGameTests {
 	public void glossShaderCarriesTheMarkerGuard(GameTestHelper helper) {
 		String fsh = new String(RivalsPack.shader("terrain.fsh"), StandardCharsets.UTF_8);
 		String vsh = new String(RivalsPack.shader("terrain.vsh"), StandardCharsets.UTF_8);
-		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.898") && fsh.contains("0.004"), "fragment shader guards on the marker alpha");
+		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.9216") && fsh.contains("0.008"), "fragment shader guards on the marker alpha");
 		helper.assertTrue(fsh.contains("sampleRGSS") && fsh.contains("#ifdef ALPHA_CUTOUT"), "vanilla terrain sampling and cutout kept");
 		helper.assertTrue(vsh.contains("out vec3 viewPos") && vsh.contains("ChunkPosition"), "vertex shader exports the view position from the chunk-relative position");
 		// The in-plane cell coordinate the border is cut from: the pair has to agree or the paint is untextured.

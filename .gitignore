@@ -29,9 +29,7 @@ mods/**/config/
 crash-reports/
 .fabric/
 
-
 # claude code worktrees
-
 .claude/worktrees/
 
 # java

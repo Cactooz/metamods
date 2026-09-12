@@ -51,12 +51,15 @@ void main() {
     }
     #endif
 
-    // RIVALS_GLOSS: paint texels carry alpha 229/255 = 0.898 as a marker; the window admits 228..230
-    // (three steps, filtering tolerance) and stays five steps clear of the nearest vanilla value (224).
+    // RIVALS_GLOSS: paint texels carry alpha 235/255 = 0.9216 as a marker; the window admits 233..237
+    // (five steps, filtering tolerance) and no vanilla block texture has an alpha anywhere in it — the
+    // nearest values that exist are 232 (nether_portal) and 238 (frosted_ice). The old window around 229
+    // admitted 228..230, which nether_portal (226..232) and seventeen *_stained_glass_pane_top (230) hit:
+    // those fragments came in here, decoded connection bits out of their red channel and could discard.
     // Derivatives are only defined in uniform control flow: take them before the paint branch.
     vec3 chunkDx = dFdx(chunkPos), chunkDy = dFdy(chunkPos);
     vec3 viewDx = dFdx(viewPos), viewDy = dFdy(viewPos);
-    if (abs(tex.a - 0.898) < 0.004) {
+    if (abs(tex.a - 0.9216) < 0.008) {
         // Connected paint (spec §5). The texel is one flat colour whose red low nibble says which of the
         // cell's four in-plane neighbours are painted; the face normal (from chunkPos) picks the two
         // in-plane axes, and a rounded box — full on connected sides, inset and rounded on the others —

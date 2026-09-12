@@ -145,8 +145,9 @@ dedicated Rivals server wants.
   under them), or once its chunk unloads — a chunk unload takes the paint with it, and unlike a
   paint block it does not come back when the chunk reloads.
 - Paint on a full block face is drawn by the pack's own art and the shader (below), not a Kenney
-  silhouette. Per colour there are 16 uniform 16×16 textures — the paint colour, alpha 229 (the
-  gloss shader's marker, unchanged since v2/v3), and the four connection bits packed into the low
+  silhouette. Per colour there are 16 uniform 16×16 textures — the paint colour, alpha 235 (the
+  gloss shader's marker: the window 233..237 is the one band in 200..254 that no vanilla block texture
+  has a texel in, with 232 on `nether_portal` and 238 on `frosted_ice` the nearest values that exist), and the four connection bits packed into the low
   nibble of the red channel (`r = (base & 0xF0) | bits`) — plus six shared one-quad models, one per
   attach direction, each 0.1/16 off the face like the multiface donors. A blockstate `variants` file
   per donor block maps every one of its states to either a wrapper model (a connected cell's face

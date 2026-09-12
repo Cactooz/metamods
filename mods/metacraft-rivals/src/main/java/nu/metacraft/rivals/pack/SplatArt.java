@@ -31,7 +31,7 @@ public final class SplatArt {
 	/** The one quad sprite, model and item id. */
 	public static final String QUAD = "paint_quad";
 	public static final int SIZE = 16;
-	public static final int PAINT_ALPHA = 229;
+	public static final int PAINT_ALPHA = 235;
 	/** How far in from the cell's edge the shape starts, in blocks: one texel, as the shader insets. */
 	private static final double INSET = 1.0 / SIZE;
 	/** The corner radius, in blocks — the shader's 0.28 for a corner with both sides unconnected. */
