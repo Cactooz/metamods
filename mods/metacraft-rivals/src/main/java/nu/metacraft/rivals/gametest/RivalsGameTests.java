@@ -33,6 +33,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.item.component.FireworkExplosion;
+import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
@@ -40,6 +41,7 @@ import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
@@ -1361,6 +1363,63 @@ public final class RivalsGameTests {
 			}
 		}
 		helper.succeed();
+	}
+
+	/**
+	 * The outline follows the ink. The client draws the targeted-block highlight from the client
+	 * state's own shape, which no resource pack can change, so the allocator picks donor states whose
+	 * shape matches the paint: splat masks exactly, floors flat on the floor, walls striped up the
+	 * wall they are painted on.
+	 */
+	@GameTest
+	public void paintStatesOutlineTheInk(GameTestHelper helper) {
+		// Splats: a multiface donor's shape is the union of 1-px slabs on its set faces, so the face
+		// flags have to be the mask itself, bit for bit.
+		for (PaintColor color : PaintColor.values()) {
+			for (int mask = 1; mask < 64; mask++) {
+				if (Integer.bitCount(mask) < 2) continue;
+				BlockState client = PaintStates.splat(color, mask);
+				helper.assertTrue(client.getBlock() instanceof MultifaceBlock, "splat " + color + " " + mask + " is a multiface donor, not " + client);
+				for (Direction d : Direction.values()) {
+					boolean painted = (mask & 1 << d.ordinal()) != 0;
+					helper.assertValueEqual(client.getValue(MultifaceBlock.getFaceProperty(d)), painted,
+							"splat " + color + " mask " + mask + ": the donor's " + d + " flag is the mask's " + d + " bit");
+				}
+			}
+		}
+		// Floors: a thin full-square slab lying on the floor of the cell.
+		for (PaintColor color : PaintColor.values()) {
+			for (int bits = 0; bits < 16; bits++) {
+				AABB box = outline(PaintStates.connected(color, Direction.DOWN, bits));
+				helper.assertTrue(box.maxY <= 3.0 / 16.0, "floor " + color + " " + bits + " lies on the floor, maxY=" + box.maxY);
+				helper.assertTrue(box.minX <= 0.0 && box.maxX >= 1.0 && box.minZ <= 0.0 && box.maxZ >= 1.0,
+						"floor " + color + " " + bits + " covers the whole square, " + box);
+			}
+		}
+		// Walls: at least half of each colour's sixteen per direction are the tall strip states that
+		// actually climb the painted face. The rest are the flat/half fallbacks the budget forces.
+		for (Direction wall : Direction.Plane.HORIZONTAL) {
+			for (PaintColor color : PaintColor.values()) {
+				int strips = 0;
+				for (int bits = 0; bits < 16; bits++) {
+					AABB box = outline(PaintStates.connected(color, wall, bits));
+					boolean touches = switch (wall) {
+						case NORTH -> box.minZ <= 0.0;
+						case SOUTH -> box.maxZ >= 1.0;
+						case WEST -> box.minX <= 0.0;
+						default -> box.maxX >= 1.0;
+					};
+					if (touches && box.maxY - box.minY >= 15.0 / 16.0) strips++;
+				}
+				helper.assertTrue(strips >= 8, wall + " paint for " + color + ": " + strips + " of 16 states climb that face, wanted 8");
+			}
+		}
+		helper.succeed();
+	}
+
+	/** The box the client would draw round a targeted cell holding this client state. */
+	private static AABB outline(BlockState client) {
+		return client.getShape(EmptyBlockGetter.INSTANCE, BlockPos.ZERO).bounds();
 	}
 
 	/** Spec §4: floor then wall in the same air cell → the multiface fallback with both faces. */

@@ -38,8 +38,13 @@ dedicated Rivals server wants.
   | tripwire | 128 | attached × disarmed × powered × n/e/s/w; thin outline shape only |
   | redstone wire, power 0 | 81 | only power 0 is silent and carries no dust tint |
 
-  335 usable states in all; 306 are in the pool (153 per colour: 96 connected face×bits
-  combinations, then 57 corner masks). Glow lichen was considered and dropped — it lights every
+  335 usable states in all; 306 are in use (153 per colour: 96 connected face×bits combinations, then
+  57 corner masks). Which donor state stands for which paint state is chosen by *shape*, because the
+  client draws the targeted-block outline from the borrowed state and no resource pack can change it:
+  corner cells take the multiface state whose face flags are exactly their mask, floor cells take
+  tripwire's flat full-square slab, wall cells take a redstone-wire state with a full-height strip up
+  the face the paint is on (eight of each colour's sixteen per direction — that is every strip state
+  there is), and the rare ceiling cells take tripwire's half box. Glow lichen was considered and dropped — it lights every
   state that has a face, which would make paint glow. The v1 caveat still applies, now for four
   blocks instead of one: real sculk veins, resin clumps, tripwire and redstone dust a player places
   in an arena render as paint too.

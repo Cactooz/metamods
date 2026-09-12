@@ -36,16 +36,43 @@ its states would glow while the rest stayed dark.
 | tripwire | 128 | attached × disarmed × powered × n/e/s/w; no `animateTick`, thin outline shape only |
 | redstone wire, power 0 | 81 | n/e/s/w ∈ {none, side, up}; `animateTick` only spawns dust when power > 0; our model carries no tint index |
 
-335 states; 306 used. The pool is the donors in that order, each donor's usable states in registry
-order, and each colour takes 153 contiguous entries (connected 96 first, then the 57 splat masks):
+335 states; 306 used. Which donor state stands for which paint state is chosen **by shape**, not by
+slicing the pool into contiguous runs. The pack can repaint a borrowed state but cannot change its
+outline, and the client draws the targeted-block highlight from the client state's shape — contiguous
+slicing put floor cells on sculk-vein states drawing slabs on random faces and wall cells on a
+tripwire square lying at the floor, so the highlight box floated nowhere near the ink. Four rules,
+applied in this order by a deterministic allocator in `PaintStates` that spends each donor state once
+and throws rather than reusing one or running a pool dry:
 
-- DATA: connected 96 → sculk vein 63 + resin clump 33; splat 57 → resin clump 30 + tripwire 27.
-- IT: connected 96 → tripwire 96; splat 57 → tripwire 5 + redstone wire 52.
+1. **Splat cells are exact.** A multiface donor's shape is the union of 1-px slabs on its set faces,
+   so a splat mask takes the state whose six face flags *are* that mask: DATA on sculk vein, IT on
+   resin clump, 57 each. The outline is exactly the painted faces.
+2. **Floor cells (attach `DOWN`) are flat.** Tripwire `attached=true` — `column(16, 1, 2.5)`, a
+   full-square 2.5-px slab lying on the floor. 32 states (16 per colour).
+3. **Wall cells (attach N/E/S/W) are striped.** A redstone-wire state whose side on the attach
+   direction is `up` carries `boxZ(10, 16, 0, 1)`, a full-height 1-px strip climbing that face — the
+   nearest thing any donor has to a wall decal. The 65 strip states are handed out fewest-other-`up`
+   first, each to whichever of its own `up` directions is currently shortest, which spreads them
+   16/16/16/17 over N/E/S/W: eight per colour per direction. The other eight per colour fall back to
+   the leftover flat states (tripwire `attached=true` remainder, then the 16 redstone states with no
+   `up`) and finally to half boxes.
+4. **Ceiling cells (attach `UP`) are half boxes.** Tripwire `attached=false` — `column(16, 0, 8)`.
+   No donor draws a ceiling slab with 16 spare states, and ceilings are the rarest cell there is.
 
-A game test asserts the 306 states are distinct, never waterlogged, never all-false, and emit no
-light (`BlockState.getLightEmission()` is 0), and that `entry()` inverts `connected()`/`splat()` for
-every input. Real tripwire, redstone dust, sculk veins or resin clumps placed by players in an
-arena render as paint; same caveat as v1, documented.
+The 306 come out as 114 exact multiface (splats), 32 flat (floors), 64 strip + 48 flat + 16 half
+(walls) and 32 half (ceilings); 29 states are left over (12 multiface, 16 half, 1 strip).
+
+`connected()`, `splat()`, `all()` and `entry()` keep their signatures — `entry()` is now a reverse map
+built alongside the table — so `PaintArt` follows the allocator without change.
+
+Two game tests. `paintStatesAreUniqueAndSafe` asserts the 306 states are distinct, never waterlogged,
+never all-false, and emit no light (`BlockState.getLightEmission()` is 0), and that `entry()` inverts
+`connected()`/`splat()` for every input. `paintStatesOutlineTheInk` asserts the shapes: every splat
+state's six face flags equal its mask; every floor state's `getShape(EmptyBlockGetter.INSTANCE,
+BlockPos.ZERO).bounds()` has `maxY ≤ 3/16` over the full square; and for each wall direction at least
+8 of each colour's 16 states reach that face with a box at least 15/16 tall. Real tripwire, redstone
+dust, sculk veins or resin clumps placed by players in an arena render as paint; same caveat as v1,
+documented.
 
 ## 3. Blocks and encoding
 
