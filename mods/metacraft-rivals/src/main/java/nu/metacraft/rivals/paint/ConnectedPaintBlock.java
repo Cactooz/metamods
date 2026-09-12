@@ -4,6 +4,7 @@ import eu.pb4.polymer.core.api.block.PolymerBlock;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.server.level.ServerLevel;
 import net.minecraft.util.RandomSource;
 import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.LevelReader;
@@ -104,13 +105,25 @@ public final class ConnectedPaintBlock extends Block implements Paint, PolymerBl
 		};
 	}
 
-	/** Bits for {@code cell} holding {@code color} on {@code face}, from what its four in-plane neighbours hold now. */
+	/**
+	 * Bits for {@code cell} holding {@code color} on {@code face}, from what its four in-plane neighbours
+	 * hold now. A neighbour counts if it is a paint block of the same colour carrying the same face — or,
+	 * on a server level, if it is a cell of {@link PaintDisplays} quads of the same colour on the same
+	 * face. Quads are not blocks and a block's neighbour test would not see them otherwise, which left a
+	 * one-sided seam wherever block paint met a slab or a stair: the quads opened their border towards the
+	 * block and the block kept its own closed. {@link PaintDisplays#faceAt} records the face of the
+	 * <em>surface</em> the quads cover, which is the opposite of the attach direction a cell carries.
+	 */
 	public static int neighbourBits(BlockGetter level, BlockPos cell, Direction face, PaintColor color) {
 		Direction[] around = inPlane(face);
+		PaintDisplays quads = level instanceof ServerLevel server ? PaintDisplays.of(server) : null;
 		int bits = 0;
 		for (int i = 0; i < 4; i++) {
-			BlockState other = level.getBlockState(cell.relative(around[i]));
+			BlockPos at = cell.relative(around[i]);
+			BlockState other = level.getBlockState(at);
 			if (other.getBlock() instanceof Paint paint && paint.color() == color && (paint.faceMask(other) & 1 << face.ordinal()) != 0) {
+				bits |= 1 << i;
+			} else if (quads != null && quads.colorAt(at) == color && quads.faceAt(at) == face.getOpposite()) {
 				bits |= 1 << i;
 			}
 		}

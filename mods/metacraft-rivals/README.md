@@ -149,9 +149,10 @@ dedicated Rivals server wants.
   connection nibble counts both kinds of neighbour — paint blocks through
   `ConnectedPaintBlock.neighbourBits`, and neighbouring quad cells of the same colour on the same face
   — and because nothing sends a block display a neighbour update, `Painter` re-states the quads around
-  every cell it paints, so a newly painted neighbour opens their border within the tick. (The reverse
-  does not hold: a paint *block*'s own bits come from block states alone, so it leaves its edge closed
-  against a quad.) At most three quads per cell, the largest boxes on the struck side, so a wall post
+  every cell it paints (and the sweep does it for every cell it drops), so a newly painted neighbour
+  opens their border within the tick. It works both ways round: `ConnectedPaintBlock.neighbourBits` also
+  counts quad cells, so a paint block beside a slab opens its own edge towards the quads rather than
+  leaving a one-sided seam. At most three quads per cell, the largest boxes on the struck side, so a wall post
   with four arms doesn't put a dozen displays in one cell. These quads aren't blocks, so nothing tells
   them to fall on their own: they are dropped, and stop being counted, once their surface is destroyed,
   replaced, buried, or merely changes shape (a stair turned under them), or once its chunk unloads — a

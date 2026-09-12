@@ -40,7 +40,8 @@ import java.util.Map;
  * <p>Quads are not blocks, so nothing tells them to fall: {@link #count} sweeps the cells and drops the
  * ones whose holder or surface is gone, the same way {@link PaintTally} sweeps its paint blocks. Nothing
  * tells them about a new neighbour either, which is what {@link #refreshAround} is for: {@link Painter}
- * calls it after every cell it paints, so a quad re-borders itself within the tick.
+ * calls it after every cell it paints and the sweep calls it for every cell it drops, so a quad — and the
+ * paint block on the other side of the seam — re-borders itself within the tick.
  */
 public final class PaintDisplays {
 	private static final Map<ResourceKey<Level>, PaintDisplays> ALL = new HashMap<>();
@@ -126,17 +127,22 @@ public final class PaintDisplays {
 	public Map<PaintColor, Integer> count(ServerLevel level) {
 		Map<PaintColor, Integer> counts = new EnumMap<>(PaintColor.class);
 		for (PaintColor color : PaintColor.values()) counts.put(color, 0);
+		List<BlockPos> dead = new ArrayList<>();
 		Iterator<Map.Entry<BlockPos, Painted>> it = cells.entrySet().iterator();
 		while (it.hasNext()) {
 			Map.Entry<BlockPos, Painted> entry = it.next();
 			Painted painted = entry.getValue();
 			if (!alive(level, entry.getKey(), painted)) {
 				painted.holder.destroy();
+				dead.add(entry.getKey());
 				it.remove();
 				continue;
 			}
 			counts.merge(painted.color, painted.quads.size(), Integer::sum);
 		}
+		// Paint that has just gone leaves its neighbours bordered against nothing: close them up. After the
+		// sweep, not during it, so no entry is re-bordered against a cell that is about to be dropped too.
+		for (BlockPos cell : dead) refreshAround(level, cell);
 		return counts;
 	}
 
@@ -295,6 +301,26 @@ public final class PaintDisplays {
 	 * new neighbour and their border has to open towards it.
 	 */
 	public void refreshAround(ServerLevel level, BlockPos cell) {
-		for (Direction d : DIRECTIONS) refresh(level, cell.relative(d));
+		for (Direction d : DIRECTIONS) {
+			BlockPos at = cell.relative(d);
+			refresh(level, at);
+			refreshBlock(level, at);
+		}
+	}
+
+	/**
+	 * The other half of the seam: a paint <em>block</em> beside a quad cell. Its bits come from
+	 * {@link ConnectedPaintBlock#neighbourBits}, which counts quads — but only {@code updateShape} ever
+	 * asks it to, and a display quad appearing next door is no block change, so nothing would. The state
+	 * goes out to clients only ({@link Block#UPDATE_CLIENTS}): a neighbour update here would ripple
+	 * through the sheet for a change that is cosmetic and already accounted for.
+	 */
+	private static void refreshBlock(ServerLevel level, BlockPos at) {
+		BlockState state = level.getBlockState(at);
+		if (!(state.getBlock() instanceof ConnectedPaintBlock paint)) return;
+		Direction attach = state.getValue(ConnectedPaintBlock.FACE);
+		BlockState next = ConnectedPaintBlock.withBits(state,
+				ConnectedPaintBlock.neighbourBits(level, at, attach, paint.color()));
+		if (next != state) level.setBlock(at, next, Block.UPDATE_CLIENTS);
 	}
 }

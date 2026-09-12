@@ -874,10 +874,9 @@ public final class RivalsGameTests {
 
 	/**
 	 * Quads border like blocks. Two slab tops side by side each gain the bit pointing at the other, and a
-	 * paint block painted into the cell beside a quad opens that quad's border towards it — the quads are
-	 * not blocks, so nothing tells them about a new neighbour but {@link Painter} itself. The reverse does
-	 * not hold: a paint block's own bits come from {@link ConnectedPaintBlock#neighbourBits}, which reads
-	 * block states, so it leaves its edge closed against a quad.
+	 * paint block painted into the cell beside a quad opens that quad's border towards it, and the block's
+	 * own border opens back — the quads are not blocks, so nothing tells either side about the other but
+	 * {@link Painter} and {@link PaintDisplays#refreshAround}.
 	 */
 	@GameTest
 	public void displayQuadsConnectToNeighbours(GameTestHelper helper) {
@@ -901,8 +900,10 @@ public final class RivalsGameTests {
 		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(north), Direction.UP, PaintColor.DATA), "floor block painted");
 		helper.assertTrue(Painter.isPaint(helper.getBlockState(north.above())), "a paint block, not quads");
 		helper.assertValueEqual(displays.bitsAt(helper.absolutePos(east.above())), 1 | 4, "the quad borders the paint block too");
-		helper.assertValueEqual(ConnectedPaintBlock.bits(helper.getBlockState(north.above())) & 8, 0,
-				"and the paint block leaves its own edge closed against the quad");
+		// And the block borders the quad back: bit 3 is +v (south) for a DOWN attach, which is where the
+		// quad cell is from the paint block's point of view. No seam either way round.
+		helper.assertValueEqual(ConnectedPaintBlock.bits(helper.getBlockState(north.above())) & 8, 8,
+				"and the paint block opens its own edge towards the quad");
 		helper.succeed();
 	}
 
