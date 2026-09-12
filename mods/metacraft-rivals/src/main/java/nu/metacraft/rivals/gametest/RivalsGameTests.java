@@ -911,6 +911,70 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
+	/**
+	 * A whole field of quads, which is what a dirt-path arena is: a path top is fifteen sixteenths high, so
+	 * no cell of it is ever a paint block and every seam in the field is quad to quad. It has to border
+	 * exactly as chunk paint does — the middle of a 3×3 opens all four of its sides, an edge cell three of
+	 * them — and the state carrying those bits has to <em>reach</em> the client. A display element only
+	 * sends its tracker changes when its holder ticks, and a holder attached with {@code ChunkAttachment.of}
+	 * never ticks, so before the refresh flushed the holder itself every cell of a painted field kept on
+	 * screen the closed border it was born with, however many neighbours arrived afterwards.
+	 * {@link PaintDisplays#dirtyAt} is that half of the rule: nothing left unsent.
+	 */
+	@GameTest
+	public void pathQuadsConnectAcrossAField(GameTestHelper helper) {
+		PaintDisplays displays = PaintDisplays.of(helper.getLevel());
+		for (int x = 1; x <= 3; x++) {
+			for (int z = 1; z <= 3; z++) helper.setBlock(new BlockPos(x, 1, z), Blocks.DIRT_PATH);
+		}
+		for (int x = 1; x <= 3; x++) {
+			for (int z = 1; z <= 3; z++) {
+				BlockPos path = new BlockPos(x, 1, z);
+				helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(path), Direction.UP, PaintColor.DATA),
+						"path top " + x + "," + z + " took paint");
+				helper.assertTrue(helper.getBlockState(path.above()).isAir(),
+						"a path top is not a full face: its paint is quads, not a block, at " + x + "," + z);
+				helper.assertTrue(displays.colorAt(helper.absolutePos(path.above())) == PaintColor.DATA,
+						"the cell above holds DATA quads at " + x + "," + z);
+			}
+		}
+		// inPlane for a DOWN attach is {WEST, EAST, NORTH, SOUTH}: bit 0 -x, bit 1 +x, bit 2 -z, bit 3 +z.
+		BlockPos middle = helper.absolutePos(new BlockPos(2, 2, 2));
+		helper.assertValueEqual(displays.bitsAt(middle), 15, "the middle of the field opens all four borders");
+		BlockPos northEdge = helper.absolutePos(new BlockPos(2, 2, 1));
+		helper.assertValueEqual(displays.bitsAt(northEdge), 1 | 2 | 8, "the north edge opens west, east and south");
+		BlockPos corner = helper.absolutePos(new BlockPos(1, 2, 1));
+		helper.assertValueEqual(displays.bitsAt(corner), 2 | 8, "the north-west corner opens east and south only");
+		// Every quad in a cell wears the cell's nibble, and none of it is still sitting on the server.
+		for (BlockState state : displays.statesAt(middle)) {
+			helper.assertValueEqual(state, PaintStates.connected(PaintColor.DATA, Direction.DOWN, 15),
+					"the middle's quads show the all-connected state");
+		}
+		// Every cell but the last one painted gained a neighbour after its quads were built, so every one of
+		// them was re-bordered and every one of those changes has to have gone out. The last cell, 3,3, is
+		// left out on purpose: its bits were known before its holder was attached, so its spawn packet
+		// carried them and its synched data was never packed — dirty there means "never sent", not "stale".
+		for (int x = 1; x <= 3; x++) {
+			for (int z = 1; z <= 3; z++) {
+				if (x == 3 && z == 3) continue;
+				helper.assertTrue(!displays.dirtyAt(helper.absolutePos(new BlockPos(x, 2, z))),
+						"the re-bordered state went out to the watchers at " + x + "," + z);
+			}
+		}
+		// Mixed: a full block beside the field takes a paint block, and the seam opens from both sides.
+		BlockPos grass = new BlockPos(4, 1, 2);
+		helper.setBlock(grass, Blocks.GRASS_BLOCK);
+		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(grass), Direction.UP, PaintColor.DATA),
+				"the grass top took paint");
+		helper.assertTrue(Painter.isPaint(helper.getBlockState(grass.above())), "a full face takes a paint block");
+		BlockPos eastEdge = helper.absolutePos(new BlockPos(3, 2, 2));
+		helper.assertValueEqual(displays.bitsAt(eastEdge), 15, "the east edge quad now opens east towards the block");
+		helper.assertValueEqual(ConnectedPaintBlock.bits(helper.getBlockState(grass.above())), 1,
+				"and the paint block opens west towards the quad");
+		helper.assertTrue(!displays.dirtyAt(eastEdge), "that change went out too");
+		helper.succeed();
+	}
+
 	/** The gloss lives in the terrain shader pair (what actually draws chunks in 26.3), keyed on the paint alpha marker. */
 	@GameTest
 	public void glossShaderCarriesTheMarkerGuard(GameTestHelper helper) {

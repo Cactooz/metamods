@@ -122,6 +122,21 @@ public final class PaintDisplays {
 	}
 
 	/**
+	 * Whether any quad in {@code cell} is still holding a change nobody has been told about. A display
+	 * element's setters only write into its synched data; the packet goes out when the element ticks, so
+	 * a dirty element is a border that has opened on the server and not on any screen. False for a cell
+	 * with no quads at all. For tests.
+	 */
+	public boolean dirtyAt(BlockPos cell) {
+		Painted painted = cells.get(cell);
+		if (painted == null) return false;
+		for (BlockDisplayElement quad : painted.quads) {
+			if (quad.isDirty()) return true;
+		}
+		return false;
+	}
+
+	/**
 	 * Quads per colour, counted as faces, dropping the cells whose paint is gone. Every colour has an entry.
 	 */
 	public Map<PaintColor, Integer> count(ServerLevel level) {
@@ -282,7 +297,18 @@ public final class PaintDisplays {
 
 	/**
 	 * Recompute the bits of the quads in {@code cell} and, if they changed, show the state that carries
-	 * them. Polymer sends the element's new state on the holder's next tick.
+	 * them — and send it.
+	 *
+	 * <p>The send is the whole of the second half. {@code BlockDisplayElement.setBlockState} only writes
+	 * into the element's synched data; the {@code ClientboundSetEntityDataPacket} goes out of
+	 * {@code GenericEntityElement.tick}, which the holder calls, which the <em>attachment</em> calls only
+	 * when it was built to tick — and {@link ChunkAttachment#of} passes {@code autoTick = false}
+	 * ({@code ofTicking} is the other one). These holders never ticked, so every border that opened after
+	 * its quad was spawned stayed on the server: a field of quads — a dirt-path arena, where no cell is
+	 * ever a paint block because a path top is fifteen sixteenths high — showed every cell wearing the
+	 * closed border it was born with, whatever its neighbours did afterwards. Ticking the holder here,
+	 * once per cell that actually changed, is the flush; making the attachment tick instead would tick
+	 * every painted cell in the level twenty times a second for a change that happens when paint lands.
 	 */
 	private void refresh(ServerLevel level, BlockPos cell) {
 		Painted painted = cells.get(cell);
@@ -293,6 +319,7 @@ public final class PaintDisplays {
 		painted.bits = bits;
 		BlockState state = PaintStates.connected(painted.color, attach, bits);
 		for (BlockDisplayElement quad : painted.quads) quad.setBlockState(state);
+		painted.holder.tick();
 	}
 
 	/**
