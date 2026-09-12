@@ -3,6 +3,7 @@ package nu.metacraft.rivals;
 import net.fabricmc.api.ModInitializer;
 import net.minecraft.resources.Identifier;
 import nu.metacraft.rivals.gun.InkHud;
+import nu.metacraft.rivals.gun.InkOnScreen;
 import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Recoil;
@@ -39,6 +40,7 @@ public class Rivals implements ModInitializer {
 		ScoreBars.init();
 		Recoil.init();
 		InkHud.init();
+		InkOnScreen.init();
 		PlayerTick.init();
 		LOGGER.info("[{}] ready", MOD_ID);
 	}

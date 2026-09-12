@@ -409,7 +409,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			if (PaintBall.hostile(color, inTheWay.getEntity())) {
 				float damageMin = tuning.floatValue(Param.CHARGE_DAMAGE_MIN);
 				float hurt = damageMin + (tuning.floatValue(Param.CHARGE_DAMAGE_FULL) - damageMin) * charge;
-				inTheWay.getEntity().hurtServer(serverLevel, serverLevel.damageSources().indirectMagic(player, player), hurt);
+				if (inTheWay.getEntity().hurtServer(serverLevel, serverLevel.damageSources().indirectMagic(player, player), hurt)) {
+					InkOnScreen.hit(inTheWay.getEntity(), color, hurt);
+				}
 			}
 		} else if (struck) {
 			painted += Painter.splash(serverLevel, end, hit.getBlockPos(), hit.getDirection(), color, serverLevel.getRandom(), player);

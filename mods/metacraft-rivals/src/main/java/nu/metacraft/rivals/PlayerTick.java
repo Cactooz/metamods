@@ -25,6 +25,7 @@ import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import nu.metacraft.rivals.gun.Ink;
+import nu.metacraft.rivals.gun.InkOnScreen;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.paint.Paint;
 import nu.metacraft.rivals.paint.PaintDisplays;
@@ -247,6 +248,7 @@ public final class PlayerTick {
 			SquidState.exit(player);
 			SquidDisplay.hide(player);
 			SquidState.clearEnemyInk(player);
+			if (player instanceof ServerPlayer watching) InkOnScreen.clear(watching);
 			LAST_POS.remove(player.getUUID());
 			LAST_INK.remove(player.getUUID());
 			return;
@@ -316,6 +318,8 @@ public final class PlayerTick {
 		if (inEnemy) {
 			keep(player, MobEffects.SLOWNESS, 1);
 			SquidState.applyEnemyInk(player);
+			// Wading through it splashes it up the visor, slowly: a hit is worth a couple of seconds of this.
+			InkOnScreen.standing(player, under);
 			// Never the killing blow: enemy ink leaves you at one heart for someone else to finish.
 			if (now % DRIP_EVERY == 0 && !player.isCreative() && player.getHealth() - DRIP_DAMAGE >= 1.0f
 					&& player.level() instanceof ServerLevel level) {
@@ -330,6 +334,9 @@ public final class PlayerTick {
 				if (stack.getItem() instanceof PaintWeapon) Ink.add(stack, squid ? 4 : 1);
 			}
 		}
+		// Last, because the ink this tick added has to be in before the decay and the packet: the meter
+		// runs down every tick nothing put anything on it.
+		InkOnScreen.tick(player, now);
 	}
 
 	/**

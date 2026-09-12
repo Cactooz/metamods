@@ -388,7 +388,9 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		if (damage <= 0) return;
 		for (LivingEntity caught : level.getEntitiesOfClass(LivingEntity.class, AABB.ofSize(at, blast * 2, blast * 2, blast * 2))) {
 			if (!hostile(color, caught) || caught.position().distanceToSqr(at) > blast * blast) continue;
-			caught.hurtServer(level, level.damageSources().thrown(this, getOwner()), damage);
+			if (caught.hurtServer(level, level.damageSources().thrown(this, getOwner()), damage)) {
+				InkOnScreen.hit(caught, color, damage);
+			}
 		}
 	}
 
@@ -482,8 +484,10 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		if (!(level() instanceof ServerLevel serverLevel)) return;
 		BlockPos below = hit.getEntity().blockPosition().below();
 		Painter.splash(serverLevel, position(), below, Direction.UP, color, random, splatRadius, this);
-		if (damage > 0 && hostile(color, hit.getEntity())) {
-			hit.getEntity().hurtServer(serverLevel, serverLevel.damageSources().thrown(this, getOwner()), damage);
+		if (damage > 0 && hostile(color, hit.getEntity())
+				&& hit.getEntity().hurtServer(serverLevel, serverLevel.damageSources().thrown(this, getOwner()), damage)) {
+			// And a faceful of it on the way past: the shooter's colour, on the victim's screen.
+			InkOnScreen.hit(hit.getEntity(), color, damage);
 		}
 	}
 
