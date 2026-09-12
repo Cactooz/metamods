@@ -9,6 +9,7 @@ import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.ChatFormatting;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.core.BlockPos;
+import net.minecraft.core.registries.BuiltInRegistries;
 import net.minecraft.core.Direction;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -33,6 +34,7 @@ import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.item.component.FireworkExplosion;
 import net.minecraft.world.level.GameType;
+import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.StairBlock;
@@ -57,6 +59,7 @@ import nu.metacraft.rivals.paint.PaintBlocks;
 import nu.metacraft.rivals.paint.PaintDisplays;
 import nu.metacraft.rivals.paint.Painter;
 import nu.metacraft.rivals.paint.PaintTally;
+import nu.metacraft.rivals.pack.PaintArt;
 import nu.metacraft.rivals.pack.SplatArt;
 
 import javax.imageio.ImageIO;
@@ -72,6 +75,7 @@ import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import nu.metacraft.rivals.pack.RivalsPack;
 import nu.metacraft.rivals.gun.Ink;
 import nu.metacraft.rivals.gun.InkHud;
@@ -116,51 +120,79 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** Every generated splat is 32×32, paint texels carry the alpha marker 229, the rest is fully transparent. */
+	/**
+	 * Every generated paint texture is 16×16 and every one of its texels is the same ARGB value: the
+	 * alpha marker the gloss shader reads, the connection bits in the low nibble of red, the colour in
+	 * the rest. Uniform sprites are what makes reading bits back out of a mipmapped texel safe.
+	 */
 	@GameTest
-	public void splatArtCarriesTheMarkerAlpha(GameTestHelper helper) throws IOException {
+	public void paintArtCarriesTheMarkerAlpha(GameTestHelper helper) throws IOException {
+		Map<String, byte[]> files = PaintArt.packFiles();
 		for (PaintColor color : PaintColor.values()) {
-			BufferedImage image = ImageIO.read(new ByteArrayInputStream(SplatArt.texture(color.rgb, SplatArt.SHAPES[0], 0)));
-			helper.assertValueEqual(image.getWidth(), SplatArt.SIZE, color.id + " width");
-			helper.assertValueEqual(image.getHeight(), SplatArt.SIZE, color.id + " height");
-			int paint = 0;
-			int clear = 0;
-			for (int y = 0; y < image.getHeight(); y++) {
-				for (int x = 0; x < image.getWidth(); x++) {
-					int alpha = (image.getRGB(x, y) >>> 24) & 0xFF;
-					if (alpha == SplatArt.PAINT_ALPHA) paint++;
-					else if (alpha == 0) clear++;
-					else helper.fail(color.id + ": unexpected alpha " + alpha + " at " + x + "," + y);
+			for (int bits = 0; bits < 16; bits++) {
+				String path = "assets/metacraft-rivals/textures/block/" + PaintArt.textureName(color, bits) + ".png";
+				helper.assertTrue(files.containsKey(path), "texture in pack: " + path);
+				BufferedImage image = ImageIO.read(new ByteArrayInputStream(files.get(path)));
+				helper.assertValueEqual(image.getWidth(), PaintArt.SIZE, path + " width");
+				helper.assertValueEqual(image.getHeight(), PaintArt.SIZE, path + " height");
+				int first = image.getRGB(0, 0);
+				for (int y = 0; y < image.getHeight(); y++) {
+					for (int x = 0; x < image.getWidth(); x++) {
+						helper.assertValueEqual((image.getRGB(x, y) >>> 24) & 0xFF, SplatArt.PAINT_ALPHA, path + " alpha at " + x + "," + y);
+						helper.assertValueEqual(image.getRGB(x, y), first, path + " uniform at " + x + "," + y);
+					}
 				}
+				helper.assertValueEqual((first >> 16) & 0xFF, PaintArt.encodeRed(color.rgb, bits), path + " red carries the bits");
+				helper.assertValueEqual(first & 0xFFFF, color.rgb & 0xFFFF, path + " green and blue are the colour's own");
 			}
-			helper.assertTrue(paint > 100 && clear > 50, color.id + ": paint=" + paint + " clear=" + clear);
 		}
 		helper.succeed();
 	}
 
-	/** The blockstate override lists 32 variants per face and every model/texture it names is in the pack file set. */
+	/**
+	 * Every donor override covers every state of its block, names a model that is in the pack, and each
+	 * model resolves to a texture that is in the pack too — states paint does not use point at the empty
+	 * model, so a stray vanilla sculk vein shows nothing.
+	 */
 	@GameTest
 	public void blockstateOverridesReferenceGeneratedModels(GameTestHelper helper) {
-		Map<String, byte[]> files = SplatArt.packFiles();
-		for (PaintColor color : PaintColor.values()) {
-			String path = "assets/minecraft/blockstates/" + SplatArt.donorPath(color) + ".json";
+		Map<String, byte[]> files = PaintArt.packFiles();
+		Set<BlockState> used = new HashSet<>(PaintStates.all());
+		for (Block donor : PaintStates.DONORS) {
+			String path = "assets/minecraft/blockstates/" + BuiltInRegistries.BLOCK.getKey(donor).getPath() + ".json";
 			helper.assertTrue(files.containsKey(path), "override present: " + path);
-			JsonObject state = JsonParser.parseString(new String(files.get(path), StandardCharsets.UTF_8)).getAsJsonObject();
-			JsonArray multipart = state.getAsJsonArray("multipart");
-			helper.assertValueEqual(multipart.size(), 7, color.id + " multipart entries (6 faces + none)");
-			for (JsonElement part : multipart) {
-				JsonArray apply = part.getAsJsonObject().getAsJsonArray("apply");
-				helper.assertValueEqual(apply.size(), SplatArt.SHAPES.length * SplatArt.ROTATIONS, color.id + " variants per face");
-				for (JsonElement variant : apply) {
-					String model = variant.getAsJsonObject().get("model").getAsString(); // metacraft-rivals:block/splat_x_y_z
-					String modelPath = "assets/metacraft-rivals/models/block/" + model.substring(model.indexOf('/') + 1) + ".json";
-					helper.assertTrue(files.containsKey(modelPath), "model in pack: " + modelPath);
-					JsonObject modelJson = JsonParser.parseString(new String(files.get(modelPath), StandardCharsets.UTF_8)).getAsJsonObject();
-					String texture = modelJson.getAsJsonObject("textures").get("splat").getAsString();
-					String texturePath = "assets/metacraft-rivals/textures/" + texture.substring(texture.indexOf(':') + 1) + ".png";
-					helper.assertTrue(files.containsKey(texturePath), "texture in pack: " + texturePath);
+			JsonObject variants = JsonParser.parseString(new String(files.get(path), StandardCharsets.UTF_8))
+					.getAsJsonObject().getAsJsonObject("variants");
+			int states = 0;
+			for (BlockState state : donor.getStateDefinition().getPossibleStates()) {
+				states++;
+				JsonElement variant = variants.get(PaintArt.variantKey(state));
+				helper.assertTrue(variant != null, "variant for " + state);
+				String model = variant.getAsJsonObject().get("model").getAsString(); // metacraft-rivals:block/paint_...
+				String modelPath = "assets/metacraft-rivals/models/block/" + model.substring(model.indexOf('/') + 1) + ".json";
+				helper.assertTrue(files.containsKey(modelPath), "model in pack: " + modelPath);
+				if (!used.contains(state)) {
+					helper.assertValueEqual(model, Rivals.MOD_ID + ":block/paint_none", "unused donor state draws nothing: " + state);
+					continue;
+				}
+				JsonObject json = JsonParser.parseString(new String(files.get(modelPath), StandardCharsets.UTF_8)).getAsJsonObject();
+				String texture = json.getAsJsonObject("textures").get("paint").getAsString();
+				String texturePath = "assets/metacraft-rivals/textures/" + texture.substring(texture.indexOf(':') + 1) + ".png";
+				helper.assertTrue(files.containsKey(texturePath), "texture in pack: " + texturePath);
+				if (json.has("parent")) {
+					// A connected cell: the wrapper hangs its texture on one of the six shared face quads.
+					String parent = json.get("parent").getAsString();
+					String parentPath = "assets/metacraft-rivals/models/block/" + parent.substring(parent.indexOf('/') + 1) + ".json";
+					helper.assertTrue(files.containsKey(parentPath), "parent model in pack: " + parentPath);
+					JsonObject parentJson = JsonParser.parseString(new String(files.get(parentPath), StandardCharsets.UTF_8)).getAsJsonObject();
+					helper.assertValueEqual(parentJson.getAsJsonArray("elements").size(), 1, parentPath + " is one quad");
+				} else {
+					// A splat mask: one model listing a quad per painted face, all on the all-connected texture.
+					helper.assertValueEqual(json.getAsJsonArray("elements").size(),
+							Integer.bitCount(PaintStates.entry(state).faceMask()), modelPath + " has a quad per painted face");
 				}
 			}
+			helper.assertValueEqual(variants.size(), states, donor + ": a variant for every state");
 		}
 		helper.succeed();
 	}
@@ -1376,6 +1408,33 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(1, 2, 2)))), 0, "west cell lost its neighbour");
 		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(3, 2, 2)))), 0, "east cell lost its neighbour");
 		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(2, 2, 2)))), 0, "the IT cell has no IT neighbours");
+		helper.succeed();
+	}
+
+	/** Every client state in use has a blockstate variant; every (colour, bits) has a texture; the marker alpha is on every texel. */
+	@GameTest
+	public void packCoversEveryPaintState(GameTestHelper helper) throws IOException {
+		Map<String, byte[]> files = PaintArt.packFiles();
+		for (PaintColor color : PaintColor.values()) {
+			for (int bits = 0; bits < 16; bits++) {
+				byte[] png = files.get("assets/metacraft-rivals/textures/block/" + PaintArt.textureName(color, bits) + ".png");
+				helper.assertTrue(png != null, "texture for " + color + " bits " + bits);
+				BufferedImage image = ImageIO.read(new ByteArrayInputStream(png));
+				int argb = image.getRGB(0, 0);
+				helper.assertValueEqual(argb >>> 24, SplatArt.PAINT_ALPHA, "marker alpha");
+				helper.assertValueEqual((argb >> 16 & 0xFF) & 0x0F, bits, "bits in the red nibble");
+				helper.assertValueEqual(image.getRGB(15, 15), argb, "uniform");
+			}
+		}
+		for (Block donor : PaintStates.DONORS) {
+			String path = "assets/minecraft/blockstates/" + BuiltInRegistries.BLOCK.getKey(donor).getPath() + ".json";
+			helper.assertTrue(files.containsKey(path), "override " + path);
+			String json = new String(files.get(path), StandardCharsets.UTF_8);
+			for (BlockState state : PaintStates.all()) {
+				if (state.getBlock() != donor) continue;
+				helper.assertTrue(json.contains("\"" + PaintArt.variantKey(state) + "\""), "variant for " + state);
+			}
+		}
 		helper.succeed();
 	}
 }
