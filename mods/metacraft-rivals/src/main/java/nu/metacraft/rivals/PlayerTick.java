@@ -89,7 +89,10 @@ public final class PlayerTick {
 	public static void tick(Player player, long now) {
 		// A spectator flies through the paint blocks they are "standing in"; giving them invisibility,
 		// speed or slowness for it is noise, and their gun (if any) is not usable anyway.
-		if (player.isSpectator()) return;
+		if (player.isSpectator()) {
+			SQUIDS.remove(player.getUUID());
+			return;
+		}
 		PaintColor under = paintUnder(player);
 		Optional<PaintColor> own = PaintColor.byTeam(player.getTeam());
 		boolean squid = under != null && own.isPresent() && under == own.get() && player.isShiftKeyDown();

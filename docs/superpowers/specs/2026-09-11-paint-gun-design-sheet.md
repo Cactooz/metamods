@@ -27,7 +27,14 @@ the side. Flat colours, no texture detail: the shading comes from vanilla's per-
 
 ## Frame and units
 
-Units are 1/16 block. The model is built in the same frame as a vanilla sword ("handheld"):
+Units are 1/16 block. v2's frame has Y up, the barrel running along -Z, and the whole model
+centred on (8, 8, 8); it comes out of `tools/obj2mc.py`'s voxelisation of the Kenney mesh,
+rather than from copying a vanilla item's frame.
+
+The in-hand `display` transforms were tuned by eye against in-game screenshots rather than
+copied from vanilla: yaw 90 degrees about Y, first-person scale 0.45, third-person scale 0.55.
+
+The table below documents v1's handheld-sword frame, kept here for history:
 
 | Axis | Meaning |
 |---|---|
@@ -35,10 +42,6 @@ Units are 1/16 block. The model is built in the same frame as a vanilla sword ("
 | -X | the top of the gun (tank side) |
 | +X | the bottom of the gun (grip side) |
 | Z | width, centred on 8 |
-
-The `display` block copies vanilla's `item/handheld.json` hand transforms, so the muzzle
-points where a sword tip does. Third and first person are the visual check; if the tank comes
-out on the side instead of on top, rotate every hand transform 90° about Y in one edit.
 
 ## Parts
 

@@ -23,8 +23,8 @@ void main() {
 	}
 #endif
 	// RIVALS_GLOSS: paint texels carry alpha 229/255 = 0.898 as a marker; everything else is vanilla.
-	// The window is one texel step wide on purpose: a loose band also catches vanilla texels (nether
-	// portals, frosted ice, the top edge of every stained-glass pane, tripwire) and makes them glossy.
+	// The window admits alpha 228..230 (three steps) on purpose, as filtering tolerance, and stays
+	// five steps clear of the nearest vanilla value (224/255).
 	if (abs(tex.a - 0.898) < 0.004) {
 		vec3 n = normalize(cross(dFdx(viewPos), dFdy(viewPos)));
 		vec3 v = normalize(-viewPos);
