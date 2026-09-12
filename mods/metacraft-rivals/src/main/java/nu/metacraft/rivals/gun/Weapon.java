@@ -126,9 +126,12 @@ public enum Weapon {
 	public static final int ROLL_HIT_COOLDOWN = 10;
 	/**
 	 * Roller: one ink every this many ticks of rolling. Splatcraft spends 0.06 of a 100-unit tank a tick,
-	 * which is a unit every sixteen and change; sixteen is that, in whole ink.
+	 * which is a unit every sixteen and change, and sixteen of those is a tank that lasts a minute and a
+	 * half of solid rolling — which is to say it never ran out, which is what the user reported. Splatoon
+	 * 1's Splat Roller empties in about 33 seconds of rolling; five ticks a unit is 25, close enough on a
+	 * tank that refills as fast as ours does, and it makes the roller a weapon with a cost again.
 	 */
-	public static final int ROLL_INK_EVERY = 16;
+	public static final int ROLL_INK_EVERY = 5;
 	/** Roller: the movement bonus while rolling. Splatcraft's roll mobility is 1.08. */
 	public static final double ROLL_SPEED_BONUS = 0.08;
 	/** Roller: how far in front of the feet the head sweeps, in blocks. */

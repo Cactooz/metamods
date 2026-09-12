@@ -113,12 +113,19 @@ dedicated Rivals server wants.
   | shooter | 1 | 3 ticks (held) | 8, −0.34/tick from tick 3, floor 4 | one ball at 2.0 straight for 8 blocks, then 0.5 falling at 0.075; one bounce; 3×3 splat; spread 6° on the ground, 12° in the air | `splattershot.json` |
   | charger | 2 → 18 | 20 ticks | 8 → 16 over a partial charge, **32 at a full one** | hold right click to aim (the spyglass scope; a full charge is 20 ticks), left click to fire a hitscan line of 9 → 24 blocks, stopped by the first block or player in it | `splat_charger.json` |
   | slosher | 7 | 12 ticks (click) | 7, flat | 2 pellets 8° apart, lobbed 15° up at 1.1 under gravity 0.06, 5×5 splat, no bounce | `slosher.json` |
-  | roller | 9 a flick, 1 per 16 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed and a head that runs over anyone in front once per 10 ticks — both only while you are actually moving, so a roller parked in a doorway is not a wall of damage, and paint thrown up where the head touches the ground; **tap** it to flick 3 drops in a high arc | `splat_roller.json` |
+  | roller | 9 a flick, 1 per 5 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed, no sprinting, and a head that runs over anyone in front once per 10 ticks — both only while you are actually moving, so a roller parked in a doorway is not a wall of damage, and paint thrown up where the head touches the ground; **tap** it to flick 3 drops in a high arc | `splat_roller.json` |
   | splat bomb | 70 | 4 s of its own | 36 at the centre → 6 at 3.25 blocks | thrown 30° up at 0.75, bounces where it lands and goes off 20 ticks later | `splat_bomb.json` |
 
   Standing in your own ink refills the tank in ten seconds on your feet and three as a squid, and a
   weapon that has just fired waits its own `refill_delay` first (7 for a shooter, 15 for a roller —
   Splatcraft's `ink_recovery_cooldown`).
+
+  A roll costs one ink every five ticks of *moving*, so a full tank is about twenty-five seconds of solid
+  rolling — near enough Splatoon 1's Splat Roller, which empties in about thirty-three. It was one every
+  sixteen, which is a minute and a half, which is to say it never ran out. An empty roller is not thrown
+  out of its roll: the head keeps rolling and keeps running people over, as Splatoon's does, it simply
+  paints nothing until the tank has something in it — and it says so once when it happens, because a
+  roller that has quietly stopped painting reads as a roller that is broken.
 
   **Controls.** Right click fires. The shooter and the roller are *held*: a vanilla client repeats a
   held right click only every four ticks, which is not a fire rate a shooter can have, so the press
@@ -159,10 +166,14 @@ dedicated Rivals server wants.
   was the one weapon whose hold always worked.
 
   Holding an item in use costs a vanilla player their sprint and four fifths of their speed — a bow's
-  behaviour, read client-side off the `minecraft:use_effects` component — so the shooter and the roller
-  carry their own: the shooter keeps sprinting at 72% (about what firing costs in Splatoon) and the
-  roller at 100%, since its `roll_speed` attribute is what decides how fast a roll is. The charger is
-  left on vanilla's, because being pinned in place is what its damage is paid for.
+  behaviour, read client-side off the `minecraft:use_effects` component (`canSprint`,
+  `interactVibrations`, `speedMultiplier`) — so the shooter and the roller carry their own: the shooter
+  keeps sprinting and takes 72% (about what firing costs in Splatoon), and the roller takes no
+  multiplier at all, since its `roll_speed` attribute is what decides how fast a roll is, **but may not
+  sprint** — you are pushing a drum along the floor, and sprinting with it was what made rolling read as
+  free. The charger is left on vanilla's, because being pinned in place is what its damage is paid for.
+  None of this took effect at all until the client started using the item for real: `use_effects` is
+  applied in `LocalPlayer`, and only while it is using.
 
   Left click throws a **splat bomb** on everything but the charger: a slow lob that bounces where it
   lands and counts twenty ticks down there rather than going off on contact, so it is a thing you can

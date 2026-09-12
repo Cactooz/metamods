@@ -1744,6 +1744,18 @@ public final class RivalsGameTests {
 					weapon + ": held for as long as the button is");
 			UseEffects effects = client.get(DataComponents.USE_EFFECTS);
 			helper.assertTrue(effects != null, weapon + ": and the use effects reach the client, which applies them");
+			if (weapon == Weapon.SHOOTER) {
+				// Splatoon slows a firing shooter to about seven tenths, not vanilla's one fifth, and it
+				// does not take your sprint away.
+				helper.assertTrue(effects.canSprint(), "a firing shooter may still sprint");
+				helper.assertTrue(Math.abs(effects.speedMultiplier() - 0.72f) < 1.0e-6, "at 72% speed");
+			} else {
+				// You are pushing a drum along the floor. The roll's own speed attribute is the only
+				// speed rule it gets, and sprinting with it was what made rolling read as free.
+				helper.assertTrue(!effects.canSprint(), "a rolling roller may not sprint");
+				helper.assertTrue(Math.abs(effects.speedMultiplier() - 1.0f) < 1.0e-6,
+						"and takes no multiplier: roll_speed is the one rule about how fast a roll is");
+			}
 		}
 		helper.succeed();
 	}
@@ -2802,6 +2814,55 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX - 1, "one ink every " + every + " ticks of rolling");
 		Roll.stop(player);
 		helper.assertTrue(!Roll.isRolling(player), "and putting it away takes the bonus off");
+		helper.succeed();
+	}
+
+	/**
+	 * An empty roller. The tank drains at one ink every {@code roll_ink_every} ticks of rolling — five,
+	 * which empties a full tank in about twenty-five seconds of solid rolling, near enough Splatoon 1's
+	 * Splat Roller; at sixteen it lasted a minute and a half, which is what "never runs out of ink" was.
+	 *
+	 * <p>Running dry does not end the roll. The head keeps rolling and keeps running people over, exactly
+	 * as Splatoon's does — a drum is a drum whether there is paint in it or not — it simply paints
+	 * nothing. It says so once, because a roller that has quietly stopped painting reads as broken, and
+	 * once rather than every tick because this is every tick of a held button.
+	 */
+	@GameTest
+	public void aRollerOutOfInkStillRollsAndSaysSoOnce(GameTestHelper helper) {
+		stoneFloor(helper, 7);
+		Roll.clearAll();
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		player.setYRot(0.0f);
+		player.setXRot(0.0f);
+		helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).intValue(Param.ROLL_INK_EVERY), 5,
+				"a unit of ink every five ticks of rolling: a full tank is about 25 seconds of it");
+		Vec3 start = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		player.setPos(start.x, start.y, start.z);
+		Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA); // the first tick only measures
+		Ink.set(gun, 0);
+		Vec3 stepped = helper.absoluteVec(new Vec3(3.5, 2.0, 3.5));
+		player.setPos(stepped.x, stepped.y, stepped.z);
+		helper.assertTrue(!Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA), "an empty roller paints nothing");
+		helper.assertTrue(!isPaint(helper.getBlockState(new BlockPos(3, 2, 4)), PaintColor.DATA),
+				"and leaves the floor ahead of it alone");
+		helper.assertTrue(Roll.isDry(player), "it has been told its tank is empty");
+		helper.assertTrue(Ink.isRefilling(gun, helper.getLevel().getServer().getTickCount()),
+				"and the tank has started refilling, which is what running any weapon dry does");
+		helper.assertTrue(Roll.isRolling(player), "the roll itself carries on: the button is still held");
+		Vec3 further = helper.absoluteVec(new Vec3(3.5, 2.0, 4.5));
+		player.setPos(further.x, further.y, further.z);
+		Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA);
+		helper.assertTrue(Roll.isDry(player), "a second empty tick says nothing new");
+		// A tank that has filled again is a roller that paints again, and one that may be told off again.
+		Ink.set(gun, Ink.MAX);
+		Vec3 wet = helper.absoluteVec(new Vec3(3.5, 2.0, 5.5));
+		player.setPos(wet.x, wet.y, wet.z);
+		helper.assertTrue(Roll.tick(helper.getLevel(), player, gun, PaintColor.DATA), "a refilled roller paints again");
+		helper.assertTrue(!Roll.isDry(player), "and is no longer holding an empty tank");
+		Roll.stop(player);
 		helper.succeed();
 	}
 

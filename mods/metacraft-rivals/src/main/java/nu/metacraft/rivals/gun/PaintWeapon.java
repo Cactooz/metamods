@@ -103,14 +103,18 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 * items, so without this holding the trigger would leave a player crawling. The component is a
 	 * default on the item, so it reaches the client on every stack.
 	 *
-	 * <p>The numbers are Splatoon's own idea rather than vanilla's: firing a shooter there slows you to
-	 * about seven tenths, not one fifth, and a roller at full tilt is the fastest thing on the map — its
-	 * own {@code roll_speed} attribute does the work, so the component leaves it alone. The charger is
-	 * deliberately left on vanilla's default: a charger that could run while scoped would be a sniper
-	 * rifle with no cost at all, and being pinned in place is what the weapon trades its damage for.
+	 * <p>The record is {@code (canSprint, interactVibrations, speedMultiplier)}. The numbers are
+	 * Splatoon's own idea rather than vanilla's: firing a shooter there slows you to about seven tenths,
+	 * not one fifth, so the shooter keeps its sprint and takes 0.72. The roller keeps the full multiplier
+	 * — a roller at full tilt is the fastest thing on the map, and its own {@code roll_speed} attribute is
+	 * what decides how fast, so two speed rules would be one too many — but it may <b>not sprint</b>: you
+	 * are pushing a drum along the floor, and sprinting with it was the thing that made the roll read as
+	 * free. The charger is deliberately left on vanilla's default: a charger that could run while scoped
+	 * would be a sniper rifle with no cost at all, and being pinned in place is what the weapon trades its
+	 * damage for.
 	 */
 	private static final UseEffects SHOOTER_USE = new UseEffects(true, false, 0.72f);
-	private static final UseEffects ROLLER_USE = new UseEffects(true, false, 1.0f);
+	private static final UseEffects ROLLER_USE = new UseEffects(false, false, 1.0f);
 
 	/**
 	 * What makes a <em>vanilla</em> client hold the trigger. This is the other half of held use, and
@@ -680,7 +684,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	}
 
 	/** An empty tank: start the refill, and hold the gun on cooldown until it is done. */
-	private static void outOfInk(ServerLevel level, Player player, ItemStack gun) {
+	static void outOfInk(ServerLevel level, Player player, ItemStack gun) {
 		Ink.startRefill(gun, level.getServer().getTickCount());
 		level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BOTTLE_FILL, SoundSource.PLAYERS, 0.8f, 0.9f);
 		player.getCooldowns().addCooldown(gun, Ink.REFILL_TICKS);

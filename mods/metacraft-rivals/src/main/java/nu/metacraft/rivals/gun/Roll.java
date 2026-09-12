@@ -26,7 +26,9 @@ import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.paint.Painter;
 
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.UUID;
 
 /**
@@ -69,6 +71,8 @@ public final class Roll {
 	private static final Map<UUID, Integer> ROLLED = new HashMap<>();
 	/** The tick each victim was last run over, so a roll is a hit rather than a grinder. */
 	private static final Map<UUID, Long> RUN_OVER = new HashMap<>();
+	/** Whose tank has already been reported empty, so the refill is announced once and not every tick. */
+	private static final Set<UUID> DRY = new HashSet<>();
 
 	private Roll() {}
 
@@ -80,6 +84,7 @@ public final class Roll {
 	public static void forget(Player player) {
 		stop(player);
 		RUN_OVER.remove(player.getUUID());
+		DRY.remove(player.getUUID());
 	}
 
 	/** For tests: nothing rolling anywhere. */
@@ -87,6 +92,12 @@ public final class Roll {
 		LAST_POS.clear();
 		ROLLED.clear();
 		RUN_OVER.clear();
+		DRY.clear();
+	}
+
+	/** Has this roller already been told its tank is empty? What stops the message repeating, and a test. */
+	public static boolean isDry(Player player) {
+		return DRY.contains(player.getUUID());
 	}
 
 	/** Is this player's roll bonus on? What the tests read, and what {@link #stop} undoes. */
@@ -97,8 +108,13 @@ public final class Roll {
 
 	/**
 	 * One tick of holding the roller down. Returns whether anything was painted, which is what the tests
-	 * read. The ink is checked but a roll that runs the tank dry simply stops painting rather than
-	 * kicking the player out of the roll: the button is still held, and the tank tops itself up.
+	 * read.
+	 *
+	 * <p>A roll that runs the tank dry is not kicked out of the roll: the button is still held, the head
+	 * still rolls and still runs people over, and the tank tops itself up — it just paints nothing until
+	 * it has something to paint with. The one thing that happens on the way down is
+	 * {@link PaintWeapon#outOfInk}, once, because a roller that has silently stopped painting reads as a
+	 * roller that is broken.
 	 */
 	public static boolean tick(ServerLevel level, Player player, ItemStack stack, PaintColor color) {
 		WeaponTuning tuning = WeaponTuning.get(Weapon.ROLLER);
@@ -112,7 +128,15 @@ public final class Roll {
 		// that anyone who walks past is splatted by: the roll is a charge, not a hazard.
 		if (moved.horizontalDistanceSqr() < MOVING * MOVING) return false;
 		runOver(level, player, tuning, color);
-		if (Ink.get(stack) <= 0) return false;
+		if (Ink.get(stack) <= 0) {
+			// An empty roller still rolls and still runs people over — Splatoon's does, and a drum is a
+			// drum whether there is paint in it or not — it simply paints nothing. Worth saying once,
+			// because a roller that has quietly stopped painting looks like a roller that is broken; and
+			// once is the point, since this is every tick of a roll.
+			if (DRY.add(player.getUUID())) PaintWeapon.outOfInk(level, player, stack);
+			return false;
+		}
+		DRY.remove(player.getUUID());
 		int painted = strip(level, player, tuning, color);
 		// Where the head is actually touching. Every painting tick, because a roll is continuous and a
 		// spray that came and went would read as the head bouncing.
@@ -161,6 +185,7 @@ public final class Roll {
 	public static void stop(Player player) {
 		LAST_POS.remove(player.getUUID());
 		ROLLED.remove(player.getUUID());
+		DRY.remove(player.getUUID());
 		AttributeInstance instance = player.getAttribute(Attributes.MOVEMENT_SPEED);
 		if (instance != null) instance.removeModifier(SPEED_ID);
 	}
