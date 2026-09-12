@@ -19,7 +19,9 @@ import java.util.Map;
  * the paint is. Also ships two core shader overrides, each vanilla's own plus the same paint gloss
  * keyed on the marker alpha: terrain.vsh/terrain.fsh, which is what draws chunk geometry in 26.3 (not
  * block.*), and item.vsh/item.fsh, which is what draws the block displays
- * {@link nu.metacraft.rivals.paint.PaintDisplays} hangs on stairs, slabs, fences and panes.
+ * {@link nu.metacraft.rivals.paint.PaintDisplays} hangs on stairs, slabs, fences and panes. And the ink
+ * on the screen: the {@code end_of_frame} post effect, its two shaders and the data LED's texture
+ * ({@link InkArt}).
  */
 public final class RivalsPack {
 	/** The core shader pairs the pack replaces, both of them vanilla's plus the RIVALS_GLOSS block. */
@@ -32,8 +34,9 @@ public final class RivalsPack {
 		PolymerResourcePackUtils.markAsRequired();
 		PolymerResourcePackUtils.RESOURCE_PACK_CREATION_EVENT.register(builder -> {
 			Map<String, byte[]> paint = PaintArt.packFiles();
+			Map<String, byte[]> ink = InkArt.packFiles();
 			paint.forEach(builder::addData);
-			InkArt.packFiles().forEach(builder::addData);
+			ink.forEach(builder::addData);
 			// Name every group the paint map holds, with its own count, so the total adds up when read:
 			// bit textures + face models + wrappers + mask models + the empty model + donor overrides.
 			int colors = PaintColor.values().length;
@@ -41,7 +44,7 @@ public final class RivalsPack {
 					"[{}] pack: {} paint files ({} bit textures, {} face models, {} wrappers, {} mask models, 1 empty model, {} donor overrides), {} ink files, terrain and item shaders",
 					Rivals.MOD_ID, paint.size(), colors * PaintArt.BITS, Direction.values().length,
 					colors * PaintArt.BITS * Direction.values().length, colors * PaintStates.SPLAT_PER_COLOR,
-					PaintStates.DONORS.size(), InkArt.packFiles().size());
+					PaintStates.DONORS.size(), ink.size());
 			for (String name : SHADERS) builder.addData("assets/minecraft/shaders/core/" + name, shader(name));
 		});
 	}

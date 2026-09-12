@@ -248,7 +248,7 @@ public final class PlayerTick {
 			SquidState.exit(player);
 			SquidDisplay.hide(player);
 			SquidState.clearEnemyInk(player);
-			if (player instanceof ServerPlayer watching) InkOnScreen.clear(watching);
+			InkOnScreen.clear(player);
 			LAST_POS.remove(player.getUUID());
 			LAST_INK.remove(player.getUUID());
 			return;
