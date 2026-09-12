@@ -3,39 +3,58 @@
 
 Reads a vanilla/Blockbench "Java Block/Item" model JSON (the elements list) and draws
 front (XY), side (ZY) and top (XZ) projections, one rectangle per box, coloured by the
-palette pixel each element's faces sample. Run it after editing the model so the sheet in
-docs/ never drifts from the JSON:
+palette pixel each element's faces sample. Colours are read straight from the palette PNG
+referenced by the model's `textures["0"]` entry, so the sheet stays correct however many
+columns wide that palette is. Run it after editing the model so the sheet in docs/ never
+drifts from the JSON:
 
     python3 mods/metacraft-rivals/tools/gun_sheet.py \
         mods/metacraft-rivals/src/main/resources/assets/metacraft-rivals/models/item/paint_gun.json \
         docs/superpowers/specs/2026-09-11-paint-gun-design-sheet.svg
 
-Only the standard library is used.
+Requires Pillow (PIL) to read the palette PNG.
 """
 import json
 import sys
+from pathlib import Path
 
-# Palette pixel column -> fill colour. Mirrors paint_gun_palette.png (8x8, row 0).
-PALETTE = {
-    0: "#3A3A3A",  # dark grey: barrel, grip, tank cap
-    1: "#1E1E1E",  # black: muzzle ring, trigger guard
-    2: "#C8C8C8",  # light grey: body
-    3: "#FF8A00",  # orange: nozzle tip, indicator
-    4: "#F2F2F2",  # white: tank (tinted by the team colour in game)
-    5: "#8A8A8A",  # mid grey: spare
-}
+from PIL import Image
 
 SCALE = 12  # px per model unit
 PAD = 24
 
 
-def palette_column(element):
-    """The palette column an element samples: uv x of its first face divided by 2."""
+def palette_path(model_path, texture_ref):
+    """Resolve a `namespace:item/name` texture reference to its PNG on disk.
+
+    `<resources>` is the model file's `assets/..` ancestor, i.e. the directory that
+    contains the `assets/<namespace>/...` tree.
+    """
+    namespace, _, name = texture_ref.partition(":")
+    resources = Path(model_path).resolve()
+    for parent in resources.parents:
+        if parent.name == "assets":
+            resources = parent.parent
+            break
+    else:
+        raise ValueError(f"could not find an 'assets' ancestor of {model_path}")
+    return resources / "assets" / namespace / "textures" / f"{name}.png"
+
+
+def load_palette(model_path, textures):
+    image = Image.open(palette_path(model_path, textures["0"])).convert("RGB")
+    return image
+
+
+def palette_colour(palette, element):
+    """The RGB colour an element samples: its first face's uv x, scaled to the palette width."""
     face = next(iter(element["faces"].values()))
-    return int(face["uv"][0] // 2)
+    column = int(face["uv"][0] * palette.width / 16)
+    column = max(0, min(palette.width - 1, column))
+    return palette.getpixel((column, 0))
 
 
-def view(elements, axes, title, ox, oy, flip_x=False):
+def view(elements, palette, axes, title, ox, oy, flip_x=False):
     """One orthographic view. axes = (horizontal axis index, vertical axis index)."""
     ax, ay = axes
     out = [f'<text x="{ox}" y="{oy - 8}" font-family="monospace" font-size="12">{title}</text>']
@@ -47,7 +66,7 @@ def view(elements, axes, title, ox, oy, flip_x=False):
         y0, y1 = e["from"][ay], e["to"][ay]
         if flip_x:
             x0, x1 = -x1, -x0
-        colour = PALETTE[palette_column(e)]
+        colour = "#{:02X}{:02X}{:02X}".format(*palette_colour(palette, e))
         tinted = any(f.get("tintindex") == 0 for f in e["faces"].values())
         stroke = "#E83D84" if tinted else "#222"
         out.append(
@@ -60,7 +79,9 @@ def view(elements, axes, title, ox, oy, flip_x=False):
 
 def main(model_path, svg_path):
     with open(model_path) as f:
-        elements = json.load(f)["elements"]
+        model = json.load(f)
+    elements = model["elements"]
+    palette = load_palette(model_path, model["textures"])
     w = 3 * (32 * SCALE + PAD) + PAD
     h = 34 * SCALE + PAD * 3
     parts = [
@@ -72,9 +93,9 @@ def main(model_path, svg_path):
     ]
     col = 32 * SCALE + PAD
     # Sword frame: +Y is the muzzle, -X the tank side ("top" in hand), +X the grip, Z the width.
-    parts += view(elements, (0, 1), "profile (X right: tank left, grip right; Y up = muzzle)", PAD, PAD * 2)
-    parts += view(elements, (2, 1), "edge-on (Z right = width; Y up = muzzle)", PAD + col, PAD * 2)
-    parts += view(elements, (0, 2), "down the barrel (X right: tank left; Z down = width)", PAD + 2 * col, PAD * 2)
+    parts += view(elements, palette, (0, 1), "profile (X right: tank left, grip right; Y up = muzzle)", PAD, PAD * 2)
+    parts += view(elements, palette, (2, 1), "edge-on (Z right = width; Y up = muzzle)", PAD + col, PAD * 2)
+    parts += view(elements, palette, (0, 2), "down the barrel (X right: tank left; Z down = width)", PAD + 2 * col, PAD * 2)
     parts.append("</svg>")
     with open(svg_path, "w") as f:
         f.write("\n".join(parts))
