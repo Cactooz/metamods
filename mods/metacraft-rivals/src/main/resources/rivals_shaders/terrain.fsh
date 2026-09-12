@@ -98,47 +98,55 @@ void main() {
 #endif
 	// RIVALS_GLOSS: paint texels carry alpha 229/255 = 0.898 as a marker; the window admits 228..230
 	// (three steps, filtering tolerance) and stays five steps clear of the nearest vanilla value (224).
+	// Derivatives are only defined in uniform control flow: take them before the paint branch.
+	vec3 chunkDx = dFdx(chunkPos), chunkDy = dFdy(chunkPos);
+	vec3 viewDx = dFdx(viewPos), viewDy = dFdy(viewPos);
 	if (abs(tex.a - 0.898) < 0.004) {
-		// RIVALS_GLOSS: liquid, not metal. Four things sell it, none of them additive white:
-		//   1. the splat textures are animation strips (like water_still.png) with a sheen sweeping across;
-		//   2. the atlas is sampled at a wobbling UV, under a texel of offset, so the edges jiggle — the
-		//      wobble sample is only taken (and only kept) when it is still a paint texel, so it can never
-		//      bleed a neighbouring sprite in and non-paint fragments never reach this branch at all;
-		//   3. fragments whose 4-neighbourhood leaves the sprite get a meniscus: lit on the side facing the
-		//      light, darkened on the far side, which gives the decal thickness instead of decal flatness;
-		//   4. three sine waves over chunkPos perturb the normal, so the specular crawls like a skin of
-		//      liquid; tangent space is unavailable here, so the perturbation is added in view space.
-		vec2 texel = 1.0 / TextureSize;
-		vec3 p = chunkPos;
+		// Connected paint (spec §5). The texel is one flat colour whose red low nibble says which of the
+		// cell's four in-plane neighbours are painted; the face normal (from chunkPos) picks the two
+		// in-plane axes, and a rounded box — full on connected sides, inset and rounded on the others —
+		// decides whether this fragment is paint at all. Inside it: a meniscus rim from the same distance,
+		// a three-wave crawling normal, and glint / sheen / fresnel that mix toward light instead of adding.
+		int bits = int(mod(floor(tex.r * 255.0 + 0.5), 16.0));
+		vec3 nc = abs(normalize(cross(chunkDx, chunkDy)));
+		vec2 p;
+		vec2 along;
+		if (nc.y >= nc.x && nc.y >= nc.z) { p = chunkPos.xz; }
+		else if (nc.x >= nc.z) { p = chunkPos.zy; }
+		else { p = chunkPos.xy; }
+		along = p;
+		p = fract(p);
 		float t = GameTime * 1200.0;
-		// One texel is the ceiling on the wobble; the derivative keeps it sub-texel when the sprite is small.
-		float amp = min(0.7 * length(vec2(dFdx(texCoord0.x), dFdy(texCoord0.y))), 0.0006);
-		vec2 wobbleUv = texCoord0 + amp * vec2(sin(p.x * 9.0 + p.y * 5.0 + t * 1.7), cos(p.z * 9.0 + p.y * 5.0 + t * 1.3));
-		vec4 wobbled = sampleNearest(Sampler0, wobbleUv, texel);
-		if (abs(wobbled.a - 0.898) < 0.004) {
-			color = wobbled * vertexColor;
-			color = mix(FogColor * vec4(1, 1, 1, color.a), color, ChunkVisibility);
-		}
-		vec3 n = normalize(cross(dFdx(viewPos), dFdy(viewPos)));
+		bool negU = (bits & 1) != 0, posU = (bits & 2) != 0, negV = (bits & 4) != 0, posV = (bits & 8) != 0;
+		// Inset each unconnected side by 0.06 plus a slow wobble; connected sides run out past the cell.
+		float w0 = 0.02 * sin(along.y * 12.0 + t * 1.1), w1 = 0.02 * sin(along.y * 12.0 + 2.0 + t * 0.9);
+		float w2 = 0.02 * sin(along.x * 12.0 + 4.0 + t * 1.3), w3 = 0.02 * sin(along.x * 12.0 + 1.0 + t * 0.8);
+		float lo_u = negU ? -1.0 : 0.06 + w0, hi_u = posU ? 2.0 : 0.94 + w1;
+		float lo_v = negV ? -1.0 : 0.06 + w2, hi_v = posV ? 2.0 : 0.94 + w3;
+		vec2 centre = vec2(lo_u + hi_u, lo_v + hi_v) * 0.5;
+		vec2 half = vec2(hi_u - lo_u, hi_v - lo_v) * 0.5;
+		// Corner radius only where both sides meeting at that corner are unconnected.
+		bool cu = p.x < centre.x ? !negU : !posU;
+		bool cv = p.y < centre.y ? !negV : !posV;
+		float r = (cu && cv) ? 0.28 : 0.0;
+		vec2 q = abs(p - centre) - half + r;
+		float d = length(max(q, 0.0)) + min(max(q.x, q.y), 0.0) - r;
+		if (d > 0.0) discard;
+		vec3 n = normalize(cross(viewDx, viewDy));
 		vec3 v = normalize(-viewPos);
 		vec3 l = normalize(vec3(0.3 + 0.15 * sin(t), 0.8, 0.5 + 0.15 * cos(t)));
 		vec3 wave = vec3(
-			sin(p.x * 6.0 + t * 0.9) * 0.4 + sin((p.x + p.z) * 11.0 + t * 1.4) * 0.35 + sin(p.z * 17.0 - t * 2.3) * 0.25,
+			sin(chunkPos.x * 6.0 + t * 0.9) * 0.4 + sin((chunkPos.x + chunkPos.z) * 11.0 + t * 1.4) * 0.35 + sin(chunkPos.z * 17.0 - t * 2.3) * 0.25,
 			0.0,
-			cos(p.z * 6.0 + t * 0.9) * 0.4 + cos((p.z - p.x) * 11.0 + t * 1.4) * 0.35 + cos(p.x * 17.0 - t * 2.3) * 0.25);
+			cos(chunkPos.z * 6.0 + t * 0.9) * 0.4 + cos((chunkPos.z - chunkPos.x) * 11.0 + t * 1.4) * 0.35 + cos(chunkPos.x * 17.0 - t * 2.3) * 0.25);
 		n = normalize(n + 0.05 * wave);
 		vec3 lightened = mix(color.rgb, vec3(1.0), 0.35);
-		// The meniscus: sum the directions in which the sprite ends, and light that bevel from one side.
-		vec2 offsets[4] = vec2[](vec2(texel.x, 0.0), vec2(-texel.x, 0.0), vec2(0.0, texel.y), vec2(0.0, -texel.y));
-		vec2 edgeDir = vec2(0.0);
-		for (int i = 0; i < 4; ++i) {
-			if (abs(textureLod(Sampler0, texCoord0 + offsets[i], 0.0).a - 0.898) >= 0.004) edgeDir += offsets[i];
-		}
-		if (length(edgeDir) > 0.0) {
-			float facing = dot(normalize(edgeDir), normalize(l.xz));
-			color.rgb = mix(color.rgb, lightened, 0.30 * max(facing, 0.0));
-			color.rgb *= 1.0 - 0.12 * max(-facing, 0.0);
-		}
+		// The meniscus: the outer 0.08 of the shape is a bevel, lit on the side facing the light.
+		float rim = smoothstep(-0.08, 0.0, d);
+		vec2 edgeDir = normalize(p - centre + vec2(0.0001));
+		float facing = dot(edgeDir, normalize(vec2(l.x, l.z)));
+		color.rgb = mix(color.rgb, lightened, 0.30 * rim * max(facing, 0.0));
+		color.rgb *= 1.0 - 0.12 * rim * max(-facing, 0.0);
 		float glint = pow(max(dot(reflect(-l, n), v), 0.0), 60.0) * 0.55;
 		float sheen = pow(max(dot(reflect(-l, n), v), 0.0), 5.0) * 0.14;
 		float fresnel = pow(1.0 - max(dot(n, v), 0.0), 4.0) * 0.18;
