@@ -86,8 +86,24 @@ dedicated Rivals server wants.
   |---|---|---|---|
   | shooter | 1 | 4 ticks | one ball, two bounces, 3×3 splat |
   | sprayer | 1/click | 4 ticks | 3 short-lived droplets in a cone, single-face splat + rays, no bounce |
-  | charger | 4 + 8 × charge | 20 ticks | hold to charge (up to 20 ticks), release for a hitscan line, stopped by the first block or player in it |
+  | charger | 4 + 8 × charge | 20 ticks | hold right click to aim (the spyglass scope; the charge builds for up to 20 ticks), left click to fire a hitscan line, stopped by the first block or player in it |
   | slosher | 15 | 14 ticks | 4 balls in a fan, gravity-heavy lob, 5×5 splat, no bounce |
+
+  **Controls.** Right click fires (hold for the shooter and sprayer; hold to charge the charger,
+  release to fire). Left click throws a splat bomb. The charger is the exception on both counts:
+  right click is its scope and letting go fires nothing, and left click is its trigger — the charge
+  it has built if it is scoped, a snap shot at no charge if it is not. The splat bomb is a slow,
+  fat, no-bounce lob that splashes a 7×7 patch where it lands and takes 6 hearts off anyone from
+  another team within two blocks of it, for 40 ink and a four-second wait of its own (separate from
+  the fire cooldown, so the trigger is never held up by it; all seven numbers are tunable as
+  `special_*`). Server-side, a left click arrives as up to two packets in the same tick — an attack
+  on the block or entity under the crosshair, then a swing — so Fabric's `AttackBlockCallback` and
+  `AttackEntityCallback` (both returning `FAIL`, so a paint weapon never breaks the arena or
+  punches anyone) and a mixin on `handlePunch`, 26.3's replacement for the swing packet, all go
+  through one `PaintWeapon.leftClick` that answers the first of the tick and ignores the rest. The
+  client sends the punch even while an item is in use, which is exactly what lets the charger aim
+  with one button and fire with the other; it does not repeat it while the button is held, so a
+  left click is one special.
 
   Only the slosher swings the arm on use — it's a bucket, and the throw reads as one — so its
   `use` returns `SUCCESS_SERVER` (the server broadcasts the swing, including to the thrower); the
@@ -174,7 +190,8 @@ dedicated Rivals server wants.
   `python3 mods/metacraft-rivals/tools/gun_sheet.py <model.json> <out.svg>`.
 - Ink: every gun holds 40 shots in one shared tank size, tracked in the stack's own data so it
   survives item moves. A shot costs the weapon's own ink (see the table above — 1 for the
-  shooter/sprayer, 4 plus up to 8 more for the charger's charge, 15 for the slosher); trying to
+  shooter/sprayer, 4 plus up to 8 more for the charger's charge, 15 for the slosher) and a splat
+  bomb costs 40, which is a full tank; trying to
   fire on a tank that can't cover the shot starts a 30-tick refill (sound, cooldown) that fills
   the tank the moment the deadline passes. Standing in your own colour's paint tops the tank up
   over time, faster in squid form. An action-bar ammo bar in the team colour refreshes every 10
@@ -230,11 +247,13 @@ Weapon ids and parameter names both tab-complete, and a name that does not exist
 ones that do. The three ball weapons take `velocity`, `spread`, `gravity`, `bounces`, `restitution`,
 `lifetime`, `splat_radius`, `ink`, `cooldown`, `kick`, `damage`, `count` (balls per shot), `fan_yaw`
 and `fan_pitch` (the fan those balls go out in), and `spatter_count` / `spatter_lifetime` /
-`spatter_speed` / `spatter_scatter` / `spatter_damage` (what a bounce throws off). The charger, which
+`spatter_speed` / `spatter_scatter` / `spatter_damage` (what a bounce throws off), plus the splat
+bomb's own `special_ink`, `special_cooldown`, `special_radius`, `special_damage`, `special_velocity`,
+`special_gravity` and `special_lifetime`. The charger, which
 throws no ball, takes `ink`, `cooldown` and `kick` plus its own `charge_min`, `charge_full`,
 `range_min`, `range_full`, `charge_ink_min`, `charge_ink_full`, `charge_damage_min` and
 `charge_damage_full` — the `*_min` at no charge, the `*_full` at a full one, with everything between
-interpolated.
+interpolated. It takes no `special_*`: its left click is its shot, not a bomb.
 
 Every parameter has a range, which `/rivals tune <weapon>` prints beside it and a refusal states:
 several of them are loop bounds and spawn counts, so a `splat_radius` of 500 (a million block writes

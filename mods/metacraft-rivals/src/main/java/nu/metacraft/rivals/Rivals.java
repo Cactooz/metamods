@@ -32,6 +32,7 @@ public class Rivals implements ModInitializer {
 		PaintBlocks.register();
 		PaintBall.register();
 		PaintWeapon.register();
+		PaintWeapon.init();
 		WeaponTuning.load();
 		RivalsPack.init();
 		RivalsCommands.register();

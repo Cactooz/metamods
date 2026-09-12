@@ -82,6 +82,29 @@ public enum Weapon {
 	public static final float CHARGE_BASE_DAMAGE = 4.0f;
 	public static final float CHARGE_EXTRA_DAMAGE = 6.0f;
 
+	/**
+	 * The splat bomb: the special every weapon but the charger throws on a left click. A slow lob that
+	 * arms nothing and asks for no aim — it splashes a wide patch of paint where it lands and hurts
+	 * whoever is standing in it — bought with most of a tank and a four-second wait of its own, so it is
+	 * a decision rather than a second trigger. The charger's left click is its shot instead; scoping is
+	 * what its right click does.
+	 */
+	public static final int SPECIAL_INK = 40;
+	public static final int SPECIAL_COOLDOWN = 80;
+	/** How far the splash reaches: 3 is 7×7 on the face it lands on. */
+	public static final int SPECIAL_RADIUS = 3;
+	/** Hearts off everyone from another team within {@link #SPECIAL_BLAST} blocks of the landing. */
+	public static final float SPECIAL_DAMAGE = 6.0f;
+	public static final double SPECIAL_BLAST = 2.0;
+	/** A slow, heavy lob that gives everyone time to see it coming, and dies on its own after 2 s. */
+	public static final float SPECIAL_VELOCITY = 0.8f;
+	public static final double SPECIAL_GRAVITY = 0.06;
+	public static final int SPECIAL_LIFETIME = 40;
+	/** The bomb is a big blob: this is its display scale outright, not a multiple of a ball's. */
+	public static final float SPECIAL_SCALE = 1.6f;
+	/** It is a lob, so it leaves above the crosshair, in degrees of pitch; negative is up. */
+	public static final float SPECIAL_PITCH = -15.0f;
+
 	/** What a bounce droplet is worth — a graze, not a shot. */
 	public static final float DROPLET_DAMAGE = 0.5f;
 

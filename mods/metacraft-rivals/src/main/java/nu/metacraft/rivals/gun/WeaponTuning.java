@@ -98,7 +98,18 @@ public final class WeaponTuning {
 		CHARGE_INK_FULL("charge_ink_full", 0.0, 100.0),
 		/** Charger: hearts off whoever stops the line, at no charge and at a full one. */
 		CHARGE_DAMAGE_MIN("charge_damage_min", 0.0, 40.0),
-		CHARGE_DAMAGE_FULL("charge_damage_full", 0.0, 40.0);
+		CHARGE_DAMAGE_FULL("charge_damage_full", 0.0, 40.0),
+		/** The splat bomb: ink one throw costs, and the wait between two of them. Rounded. */
+		SPECIAL_INK("special_ink", 0.0, 100.0),
+		SPECIAL_COOLDOWN("special_cooldown", 0.0, 600.0),
+		/** How far the bomb's splash reaches: 3 is 7×7. Rounded. */
+		SPECIAL_RADIUS("special_radius", 0.0, 6.0),
+		/** Hearts off everyone from another team caught in the blast. */
+		SPECIAL_DAMAGE("special_damage", 0.0, 40.0),
+		/** How the bomb is thrown, and how long it lives if it hits nothing. */
+		SPECIAL_VELOCITY("special_velocity", 0.0, 10.0),
+		SPECIAL_GRAVITY("special_gravity", -1.0, 1.0),
+		SPECIAL_LIFETIME("special_lifetime", 1.0, 400.0);
 
 		/** What a player types and what the json is keyed by. */
 		public final String id;
@@ -142,13 +153,18 @@ public final class WeaponTuning {
 			Param.CHARGE_DAMAGE_MIN, Param.CHARGE_DAMAGE_FULL);
 
 	/**
-	 * Does this parameter mean anything for this weapon? The charger throws no ball, so none of the
-	 * flight numbers reach it; the other three never charge. Ink, cooldown and kick belong to all four.
+	 * Does this parameter mean anything for this weapon? The charger throws no ball and no splat bomb, so
+	 * none of those numbers reach it; the other three never charge. Ink, cooldown and kick belong to all four.
 	 * Only used for what the commands offer and accept — {@link #value} answers for any of them.
 	 */
 	public static boolean applies(Weapon weapon, Param param) {
 		boolean charge = CHARGE_ONLY.contains(param);
-		return weapon == Weapon.CHARGER ? charge || param == Param.INK || param == Param.COOLDOWN || param == Param.KICK : !charge;
+		// The charger's list is a whitelist, so the splat bomb's parameters fall outside it by
+		// construction: it has no bomb, and its left click fires the line instead.
+		if (weapon == Weapon.CHARGER) {
+			return charge || param == Param.INK || param == Param.COOLDOWN || param == Param.KICK;
+		}
+		return !charge;
 	}
 
 	/** The parameters a weapon shows and accepts, in declaration order. */
@@ -212,6 +228,13 @@ public final class WeaponTuning {
 			values.put(Param.CHARGE_INK_FULL, (double) (Weapon.CHARGE_BASE_COST + Weapon.CHARGE_EXTRA_COST));
 			values.put(Param.CHARGE_DAMAGE_MIN, (double) Weapon.CHARGE_BASE_DAMAGE);
 			values.put(Param.CHARGE_DAMAGE_FULL, (double) (Weapon.CHARGE_BASE_DAMAGE + Weapon.CHARGE_EXTRA_DAMAGE));
+			values.put(Param.SPECIAL_INK, (double) Weapon.SPECIAL_INK);
+			values.put(Param.SPECIAL_COOLDOWN, (double) Weapon.SPECIAL_COOLDOWN);
+			values.put(Param.SPECIAL_RADIUS, (double) Weapon.SPECIAL_RADIUS);
+			values.put(Param.SPECIAL_DAMAGE, (double) Weapon.SPECIAL_DAMAGE);
+			values.put(Param.SPECIAL_VELOCITY, (double) Weapon.SPECIAL_VELOCITY);
+			values.put(Param.SPECIAL_GRAVITY, Weapon.SPECIAL_GRAVITY);
+			values.put(Param.SPECIAL_LIFETIME, (double) Weapon.SPECIAL_LIFETIME);
 			switch (weapon) {
 				case SHOOTER -> values.put(Param.BOUNCES, (double) Weapon.SHOOTER_BOUNCES);
 				case SPRAYER -> {

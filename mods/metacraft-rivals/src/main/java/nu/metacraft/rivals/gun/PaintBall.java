@@ -32,6 +32,7 @@ import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.item.component.FireworkExplosion;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
@@ -111,6 +112,10 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private double gravity = GRAVITY;
 	private int age = 0;
 	private boolean droplet = false;
+	/** The display's resting size for this ball; the splat bomb is a much bigger blob. */
+	private float blobScale = BLOB_SCALE;
+	/** How far a landing hurts, or 0 for a ball that only hurts what it hits square on. */
+	private double blast = 0.0;
 	/** Ticks left of the impact squash, and the face normal it is squashed against. */
 	private int impact = 0;
 	private Vec3 impactNormal = new Vec3(0, 1, 0);
@@ -204,6 +209,11 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		this.gravity = gravity;
 	}
 
+	/** Ticks this ball lives before it splashes the floor under itself, or 0 for no limit. */
+	public int lifetime() {
+		return lifetime;
+	}
+
 	/** Bounces this ball has left; 0 means the next block hit ends it. */
 	public int bouncesLeft() {
 		return bounces;
@@ -220,6 +230,35 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 
 	public void setDroplet(boolean droplet) {
 		this.droplet = droplet;
+	}
+
+	/**
+	 * How big the blob display is at rest. The flight stretch is computed from it, so a bigger ball is
+	 * bigger in every shape it takes.
+	 */
+	public void setBlobScale(float scale) {
+		this.blobScale = scale;
+	}
+
+	public float blobScale() {
+		return blobScale;
+	}
+
+	/**
+	 * Make this ball a splat bomb: anything within {@code range} blocks of where it lands takes its
+	 * {@link #damage()}, and the landing paints its splat radius wherever it happened rather than only
+	 * on the face a direct hit found. A range of 0 leaves it an ordinary ball.
+	 */
+	public void setBlast(double range) {
+		this.blast = range;
+	}
+
+	public double blast() {
+		return blast;
+	}
+
+	public boolean isBomb() {
+		return blast > 0;
 	}
 
 	/** The holder carrying the blob display, or null before the first tick and after removal. */
@@ -280,7 +319,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		element.setItemDisplayContext(ItemDisplayContext.FIXED);
 		element.setInterpolationDuration(FLIGHT_INTERPOLATION);
 		element.setTeleportDuration(1);
-		element.setScale(new Vector3f(BLOB_SCALE, BLOB_SCALE, BLOB_SCALE));
+		element.setScale(new Vector3f(blobScale, blobScale, blobScale));
 		holder.addElement(element);
 		EntityAttachment.ofTicking(holder, this);
 		blob = holder;
@@ -302,11 +341,11 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		if (blobElement == null) return;
 		Vec3 v = getDeltaMovement();
 		float stretch = (float) Math.min(STRETCH_MAX, STRETCH_PER_SPEED * v.length());
-		Vector3f flight = new Vector3f(BLOB_SCALE / (1 + stretch), BLOB_SCALE * (1 + stretch), BLOB_SCALE / (1 + stretch));
+		Vector3f flight = new Vector3f(blobScale / (1 + stretch), blobScale * (1 + stretch), blobScale / (1 + stretch));
 		if (impact > 0) {
 			boolean held = impact > IMPACT_BLEND;
 			float eased = held ? 0.0f : (IMPACT_BLEND - impact) / (float) IMPACT_BLEND;
-			Vector3f pancake = new Vector3f(BLOB_SCALE * IMPACT_WIDE, BLOB_SCALE * IMPACT_FLAT, BLOB_SCALE * IMPACT_WIDE);
+			Vector3f pancake = new Vector3f(blobScale * IMPACT_WIDE, blobScale * IMPACT_FLAT, blobScale * IMPACT_WIDE);
 			blobElement.setScale(pancake.lerp(flight, eased));
 			blobElement.setLeftRotation(orient(impactNormal));
 			blobElement.setInterpolationDuration(held ? IMPACT_INTERPOLATION : FLIGHT_INTERPOLATION);
@@ -335,7 +374,22 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		if (hit.getType() == HitResult.Type.BLOCK) {
 			Painter.splash(level, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, splatRadius, this);
 		}
+		if (isBomb()) hurtNearby(level, position());
 		discard();
+	}
+
+	/**
+	 * The splat bomb's landing: a bang, and a hit on everyone from another team standing in the blast.
+	 * Called from the hit path and from {@link #expire}, because a bomb that runs out of time over
+	 * someone's head should still go off.
+	 */
+	private void hurtNearby(ServerLevel level, Vec3 at) {
+		level.playSound(null, at.x, at.y, at.z, SoundEvents.SLIME_BLOCK_BREAK, SoundSource.PLAYERS, 1.2f, 0.7f);
+		if (damage <= 0) return;
+		for (LivingEntity caught : level.getEntitiesOfClass(LivingEntity.class, AABB.ofSize(at, blast * 2, blast * 2, blast * 2))) {
+			if (!hostile(color, caught) || caught.position().distanceToSqr(at) > blast * blast) continue;
+			caught.hurtServer(level, level.damageSources().thrown(this, getOwner()), damage);
+		}
 	}
 
 	/**
@@ -347,6 +401,18 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	 */
 	@Override
 	protected void onHit(HitResult result) {
+		// A splat bomb neither bounces nor hurts only what it touched: wherever it stops, it goes off.
+		if (isBomb() && level() instanceof ServerLevel bombLevel) {
+			if (result instanceof BlockHitResult hit && !hit.isWorldBorderHit()) {
+				Painter.splash(bombLevel, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, splatRadius, this);
+			} else if (result instanceof EntityHitResult caught) {
+				Painter.splash(bombLevel, result.getLocation(), caught.getEntity().blockPosition().below(),
+						Direction.UP, color, random, splatRadius, this);
+			}
+			hurtNearby(bombLevel, result.getLocation());
+			discard();
+			return;
+		}
 		if (bounces > 0 && result instanceof BlockHitResult hit && !hit.isWorldBorderHit()
 				&& level() instanceof ServerLevel serverLevel) {
 			super.onHitBlock(hit); // the vanilla block-hit effects still belong to a bounce

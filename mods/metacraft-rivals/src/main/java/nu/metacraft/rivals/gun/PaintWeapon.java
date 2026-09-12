@@ -1,6 +1,9 @@
 package nu.metacraft.rivals.gun;
 
 import eu.pb4.polymer.core.api.item.PolymerItem;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.ChatFormatting;
 import net.minecraft.core.BlockPos;
@@ -47,14 +50,18 @@ import nu.metacraft.rivals.paint.Painter;
 import org.jspecify.annotations.Nullable;
 
 import java.util.EnumMap;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.UUID;
 
 /**
- * Every paint weapon, in one item class parameterised by a {@link Weapon}. Right-click throws paint in
- * the colour of the holder's vanilla team; no team, no shot. Vanilla clients keep sending use packets
+ * Every paint weapon, in one item class parameterised by a {@link Weapon}. Right click fires: it throws
+ * paint in the colour of the holder's vanilla team, and no team means no shot. Left click is the
+ * special — a splat bomb on three of the four weapons, and the charger's own shot, since the charger's
+ * right click is the scope and pressing both buttons at once is how a scoped rifle is fired. Vanilla clients keep sending use packets
  * while the button is held, so the item cooldown is the fire rate. Clients see a stand-in vanilla item
  * wearing our 3D model; the model's tank is dye-tinted, and each inventory tick writes the holder's
  * team colour into the server-side stack as that dye, so every viewer sees the weapon in its holder's
@@ -110,6 +117,137 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		return given;
 	}
 
+	/**
+	 * The tick each player's splat bomb is ready again, by UUID. The bomb is one special rather than one
+	 * per weapon, so switching guns does not hand out a second one, and it is deliberately not the item
+	 * cooldown: that is the fire rate, and a special that stopped the trigger for four seconds would be
+	 * a punishment rather than a choice. Absolute server ticks, so the map is cleared when the server
+	 * stops — a deadline further ahead than the cooldown itself cannot have been set this session and is
+	 * treated as spent, the same rule {@link Ink} uses for a stale refill.
+	 */
+	private static final Map<UUID, Long> SPECIAL_READY = new HashMap<>();
+	/** The tick each player's left click was last answered, so one click is one special. */
+	private static final Map<UUID, Long> LAST_LEFT_CLICK = new HashMap<>();
+
+	/**
+	 * Left click, from every path it can arrive on. A left click on a block or an entity reaches the
+	 * server as an attack packet and then a swing packet in the same tick, and a click at thin air as
+	 * the swing alone; the two callbacks here answer the first pair and the {@code handlePunch} mixin the
+	 * swing, all of them through {@link #leftClick}, which takes the first of the tick and ignores the
+	 * rest. Both callbacks refuse the vanilla action: a paint weapon must not break the arena, and a
+	 * special thrown by punching someone must not also be a punch.
+	 */
+	public static void init() {
+		AttackBlockCallback.EVENT.register((player, level, hand, pos, direction) ->
+				holdsWeapon(player) ? answerLeftClick(player) : InteractionResult.PASS);
+		AttackEntityCallback.EVENT.register((player, level, hand, entity, hit) ->
+				holdsWeapon(player) ? answerLeftClick(player) : InteractionResult.PASS);
+		// Both maps are absolute server ticks, and the tick count starts again at 0 every boot.
+		ServerLifecycleEvents.SERVER_STOPPING.register(server -> {
+			SPECIAL_READY.clear();
+			LAST_LEFT_CLICK.clear();
+		});
+	}
+
+	private static boolean holdsWeapon(Player player) {
+		return player.getItemInHand(InteractionHand.MAIN_HAND).getItem() instanceof PaintWeapon;
+	}
+
+	private static InteractionResult answerLeftClick(Player player) {
+		leftClick(player);
+		return InteractionResult.FAIL;
+	}
+
+	/**
+	 * The special, once per tick per player, for whoever is holding a paint weapon in their main hand.
+	 * Returns whether anything happened, which is what the tests read.
+	 */
+	public static boolean leftClick(Player player) {
+		if (!(player.level() instanceof ServerLevel level)) return false;
+		ItemStack held = player.getItemInHand(InteractionHand.MAIN_HAND);
+		if (!(held.getItem() instanceof PaintWeapon weapon)) return false;
+		long now = level.getServer().getTickCount();
+		Long last = LAST_LEFT_CLICK.put(player.getUUID(), now);
+		if (last != null && last == now) return false;
+		return weapon.special(level, player, held);
+	}
+
+	/**
+	 * What a left click does with this weapon in hand.
+	 *
+	 * <p>Three of the four throw a splat bomb: a slow lob that splashes a wide patch of paint where it
+	 * lands and hurts everyone from another team standing in it, for most of a tank and a four-second
+	 * wait of its own. The charger fires instead — the shot it has been charging under the scope if the
+	 * player is scoped, and a snap shot at no charge if they are not — because the one weapon whose right
+	 * click is already a hold needs its own button to pull the trigger with.
+	 */
+	public boolean special(ServerLevel level, Player player, ItemStack gun) {
+		Optional<PaintColor> ready = ready(level, player, gun); // team, refill, squid
+		if (ready.isEmpty()) return false;
+		PaintColor color = ready.get();
+		WeaponTuning tuning = WeaponTuning.get(weapon);
+		if (weapon == Weapon.CHARGER) return chargerShot(level, player, gun, scopedCharge(player, gun, tuning));
+		long now = level.getServer().getTickCount();
+		int wait = tuning.intValue(Param.SPECIAL_COOLDOWN);
+		Long readyAt = SPECIAL_READY.get(player.getUUID());
+		if (readyAt != null && now < readyAt && readyAt - now <= wait) {
+			actionBar(player, Component.literal("Splat bomb in " + ((readyAt - now + 19) / 20) + "s")
+					.withStyle(ChatFormatting.GRAY));
+			return false;
+		}
+		int cost = tuning.intValue(Param.SPECIAL_INK);
+		if (Ink.get(gun) < cost) {
+			outOfInk(level, player, gun);
+			return false;
+		}
+		splatBomb(level, player, color, tuning);
+		Ink.add(gun, -cost);
+		SPECIAL_READY.put(player.getUUID(), now + wait);
+		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
+		return true;
+	}
+
+	/** Ticks until this player's splat bomb is ready, or 0 when it is. What the tests and the hint read. */
+	public static long specialWait(Player player, long now) {
+		Long readyAt = SPECIAL_READY.get(player.getUUID());
+		if (readyAt == null || now >= readyAt) return 0;
+		return readyAt - now;
+	}
+
+	/**
+	 * Lob the bomb: a big slow blob thrown above the crosshair, with the blast and the wide splat radius
+	 * on it, and no bounce — it is meant to land where it was aimed and go off there.
+	 */
+	private void splatBomb(ServerLevel level, Player player, PaintColor color, WeaponTuning tuning) {
+		PaintBall bomb = new PaintBall(level, player, color, 0, tuning.intValue(Param.SPECIAL_LIFETIME));
+		bomb.setWeapon(weapon);
+		bomb.setSplatRadius(tuning.intValue(Param.SPECIAL_RADIUS));
+		bomb.setDamage(tuning.floatValue(Param.SPECIAL_DAMAGE));
+		bomb.setGravity(tuning.value(Param.SPECIAL_GRAVITY));
+		bomb.setBlast(Weapon.SPECIAL_BLAST);
+		bomb.setBlobScale(Weapon.SPECIAL_SCALE);
+		bomb.shootFromRotation(player, player.getXRot() + Weapon.SPECIAL_PITCH, player.getYRot(), 0.0f,
+				tuning.floatValue(Param.SPECIAL_VELOCITY), 0.0f);
+		level.addFreshEntity(bomb);
+		level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.SNOWBALL_THROW,
+				SoundSource.PLAYERS, 0.9f, 0.5f);
+		level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.SLIME_BLOCK_PLACE,
+				SoundSource.PLAYERS, 0.8f, 0.6f);
+	}
+
+	/**
+	 * How charged the charger is, and let go of the scope. A scoped player fires the charge they have
+	 * built; an unscoped one fires a snap shot at no charge at all, which is the minimum range, ink and
+	 * damage — worth having as a panic shot, never worth aiming with.
+	 */
+	private float scopedCharge(Player player, ItemStack gun, WeaponTuning tuning) {
+		if (!player.isUsingItem() || player.getUseItem().getItem() != this) return 0.0f;
+		int held = getUseDuration(gun, player) - player.getUseItemRemainingTicks();
+		player.stopUsingItem();
+		// A full charge in no ticks at all would divide by zero; one tick is the shortest charge there is.
+		return Math.min(1.0f, held / (float) Math.max(1, tuning.intValue(Param.CHARGE_FULL)));
+	}
+
 	@Override
 	public InteractionResult use(Level level, Player player, InteractionHand hand) {
 		if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.PASS;
@@ -123,8 +261,8 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			outOfInk(serverLevel, player, gun);
 			return InteractionResult.FAIL;
 		}
-		// The charger spends nothing on the press: the shot, its ink and its cooldown all wait for the
-		// release, which is what makes the hold a charge rather than a delayed trigger.
+		// The charger spends nothing on the press: right click is the scope, and its shot, ink and cooldown
+		// all wait for the left click that fires it.
 		if (weapon == Weapon.CHARGER) {
 			player.startUsingItem(hand);
 			return InteractionResult.CONSUME;
@@ -178,32 +316,33 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		return weapon == Weapon.CHARGER ? ItemUseAnimation.SPYGLASS : ItemUseAnimation.NONE;
 	}
 
-	/**
-	 * The charger's shot, fired when the hold ends. How long the button was down is the whole weapon:
-	 * under {@code charge_min} ticks it was a tap and nothing happens (no ink, no cooldown — a mis-click
-	 * must not cost anything), and from there to {@code charge_full} the charge scales range, ink,
-	 * damage and kick together, each of them from its {@code *_min} at no charge to its {@code *_full}
-	 * at a full one. The shot itself is hitscan: one clip along the view, a line of paint on the floor
-	 * under it, and a splash where it stops — under the feet of whoever was standing in the way, if
-	 * anyone was, and otherwise on the block face it ran into. Whoever stopped it also takes the
-	 * charge's share of {@code charge_damage_min}..{@code charge_damage_full}, unless they are on the
-	 * shooter's own team. Every one of those numbers is read off {@link WeaponTuning} here, at the
-	 * release, so {@code /rivals tune} lands on the next charge.
-	 */
 	@Override
 	public boolean releaseUsing(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {
-		// Only the server has the paint, the tank and the scoreboard; the client never fires this.
-		if (weapon != Weapon.CHARGER || !(level instanceof ServerLevel serverLevel) || !(entity instanceof Player player)) return false;
-		WeaponTuning tuning = WeaponTuning.get(weapon);
+		// Letting go of the scope is not a shot: the trigger is the left click, so that the aim and the
+		// firing are two buttons rather than one gesture. A short scoped hold is the one case worth a
+		// word, because someone clicking this weapon the way the other three are clicked sees nothing
+		// happen at all and reads it as broken.
+		if (weapon != Weapon.CHARGER || !(entity instanceof Player player)) return false;
 		int held = getUseDuration(stack, entity) - timeLeft;
-		if (held < tuning.intValue(Param.CHARGE_MIN)) {
-			// A tap costs nothing, which also means it gives no feedback at all: without a word the weapon
-			// reads as broken to anyone clicking it the way the other three are clicked.
-			actionBar(player, Component.literal("Hold to charge").withStyle(ChatFormatting.GRAY));
-			return false;
+		if (held < WeaponTuning.get(weapon).intValue(Param.CHARGE_MIN)) {
+			actionBar(player, Component.literal("Hold right click to aim, left click to fire").withStyle(ChatFormatting.GRAY));
 		}
-		// A full charge in no ticks at all would divide by zero; one tick is the shortest charge there is.
-		float charge = Math.min(1.0f, held / (float) Math.max(1, tuning.intValue(Param.CHARGE_FULL)));
+		return false;
+	}
+
+	/**
+	 * The charger's shot, at {@code charge} from 0 (a snap shot) to 1 (a full one). The charge is the
+	 * whole weapon: it scales range, ink, damage and kick together, each of them from its {@code *_min}
+	 * at no charge to its {@code *_full} at a full one. The shot itself is hitscan: one clip along the
+	 * view, a line of paint on the floor under it, and a splash where it stops — under the feet of
+	 * whoever was standing in the way, if anyone was, and otherwise on the block face it ran into.
+	 * Whoever stopped it also takes the charge's share of {@code charge_damage_min}..{@code
+	 * charge_damage_full}, unless they are on the shooter's own team. Every one of those numbers is read
+	 * off {@link WeaponTuning} here, at the shot, so {@code /rivals tune} lands on the next one.
+	 */
+	public boolean chargerShot(ServerLevel serverLevel, Player player, ItemStack stack, float charge) {
+		if (weapon != Weapon.CHARGER) return false;
+		WeaponTuning tuning = WeaponTuning.get(weapon);
 		Optional<PaintColor> ready = ready(serverLevel, player, stack);
 		if (ready.isEmpty()) return false;
 		PaintColor color = ready.get();
@@ -215,26 +354,26 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		}
 		double rangeMin = tuning.value(Param.RANGE_MIN);
 		double range = rangeMin + (tuning.value(Param.RANGE_FULL) - rangeMin) * charge;
-		Vec3 from = entity.getEyePosition();
-		Vec3 reach = entity.getLookAngle().scale(range);
+		Vec3 from = player.getEyePosition();
+		Vec3 reach = player.getLookAngle().scale(range);
 		Vec3 to = from.add(reach);
-		BlockHitResult hit = serverLevel.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity));
+		BlockHitResult hit = serverLevel.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, player));
 		boolean struck = hit.getType() == HitResult.Type.BLOCK;
 		Vec3 end = struck ? hit.getLocation() : to;
 		// Anyone standing in the way stops the line where they are: scanned only as far as the block hit,
 		// so a hit that comes back is by construction the nearer of the two. Paint goes under their feet,
 		// the same shape a ball's entity hit makes — a charger line that passed through a player and
 		// painted the wall behind them read as a miss.
-		AABB along = entity.getBoundingBox().expandTowards(reach).inflate(1.0);
-		EntityHitResult inTheWay = ProjectileUtil.getEntityHitResult(serverLevel, entity, from, end, along,
+		AABB along = player.getBoundingBox().expandTowards(reach).inflate(1.0);
+		EntityHitResult inTheWay = ProjectileUtil.getEntityHitResult(serverLevel, player, from, end, along,
 				// isPickable, so a dropped item, an XP orb or someone else's paint ball in flight does not
 				// stop the line: those are not what a charger shot is aimed at.
-				candidate -> candidate != entity && candidate.isAlive() && candidate.isPickable() && !candidate.isSpectator(), 0.0f);
+				candidate -> candidate != player && candidate.isAlive() && candidate.isPickable() && !candidate.isSpectator(), 0.0f);
 		if (inTheWay != null) end = inTheWay.getLocation();
-		int painted = Painter.line(serverLevel, from, end, color, entity);
+		int painted = Painter.line(serverLevel, from, end, color, player);
 		if (inTheWay != null) {
 			BlockPos below = inTheWay.getEntity().blockPosition().below();
-			painted += Painter.splash(serverLevel, end, below, Direction.UP, color, serverLevel.getRandom(), entity);
+			painted += Painter.splash(serverLevel, end, below, Direction.UP, color, serverLevel.getRandom(), player);
 			// The one weapon whose damage rides the charge: a full-charge line is the hardest hit in the
 			// game, a barely-held one is a poke. Attributed to the player, so a kill goes on their name.
 			if (PaintBall.hostile(color, inTheWay.getEntity())) {
@@ -243,7 +382,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 				inTheWay.getEntity().hurtServer(serverLevel, serverLevel.damageSources().indirectMagic(player, player), hurt);
 			}
 		} else if (struck) {
-			painted += Painter.splash(serverLevel, end, hit.getBlockPos(), hit.getDirection(), color, serverLevel.getRandom(), entity);
+			painted += Painter.splash(serverLevel, end, hit.getBlockPos(), hit.getDirection(), color, serverLevel.getRandom(), player);
 		}
 		Rivals.LOGGER.debug("charger: charge {}, range {}, {} cells painted", charge, range, painted);
 		Ink.add(stack, -cost);

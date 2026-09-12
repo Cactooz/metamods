@@ -8,6 +8,8 @@ import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
+import net.fabricmc.fabric.api.event.player.AttackBlockCallback;
+import net.fabricmc.fabric.api.event.player.AttackEntityCallback;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSource;
@@ -28,6 +30,7 @@ import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
+import net.minecraft.server.network.ServerGamePacketListenerImpl;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
 import net.minecraft.world.effect.MobEffectInstance;
@@ -1609,7 +1612,7 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** Releasing a charged charger paints the floor under the scanned line and splats where it ends. */
+	/** The charger's shot paints the floor under the scanned line and splats where it ends. */
 	@GameTest
 	public void chargerPaintsALineUnderTheScan(GameTestHelper helper) {
 		stoneFloor(helper, 7); // floor at y=1, x/z 0..6
@@ -1622,7 +1625,7 @@ public final class RivalsGameTests {
 		player.setPos(at.x, at.y, at.z);
 		player.setYRot(-90f); // look +X
 		player.setXRot(0f);
-		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - Weapon.CHARGE_FULL_TICKS);
+		boolean fired = PaintWeapon.of(Weapon.CHARGER).chargerShot(helper.getLevel(), player, charger, 1.0f);
 		helper.assertTrue(fired, "full charge fires");
 		int painted = 0;
 		for (int x = 1; x <= 5; x++) {
@@ -1659,7 +1662,7 @@ public final class RivalsGameTests {
 		Vec3 stand = helper.absoluteVec(new Vec3(3.5, 2.0, 3.5));
 		target.setPos(stand.x, stand.y, stand.z);
 		helper.getLevel().addFreshEntity(target);
-		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - Weapon.CHARGE_FULL_TICKS);
+		boolean fired = PaintWeapon.of(Weapon.CHARGER).chargerShot(helper.getLevel(), player, charger, 1.0f);
 		helper.assertTrue(fired, "full charge fires");
 		helper.assertTrue(isPaint(helper.getBlockState(new BlockPos(3, 2, 3)), PaintColor.DATA),
 				"the floor under the player in the way is painted");
@@ -1669,17 +1672,183 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** A tap is not a charge: nothing fires and no ink is spent. */
+	/**
+	 * Letting go of the scope is not a shot. The charger's two buttons are the scope (right, held) and
+	 * the trigger (left), so a release fires nothing, costs nothing and paints nothing — however long
+	 * the charge was held for.
+	 */
 	@GameTest
-	public void chargerIgnoresShortRelease(GameTestHelper helper) {
+	public void chargerReleaseDoesNotFire(GameTestHelper helper) {
+		stoneFloor(helper, 5);
 		Player player = gunner(helper);
 		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
 		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
-		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - 2);
-		helper.assertTrue(!fired && Ink.get(charger) == Ink.MAX, "a tap does nothing and costs nothing");
+		Vec3 at = helper.absoluteVec(new Vec3(0.5, 2.0, 2.5));
+		player.setPos(at.x, at.y, at.z);
+		player.setYRot(-90f); // look +X, down the floor
+		player.setXRot(0f);
+		player.startUsingItem(InteractionHand.MAIN_HAND);
+		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player,
+				Weapon.CHARGE_MAX_TICKS - Weapon.CHARGE_FULL_TICKS);
+		helper.assertTrue(!fired, "a release is not a shot");
+		helper.assertValueEqual(Ink.get(charger), Ink.MAX, "and costs nothing");
+		for (int x = 1; x <= 4; x++) {
+			helper.assertTrue(!isPaint(helper.getBlockState(new BlockPos(x, 2, 2)), PaintColor.DATA),
+					"nothing painted at x=" + x);
+		}
 		helper.succeed();
 	}
+
+	/**
+	 * Left click fires the charger at whatever charge the scope has built. Right click scopes and the
+	 * charge runs up while it is held; the swing packet arrives while the item is in use, which is what
+	 * lets one weapon aim with one button and fire with the other.
+	 */
+	@GameTest(maxTicks = 120)
+	public void chargerFiresOnLeftClickWhileScoped(GameTestHelper helper) {
+		stoneFloor(helper, 7); // floor at y=1, x/z 0..6
+		Player player = gunner(helper);
+		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
+		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Vec3 at = helper.absoluteVec(new Vec3(0.5, 2.0, 3.5));
+		player.setPos(at.x, at.y, at.z);
+		player.setYRot(-90f); // look +X
+		player.setXRot(0f);
+		// The charge only runs down while the player is being ticked, so this one has to be in the level.
+		helper.getLevel().addFreshEntity(player);
+		InteractionResult scoped = PaintWeapon.of(Weapon.CHARGER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(scoped == InteractionResult.CONSUME, "right click scopes without swinging the arm, got " + scoped);
+		helper.assertTrue(player.isUsingItem(), "and the hold has started");
+		helper.runAfterDelay(Weapon.CHARGE_FULL_TICKS, () -> {
+			helper.assertTrue(player.getTicksUsingItem() >= Weapon.CHARGE_FULL_TICKS,
+					"a full charge is held, got " + player.getTicksUsingItem());
+			helper.assertTrue(PaintWeapon.leftClick(player), "left click fires");
+			helper.assertTrue(!player.isUsingItem(), "and lets go of the scope");
+			helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)), Ink.MAX - 12,
+					"a full charge costs 12");
+			int painted = 0;
+			for (int x = 1; x <= 5; x++) {
+				if (isPaint(helper.getBlockState(new BlockPos(x, 2, 3)), PaintColor.DATA)) painted++;
+			}
+			helper.assertTrue(painted >= 3, "a line of paint down the floor, got " + painted);
+			player.discard();
+			helper.succeed();
+		});
+	}
+
+	/** Left click without the scope is a snap shot: the minimum charge, so the minimum ink and range. */
+	@GameTest
+	public void chargerSnapShotWhenUnscoped(GameTestHelper helper) {
+		stoneFloor(helper, 7);
+		Player player = gunner(helper);
+		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
+		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Vec3 at = helper.absoluteVec(new Vec3(0.5, 2.0, 3.5));
+		player.setPos(at.x, at.y, at.z);
+		player.setYRot(-90f); // look +X
+		player.setXRot(0f);
+		helper.assertTrue(!player.isUsingItem(), "not scoped");
+		helper.assertTrue(PaintWeapon.leftClick(player), "left click still fires");
+		helper.assertValueEqual(Ink.get(charger), Ink.MAX - Weapon.CHARGE_BASE_COST, "a snap shot costs the base ink only");
+		int painted = 0;
+		for (int x = 1; x <= 5; x++) {
+			if (isPaint(helper.getBlockState(new BlockPos(x, 2, 3)), PaintColor.DATA)) painted++;
+		}
+		helper.assertTrue(painted >= 1, "and still paints, got " + painted);
+		helper.succeed();
+	}
+
+	/**
+	 * Left click on the other three weapons throws a splat bomb: one slow, fat, no-bounce ball carrying
+	 * the wide splat radius and the blast, for the special's own ink.
+	 */
+	@GameTest
+	public void leftClickThrowsTheSpecial(GameTestHelper helper) {
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		long now = helper.getLevel().getServer().getTickCount();
+		helper.assertTrue(PaintWeapon.leftClick(player), "left click throws the special");
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
+		helper.assertValueEqual(balls.size(), 1, "one bomb");
+		PaintBall bomb = balls.getFirst();
+		helper.assertTrue(bomb.isBomb(), "it is a bomb: it goes off where it lands");
+		helper.assertValueEqual(bomb.blast(), Weapon.SPECIAL_BLAST, "the blast radius");
+		helper.assertValueEqual(bomb.splatRadius(), Weapon.SPECIAL_RADIUS, "the wide splat radius");
+		helper.assertValueEqual(bomb.damage(), Weapon.SPECIAL_DAMAGE, "the special's damage");
+		helper.assertValueEqual(bomb.lifetime(), Weapon.SPECIAL_LIFETIME, "the special's lifetime");
+		helper.assertValueEqual(bomb.bouncesLeft(), 0, "a bomb does not bounce");
+		helper.assertValueEqual(bomb.blobScale(), Weapon.SPECIAL_SCALE, "and it is a big blob");
+		helper.assertTrue(bomb.getDeltaMovement().y > 0, "lobbed above the crosshair, got " + bomb.getDeltaMovement());
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX - Weapon.SPECIAL_INK, "the special's ink");
+		helper.assertValueEqual(PaintWeapon.specialWait(player, now), (long) Weapon.SPECIAL_COOLDOWN, "and its own wait");
+		helper.assertTrue(!player.getCooldowns().isOnCooldown(gun),
+				"the special's wait is not the gun's cooldown: the trigger is still free");
+		balls.forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/** The special has a wait of its own and a price of its own, and refuses when either is not met. */
+	@GameTest
+	public void specialRespectsItsOwnCooldownAndInk(GameTestHelper helper) {
+		PaintWeapon shooter = PaintWeapon.of(Weapon.SHOOTER);
+		ServerLevel level = helper.getLevel();
+		long now = level.getServer().getTickCount();
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		helper.assertTrue(shooter.special(level, player, gun), "the first bomb goes");
+		helper.assertValueEqual(PaintWeapon.specialWait(player, now), (long) Weapon.SPECIAL_COOLDOWN, "the wait starts");
+		helper.assertTrue(!shooter.special(level, player, gun), "a second bomb inside the wait is refused");
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX - Weapon.SPECIAL_INK, "and costs nothing extra");
+		helper.assertValueEqual(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).size(), 1, "still one bomb");
+		helper.assertValueEqual(PaintWeapon.specialWait(player, now + Weapon.SPECIAL_COOLDOWN), 0L, "ready again after the wait");
+		// A tank that cannot cover the bomb is refused too, and starts the refill the way a shot does.
+		Player poor = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(poor.getScoreboardName(), team(helper, PaintColor.DATA));
+		ItemStack low = poor.getItemInHand(InteractionHand.MAIN_HAND);
+		Ink.set(low, Weapon.SPECIAL_INK - 1);
+		helper.assertTrue(!shooter.special(level, poor, low), "no bomb on a tank that cannot cover it");
+		helper.assertTrue(poor.getCooldowns().isOnCooldown(low), "the refill holds the gun instead");
+		helper.assertValueEqual(PaintWeapon.specialWait(poor, now), 0L, "and the special is still ready");
+		helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0).forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/**
+	 * A left click with a paint weapon in hand never breaks a block or hits an entity: both Fabric
+	 * attack callbacks refuse the vanilla action, so the arena survives the special being thrown at it.
+	 * A player holding something else is left alone.
+	 */
+	@GameTest
+	public void attackDoesNotBreakBlocks(GameTestHelper helper) {
+		helper.setBlock(new BlockPos(2, 2, 2), Blocks.STONE);
+		Player armed = gunner(helper); // on no team, so the click itself throws nothing
+		BlockPos stone = helper.absolutePos(new BlockPos(2, 2, 2));
+		InteractionResult onBlock = AttackBlockCallback.EVENT.invoker()
+				.interact(armed, helper.getLevel(), InteractionHand.MAIN_HAND, stone, Direction.UP);
+		helper.assertTrue(onBlock == InteractionResult.FAIL, "a paint weapon does not break blocks, got " + onBlock);
+		Player target = mockPlayer(helper, GameType.SURVIVAL);
+		InteractionResult onEntity = AttackEntityCallback.EVENT.invoker()
+				.interact(armed, helper.getLevel(), InteractionHand.MAIN_HAND, target, null);
+		helper.assertTrue(onEntity == InteractionResult.FAIL, "and does not melee, got " + onEntity);
+		Player bare = mockPlayer(helper, GameType.SURVIVAL);
+		InteractionResult barehanded = AttackBlockCallback.EVENT.invoker()
+				.interact(bare, helper.getLevel(), InteractionHand.MAIN_HAND, stone, Direction.UP);
+		helper.assertTrue(barehanded == InteractionResult.PASS, "an empty hand is vanilla's business, got " + barehanded);
+		// The third path a left click arrives on — the swing at thin air — is a mixin on handlePunch, and
+		// no game test can send a packet. Loading its target class is what a game test can do: the mixin
+		// transformer runs over the class here, so an injector that no longer resolves fails in this test
+		// rather than the first time somebody left-clicks on a real server.
+		helper.assertValueEqual(ServerGamePacketListenerImpl.class.getSimpleName(), "ServerGamePacketListenerImpl",
+				"the punch mixin's target class loads, injector and all");
+		helper.succeed();
+	}
+
+
 
 	/** Spec §2: every server paint state has its own client state, and none of them shows water or nothing. */
 	@GameTest
