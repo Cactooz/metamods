@@ -20,6 +20,7 @@ import net.minecraft.ChatFormatting;
 import net.minecraft.core.Rotations;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.network.protocol.game.ClientboundSetHeldSlotPacket;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
@@ -259,6 +260,12 @@ public final class StashSession {
 			if (refusal != null) {
 				end(player, refusal + "; the session is over");
 				continue;
+			}
+			// The hotbar is the session's: only the patch (9) and the shears (8) can be selected.
+			int selected = player.getInventory().getSelectedSlot();
+			if (selected != PATCH_SLOT && selected != SHEARS_SLOT) {
+				player.getInventory().setSelectedSlot(PATCH_SLOT);
+				player.connection.send(new ClientboundSetHeldSlotPacket(PATCH_SLOT));
 			}
 			// The fakes stay where they were put: cleared off the cursor by the click mixin, they come back here.
 			ItemStack inSlot = player.getInventory().getItem(PATCH_SLOT);

@@ -24,16 +24,35 @@ import java.util.List;
  * @param unpickToStash	   an unpicked patch goes to the stash (true) rather than into the hand as an item
  * @param withdraw			whether the stash lets a player take a patch out as an item here (a survival
  *							server; never on a minigame server)
- * @param anyStand			whether patches may be sewn and unpicked on any armour stand wearing an ovve,
- *							as before the stash; off: only on the private stand a stash session spawns
+ * @param stashClick		  what a left-click on a patch in the stash does: {@code withdraw} (the patch into the
+ *							hand as an item, to sew on any stand or trade; the vanilla way) or {@code session}
+ *							(a private posed stand with the patch pinned in the hotbar). Right-click does the other
+ * @param anyStand			whether patches may be sewn and unpicked on any armour stand wearing an ovve
+ *							(default true); off: only on the private stand a stash session spawns
  * @param sessionReach		how far (blocks) a player may walk from their session stand before it ends
  * @param sessionSeconds	  how long a session lasts without a sew or unpick before it ends
  * @param explainInChat	   send the "what the stash is" lines when a patch is earned
  */
 public record StashConfig(
 		boolean minigameServer, List<GameType> sewGameModes, String ingameObjective, Bank bankOnPickup, boolean bankInCreative,
-		boolean unpickToStash, boolean withdraw, boolean anyStand, double sessionReach, int sessionSeconds, boolean explainInChat
+		boolean unpickToStash, boolean withdraw, StashClick stashClick, boolean anyStand, double sessionReach, int sessionSeconds, boolean explainInChat
 ) {
+	public enum StashClick implements net.minecraft.util.StringRepresentable {
+		WITHDRAW("withdraw"), SESSION("session");
+
+		public static final Codec<StashClick> CODEC = net.minecraft.util.StringRepresentable.fromEnum(StashClick::values);
+		private final String name;
+
+		StashClick(String name) {
+			this.name = name;
+		}
+
+		@Override
+		public String getSerializedName() {
+			return name;
+		}
+	}
+
 	public enum Bank implements net.minecraft.util.StringRepresentable {
 		MINIGAME("minigame"), ALWAYS("always"), NEVER("never");
 
@@ -72,7 +91,7 @@ public record StashConfig(
 			GameType::getName);
 
 	public static final StashConfig DEFAULT = new StashConfig(false, List.of(GameType.SURVIVAL, GameType.CREATIVE), "ingame",
-			Bank.MINIGAME, false, false, true, false, 8.0, 300, true);
+			Bank.MINIGAME, false, false, true, StashClick.WITHDRAW, true, 8.0, 300, true);
 
 	public static final MapCodec<StashConfig> CODEC = RecordCodecBuilder.mapCodec(instance -> instance.group(
 			Codec.BOOL.optionalFieldOf("minigame_server", DEFAULT.minigameServer).forGetter(StashConfig::minigameServer),
@@ -82,6 +101,7 @@ public record StashConfig(
 			Codec.BOOL.optionalFieldOf("bank_in_creative", DEFAULT.bankInCreative).forGetter(StashConfig::bankInCreative),
 			Codec.BOOL.optionalFieldOf("unpick_to_stash", DEFAULT.unpickToStash).forGetter(StashConfig::unpickToStash),
 			Codec.BOOL.optionalFieldOf("withdraw", DEFAULT.withdraw).forGetter(StashConfig::withdraw),
+			StashClick.CODEC.optionalFieldOf("stash_click", DEFAULT.stashClick).forGetter(StashConfig::stashClick),
 			Codec.BOOL.optionalFieldOf("any_stand", DEFAULT.anyStand).forGetter(StashConfig::anyStand),
 			Codec.doubleRange(1, 64).optionalFieldOf("session_reach", DEFAULT.sessionReach).forGetter(StashConfig::sessionReach),
 			Codec.intRange(10, 3600).optionalFieldOf("session_seconds", DEFAULT.sessionSeconds).forGetter(StashConfig::sessionSeconds),

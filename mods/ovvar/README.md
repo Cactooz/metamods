@@ -90,14 +90,16 @@ stands`, showcase) keep their patches on the item as before.
 
 `/ovvar stash` is a chest menu of the patches you own (`StashGui`). On a survival server:
 
-- **left-click a patch** to sew it: a private armour stand named after you appears two blocks
-  ahead in a walking pose wearing your ovve; hotbar slot 9 gets the patch (as many as the stash
-  holds) and slot 8 a pair of shears, both fake and pinned there (`ovvar:session`: no dropping, no
-  moving). Aim and right-click to sew straight from the stash, shears to unpick back into it. Walk
+- **left-click a patch** to take one out as an ordinary item: sew it on any armour stand wearing
+  your ovve, the way it always worked, or trade it. The chest button puts every patch item you
+  carry back in;
+- **right-click a patch** for a private sewing session instead (`stash_click` swaps the two):
+  an armour stand named after you appears two blocks ahead in a walking pose wearing your ovve;
+  hotbar slot 9 gets the patch (as many as the stash holds) and slot 8 a pair of shears, both fake
+  and pinned there (`ovvar:session`: no dropping, no moving, the hotbar selection is held to those
+  two). Aim and right-click to sew straight from the stash, shears to unpick back into it. Walk
   away, idle, die, or `/ovvar stash done` and the stand goes and your two slots come back
-  (`StashSession`). Nobody else can touch your stand;
-- **right-click a patch** to take one out as an ordinary item, to trade or to sew on any stand
-  (config `any_stand`); the chest button puts every patch item you carry back in.
+  (`StashSession`). Nobody else can touch your stand.
 
 On a **minigame server** (`stash.minigame_server`) the menu is view-only, no stand takes a patch,
 and any patch item that lands in an inventory is banked into the stash at once, so nothing is lost
@@ -129,7 +131,8 @@ plays the totem-of-undying flourish with the patch's art and explains the stash 
     bank_in_creative         bank creative players' patch items too (default false)
     unpick_to_stash          unpicking on an ordinary stand sends the patch to the stash instead of the hand (default false)
     withdraw                 right-click in the stash takes a patch out as an item (default true; never on a minigame server)
-    any_stand                sew and unpick on any armour stand wearing an owned ovve, not only a session stand (default false)
+    stash_click              withdraw (default: left-click takes the patch out as an item, right-click opens a session) | session (the reverse)
+    any_stand                sew and unpick on any armour stand wearing an owned ovve, not only a session stand (default true)
     session_reach            blocks a player may walk from their session stand (default 8)
     session_seconds          idle time before a session ends (default 300)
     explain_in_chat          the stash explanation when a patch is earned (default true)

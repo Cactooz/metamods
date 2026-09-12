@@ -63,6 +63,7 @@ public final class StashGui extends SimpleGui {
 		Wardrobe wardrobe = Wardrobes.current(player.getUUID());
 		String refusal = OwnedSewing.editingRefusal(player);
 		boolean canSew = refusal == null, canTake = refusal == null && config().canWithdraw();
+		boolean leftTakes = config().stashClick() == StashConfig.StashClick.WITHDRAW;
 
 		int slot = 0;
 		for (Patches.Patch patch : wardrobe.stashed()) {
@@ -72,18 +73,21 @@ public final class StashGui extends SimpleGui {
 					.setName(Component.literal(patch.name()).withStyle(ChatFormatting.WHITE))
 					.addLoreLine(Component.literal(count + " in the stash").withStyle(ChatFormatting.GRAY))
 					.addLoreLine(Component.literal(patch.seat() ? "Goes across the seat" : "Goes anywhere on an ovve").withStyle(ChatFormatting.DARK_GRAY));
-			if (canSew) element.addLoreLine(Component.literal("Left-click: sew it on your ovve").withStyle(ChatFormatting.YELLOW));
-			if (canTake) element.addLoreLine(Component.literal("Right-click: take one out").withStyle(ChatFormatting.YELLOW));
+			String take = "take one out (sew it on a stand, or trade it)", sew = "sew it on your ovve here";
+			if (canTake) element.addLoreLine(Component.literal((leftTakes ? "Left" : "Right") + "-click: " + take).withStyle(ChatFormatting.YELLOW));
+			if (canSew) element.addLoreLine(Component.literal((leftTakes ? "Right" : "Left") + "-click: " + sew).withStyle(ChatFormatting.YELLOW));
 			if (!canSew) element.addLoreLine(Component.literal(refusal).withStyle(ChatFormatting.RED));
 			element.setCallback((index, type, action, gui) -> {
-				if (type == ClickType.MOUSE_LEFT && canSew) {
-					close();
-					StashSession.start(player, patch, why -> player.sendSystemMessage(Component.literal(why).withStyle(ChatFormatting.RED)));
-				} else if (type == ClickType.MOUSE_RIGHT && canTake) {
+				boolean left = type == ClickType.MOUSE_LEFT, right = type == ClickType.MOUSE_RIGHT;
+				boolean wantsTake = leftTakes ? left : right, wantsSew = leftTakes ? right : left;
+				if (wantsTake && canTake) {
 					Stash.withdraw(player, patch, reply -> {
 						player.sendOverlayMessage(Component.literal(reply));
 						if (isOpen()) build();
 					});
+				} else if (wantsSew && canSew) {
+					close();
+					StashSession.start(player, patch, why -> player.sendSystemMessage(Component.literal(why).withStyle(ChatFormatting.RED)));
 				}
 			});
 			setSlot(slot++, element.build());
@@ -119,8 +123,9 @@ public final class StashGui extends SimpleGui {
 		if (config().minigameServer()) {
 			book.addLoreLine(Component.literal("Minigame server: look, but sew on a survival server").withStyle(ChatFormatting.RED));
 		} else {
-			book.addLoreLine(Component.literal("Left-click a patch to sew it on your ovve").withStyle(ChatFormatting.GRAY));
-			if (config().canWithdraw()) book.addLoreLine(Component.literal("Right-click to take it out as an item (trade it!)").withStyle(ChatFormatting.GRAY));
+			boolean leftTakes = config().stashClick() == StashConfig.StashClick.WITHDRAW;
+			if (config().canWithdraw()) book.addLoreLine(Component.literal((leftTakes ? "Left" : "Right") + "-click a patch to take it out as an item (trade it!)").withStyle(ChatFormatting.GRAY));
+			book.addLoreLine(Component.literal((leftTakes ? "Right" : "Left") + "-click to sew it on your ovve on a private stand").withStyle(ChatFormatting.GRAY));
 		}
 		book.addLoreLine(Component.literal("The stash and your ovvar follow you to every server").withStyle(ChatFormatting.DARK_GRAY));
 		for (Map.Entry<Chapter, SpotPlacements> entry : wardrobe.designs().entrySet()) {

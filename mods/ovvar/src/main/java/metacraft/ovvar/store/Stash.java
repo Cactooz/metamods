@@ -82,8 +82,9 @@ public final class Stash {
 		if (config().minigameServer()) {
 			player.sendSystemMessage(Component.literal("Sew it on your ovve on a survival server.").withStyle(ChatFormatting.GRAY));
 		} else {
-			player.sendSystemMessage(Component.literal("Open the stash and click the patch to sew it on your ovve"
-					+ (config().canWithdraw() ? ", or right-click to take it out as an item." : ".")).withStyle(ChatFormatting.GRAY));
+			player.sendSystemMessage(Component.literal(config().canWithdraw()
+					? "Open the stash and click the patch to take it out, then sew it on an armour stand wearing your ovve, or trade it."
+					: "Open the stash and click the patch to sew it on your ovve.").withStyle(ChatFormatting.GRAY));
 		}
 	}
 
