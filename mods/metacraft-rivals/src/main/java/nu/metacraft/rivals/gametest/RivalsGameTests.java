@@ -64,12 +64,14 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import nu.metacraft.rivals.pack.RivalsPack;
 import nu.metacraft.rivals.gun.Ink;
 import nu.metacraft.rivals.gun.InkHud;
+import nu.metacraft.rivals.paint.PaintStates;
 
 /**
  * Server-side game tests (Fabric GameTest API). Run headless with
@@ -1236,6 +1238,29 @@ public final class RivalsGameTests {
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - 2);
 		helper.assertTrue(!fired && Ink.get(charger) == Ink.MAX, "a tap does nothing and costs nothing");
+		helper.succeed();
+	}
+
+	/** Spec §2: every server paint state has its own client state, and none of them shows water or nothing. */
+	@GameTest
+	public void paintStatesAreUniqueAndSafe(GameTestHelper helper) {
+		List<BlockState> all = PaintStates.all();
+		helper.assertValueEqual(all.size(), PaintColor.values().length * (PaintStates.CONNECTED_PER_COLOR + PaintStates.SPLAT_PER_COLOR), "client states in use");
+		helper.assertValueEqual(new HashSet<>(all).size(), all.size(), "client states are distinct");
+		for (BlockState state : all) {
+			helper.assertTrue(PaintStates.DONORS.contains(state.getBlock()), "a donor block: " + state);
+			if (state.hasProperty(BlockStateProperties.WATERLOGGED)) {
+				helper.assertFalse(state.getValue(BlockStateProperties.WATERLOGGED), "never waterlogged: " + state);
+			}
+			if (state.getBlock() instanceof MultifaceBlock) {
+				boolean anyFace = false;
+				for (Direction d : Direction.values()) anyFace |= state.getValue(MultifaceBlock.getFaceProperty(d));
+				helper.assertTrue(anyFace, "a multiface donor state with no face renders nothing: " + state);
+			}
+		}
+		// The same request always gives the same state, and popcount-1 splat masks fold into connected.
+		helper.assertValueEqual(PaintStates.connected(PaintColor.DATA, Direction.UP, 5), PaintStates.connected(PaintColor.DATA, Direction.UP, 5), "deterministic");
+		helper.assertValueEqual(PaintStates.splat(PaintColor.IT, 1 << Direction.NORTH.ordinal()), PaintStates.connected(PaintColor.IT, Direction.NORTH, 0), "single-face mask is a connected state");
 		helper.succeed();
 	}
 }
