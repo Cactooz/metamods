@@ -110,6 +110,43 @@ public final class Painter {
 		return true;
 	}
 
+	/** How often the charger's trail drops dust, and how far under it looks for a floor to paint. */
+	public static final double LINE_STEP = 0.5;
+	public static final double LINE_DROP = 6.0;
+
+	/**
+	 * The charger's trail: dust along the segment, and under every whole block position it passes
+	 * through a look straight down for up to {@link #LINE_DROP} blocks, painting the face it lands on.
+	 * That is what makes a charger shot read as a line drawn on the floor rather than as a single splat
+	 * at the far end. Returns how many cells changed.
+	 */
+	public static int line(ServerLevel level, Vec3 from, Vec3 to, PaintColor color, RandomSource random,
+			@Nullable Entity source) {
+		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.4f);
+		double length = from.distanceTo(to);
+		int steps = (int) Math.ceil(length / LINE_STEP);
+		int changed = 0;
+		BlockPos last = null;
+		for (int i = 0; i <= steps; i++) {
+			Vec3 at = length <= 0 ? from : from.lerp(to, Math.min(1.0, i * LINE_STEP / length));
+			level.sendParticles(dust, at.x, at.y, at.z, 2, 0.02, 0.02, 0.02, 0.0);
+			BlockPos here = BlockPos.containing(at);
+			if (here.equals(last)) continue;
+			last = here;
+			BlockHitResult down = level.clip(clipContext(at, at.subtract(0, LINE_DROP, 0), source));
+			if (down.getType() != HitResult.Type.BLOCK) continue;
+			if (paintFace(level, down.getBlockPos(), down.getDirection(), color)) changed++;
+		}
+		return changed;
+	}
+
+	/** A collider-only clip, from {@code source}'s point of view when there is one. */
+	private static ClipContext clipContext(Vec3 from, Vec3 to, @Nullable Entity source) {
+		return source != null
+				? new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, source)
+				: new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, CollisionContext.empty());
+	}
+
 	/** Ray length from the impact point, in blocks. */
 	public static final double RAY_LENGTH = 1.5;
 	/** The six axis directions and the eight body diagonals, unit length. */
@@ -152,10 +189,7 @@ public final class Painter {
 		for (Vec3 ray : RAY_DIRECTIONS) {
 			if (ray.dot(normal) < 0) continue;
 			Vec3 to = from.add(ray.scale(RAY_LENGTH));
-			ClipContext context = source != null
-					? new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, source)
-					: new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, CollisionContext.empty());
-			BlockHitResult hit = level.clip(context);
+			BlockHitResult hit = level.clip(clipContext(from, to, source));
 			if (hit.getType() != HitResult.Type.BLOCK) continue;
 			if (paintFace(level, hit.getBlockPos(), hit.getDirection(), color)) changed++;
 			Vec3 at = hit.getLocation();

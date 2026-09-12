@@ -594,6 +594,14 @@ public final class RivalsGameTests {
 		helper.assertTrue(empty == InteractionResult.FAIL && Ink.isRefilling(gun, now), "empty gun starts refilling");
 		Ink.finishIfDue(gun, now + Ink.REFILL_TICKS);
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "refilled after the delay");
+		// A heavy weapon needs its whole shot in the tank: one ink refuses and starts a refill instead.
+		ItemStack slosher = new ItemStack(PaintWeapon.of(Weapon.SLOSHER));
+		player.setItemInHand(InteractionHand.MAIN_HAND, slosher);
+		Ink.set(slosher, 1);
+		long low = helper.getLevel().getServer().getTickCount();
+		InteractionResult tooLow = PaintWeapon.of(Weapon.SLOSHER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertTrue(tooLow == InteractionResult.FAIL && Ink.isRefilling(slosher, low), "one ink does not buy a slosh");
+		player.setItemInHand(InteractionHand.MAIN_HAND, gun);
 		Ink.set(gun, 10);
 		Ink.add(gun, 1);
 		helper.assertValueEqual(Ink.get(gun), 11, "top-up adds");
@@ -840,6 +848,7 @@ public final class RivalsGameTests {
 			helper.assertValueEqual(ball.splatRadius(), 2, "5x5 splat");
 			helper.assertValueEqual(ball.bouncesLeft(), 0, "no bounce");
 			Vec3 v = ball.getDeltaMovement();
+			helper.assertTrue(v.y > 0, "the slosh is lobbed, not thrown flat: " + v.y);
 			yaws.add(Math.atan2(-v.x, v.z));
 		}
 		for (int i = 0; i < yaws.size(); i++) {
@@ -866,6 +875,43 @@ public final class RivalsGameTests {
 		}
 		helper.assertTrue(Weapon.byId("nonesuch").isEmpty(), "an unknown id resolves to nothing");
 		player.getInventory().clearContent();
+		helper.succeed();
+	}
+
+	/** Releasing a charged charger paints the floor under the scanned line and splats where it ends. */
+	@GameTest
+	public void chargerPaintsALineUnderTheScan(GameTestHelper helper) {
+		stoneFloor(helper, 7); // floor at y=1, x/z 0..6
+		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(6, y, 3), Blocks.STONE); // end wall
+		Player player = gunner(helper);
+		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
+		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.CYAN));
+		Vec3 at = helper.absoluteVec(new Vec3(0.5, 2.0, 3.5));
+		player.setPos(at.x, at.y, at.z);
+		player.setYRot(-90f); // look +X
+		player.setXRot(0f);
+		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, 72000 - PaintWeapon.CHARGE_FULL_TICKS);
+		helper.assertTrue(fired, "full charge fires");
+		int painted = 0;
+		for (int x = 1; x <= 5; x++) {
+			if (helper.getBlockState(new BlockPos(x, 2, 3)).is(PaintBlocks.of(PaintColor.CYAN))) painted++;
+		}
+		helper.assertTrue(painted >= 3, "floor painted along the line, got " + painted);
+		helper.assertTrue(helper.getBlockState(new BlockPos(5, 2, 3)).getValue(MultifaceBlock.getFaceProperty(Direction.EAST)), "end wall splatted");
+		helper.assertValueEqual(Ink.get(charger), Ink.MAX - 12, "full charge costs 12");
+		helper.succeed();
+	}
+
+	/** A tap is not a charge: nothing fires and no ink is spent. */
+	@GameTest
+	public void chargerIgnoresShortRelease(GameTestHelper helper) {
+		Player player = gunner(helper);
+		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
+		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.CYAN));
+		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, 72000 - 2);
+		helper.assertTrue(!fired && Ink.get(charger) == Ink.MAX, "a tap does nothing and costs nothing");
 		helper.succeed();
 	}
 }

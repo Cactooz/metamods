@@ -27,12 +27,16 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.PlayerTick;
 import nu.metacraft.rivals.Rivals;
+import nu.metacraft.rivals.paint.Painter;
 import org.jspecify.annotations.Nullable;
 
 import java.util.EnumMap;
@@ -68,6 +72,16 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	public static final int SLOSHER_SPLAT_RADIUS = 2;
 	/** The charger is held to charge; vanilla's cap for "as long as you like". */
 	public static final int CHARGE_MAX_TICKS = 72000;
+	/** A full charge, in ticks held; holding longer adds nothing. */
+	public static final int CHARGE_FULL_TICKS = 20;
+	/** Below this the release is a tap, not a shot: no line, no ink, no cooldown. */
+	public static final int MIN_CHARGE_TICKS = 5;
+	/** Ink at no charge, and what a full charge adds on top. */
+	public static final int CHARGE_BASE_COST = 4;
+	public static final int CHARGE_EXTRA_COST = 8;
+	/** Hitscan reach in blocks, at no charge and what a full charge adds. */
+	public static final double CHARGE_BASE_RANGE = 10.0;
+	public static final double CHARGE_EXTRA_RANGE = 30.0;
 
 	private final Weapon weapon;
 
@@ -110,25 +124,12 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	@Override
 	public InteractionResult use(Level level, Player player, InteractionHand hand) {
 		if (!(level instanceof ServerLevel serverLevel)) return InteractionResult.PASS;
-		Optional<PaintColor> color = PaintColor.byTeam(player.getTeam());
-		if (color.isEmpty()) {
-			actionBar(player, Component.literal("Join a team first: /team join " + PaintColor.values()[0].id)
-					.withStyle(ChatFormatting.RED));
-			return InteractionResult.FAIL;
-		}
 		ItemStack gun = player.getItemInHand(hand);
-		long now = serverLevel.getServer().getTickCount();
-		Ink.finishIfDue(gun, now);
-		if (Ink.isRefilling(gun, now)) return InteractionResult.FAIL;
-		if (isSquid(player)) {
-			actionBar(player, Component.literal("Can't shoot in squid form").withStyle(ChatFormatting.RED));
-			return InteractionResult.FAIL;
-		}
-		if (Ink.get(gun) <= 0) {
-			Ink.startRefill(gun, now);
-			serverLevel.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BOTTLE_FILL, SoundSource.PLAYERS, 0.8f, 0.9f);
-			player.getCooldowns().addCooldown(gun, Ink.REFILL_TICKS);
-			if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
+		if (!ready(serverLevel, player, gun)) return InteractionResult.FAIL; // team, refill, squid
+		PaintColor color = PaintColor.byTeam(player.getTeam()).orElseThrow(); // ready() checked it
+		// A tank that cannot cover the shot is as good as empty: one ink must not buy a fifteen-ink slosh.
+		if (Ink.get(gun) < weapon.inkPerShot) {
+			outOfInk(serverLevel, player, gun);
 			return InteractionResult.FAIL;
 		}
 		// The charger spends nothing on the press: the shot, its ink and its cooldown all wait for the
@@ -137,8 +138,8 @@ public final class PaintWeapon extends Item implements PolymerItem {
 			player.startUsingItem(hand);
 			return InteractionResult.CONSUME;
 		}
-		fire(serverLevel, player, color.get());
-		feel(serverLevel, player, color.get());
+		fire(serverLevel, player, color);
+		feel(serverLevel, player, color);
 		Ink.add(gun, -weapon.inkPerShot);
 		player.getCooldowns().addCooldown(gun, weapon.cooldownTicks);
 		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
@@ -189,9 +190,72 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		return weapon == Weapon.CHARGER ? ItemUseAnimation.SPYGLASS : ItemUseAnimation.NONE;
 	}
 
+	/**
+	 * The charger's shot, fired when the hold ends. How long the button was down is the whole weapon:
+	 * under {@link #MIN_CHARGE_TICKS} it was a tap and nothing happens (no ink, no cooldown — a
+	 * mis-click must not cost anything), and from there to {@link #CHARGE_FULL_TICKS} the charge scales
+	 * range, ink and kick together. The shot itself is hitscan: one clip along the view, a line of paint
+	 * on the floor under it, and a splash where it stops.
+	 */
 	@Override
 	public boolean releaseUsing(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {
-		return false; // the charged line lands in the next task
+		// Only the server has the paint, the tank and the scoreboard; the client never fires this.
+		if (weapon != Weapon.CHARGER || !(level instanceof ServerLevel serverLevel) || !(entity instanceof Player player)) return false;
+		int held = getUseDuration(stack, entity) - timeLeft;
+		if (held < MIN_CHARGE_TICKS) return false;
+		float charge = Math.min(1.0f, held / (float) CHARGE_FULL_TICKS);
+		if (!ready(serverLevel, player, stack)) return false;
+		PaintColor color = PaintColor.byTeam(player.getTeam()).orElseThrow();
+		int cost = Math.round(CHARGE_BASE_COST + CHARGE_EXTRA_COST * charge);
+		if (Ink.get(stack) < cost) {
+			outOfInk(serverLevel, player, stack);
+			return false;
+		}
+		double range = CHARGE_BASE_RANGE + CHARGE_EXTRA_RANGE * charge;
+		Vec3 from = entity.getEyePosition();
+		Vec3 to = from.add(entity.getLookAngle().scale(range));
+		BlockHitResult hit = serverLevel.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity));
+		boolean struck = hit.getType() == HitResult.Type.BLOCK;
+		Vec3 end = struck ? hit.getLocation() : to;
+		Painter.line(serverLevel, from, end, color, serverLevel.getRandom(), entity);
+		if (struck) {
+			Painter.splash(serverLevel, end, hit.getBlockPos(), hit.getDirection(), color, serverLevel.getRandom(), entity);
+		}
+		Ink.add(stack, -cost);
+		player.getCooldowns().addCooldown(stack, weapon.cooldownTicks);
+		// A half charge should not buck like a full one, so the kick rides the charge.
+		Recoil.kick(player, weapon.kickPitch * charge);
+		muzzle(serverLevel, player, color);
+		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
+		return true;
+	}
+
+	/**
+	 * The checks every shot shares: a team to paint for, a tank that is not mid-refill, and hands rather
+	 * than fins. Says why when it refuses.
+	 */
+	private boolean ready(ServerLevel level, Player player, ItemStack gun) {
+		if (PaintColor.byTeam(player.getTeam()).isEmpty()) {
+			actionBar(player, Component.literal("Join a team first: /team join " + PaintColor.values()[0].id)
+					.withStyle(ChatFormatting.RED));
+			return false;
+		}
+		long now = level.getServer().getTickCount();
+		Ink.finishIfDue(gun, now);
+		if (Ink.isRefilling(gun, now)) return false;
+		if (isSquid(player)) {
+			actionBar(player, Component.literal("Can't shoot in squid form").withStyle(ChatFormatting.RED));
+			return false;
+		}
+		return true;
+	}
+
+	/** An empty tank: start the refill, and hold the gun on cooldown until it is done. */
+	private static void outOfInk(ServerLevel level, Player player, ItemStack gun) {
+		Ink.startRefill(gun, level.getServer().getTickCount());
+		level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.BOTTLE_FILL, SoundSource.PLAYERS, 0.8f, 0.9f);
+		player.getCooldowns().addCooldown(gun, Ink.REFILL_TICKS);
+		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 	}
 
 	static void actionBar(Player player, Component text) {
@@ -206,6 +270,11 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	/** The chunk of a shot: camera kick, a nudge back, a muzzle burst in the team colour, layered sounds. */
 	void feel(ServerLevel level, Player shooter, PaintColor color) {
 		Recoil.kick(shooter, weapon.kickPitch);
+		muzzle(level, shooter, color);
+	}
+
+	/** Everything about a shot but the camera kick: the nudge back, the burst of colour, the layered sounds. */
+	void muzzle(ServerLevel level, Player shooter, PaintColor color) {
 		Vec3 look = shooter.getLookAngle();
 		shooter.push(-look.x * 0.06, 0, -look.z * 0.06);
 		shooter.hurtMarked = true;
