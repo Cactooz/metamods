@@ -25,7 +25,7 @@ Rivals server wants.
 
   | Weapon | Ink/shot | Cooldown | Shot |
   |---|---|---|---|
-  | shooter | 1 | 4 ticks | one ball, one bounce, 3×3 splat |
+  | shooter | 1 | 4 ticks | one ball, two bounces, 3×3 splat |
   | sprayer | 1/click | 4 ticks | 3 short-lived droplets in a cone, single-face splat + rays, no bounce |
   | charger | 4 + 8 × charge | 20 ticks | hold to charge (up to 20 ticks), release for a hitscan line, stopped by the first block or player in it |
   | slosher | 15 | 14 ticks | 4 balls in a fan, gravity-heavy lob, 5×5 splat, no bounce |
@@ -35,11 +35,16 @@ Rivals server wants.
   other three return `CONSUME`, which takes the click without animating the hand, since a
   four-tick swing loop on a rapid-fire weapon looks like a stutter rather than firing.
 - Every paint ball is a snowball entity hidden from clients, with a Polymer item display — a
-  rounded, dyed blob model, not the vanilla firework-star particle — riding along on an
-  attachment and squashing/stretching as it flies. The shooter's ball keeps one bounce: on a
-  block hit it splashes, reflects off the hit face at 45% of its speed, and keeps flying until
-  the second impact spends it; sprayer and slosher shots don't bounce. On impact (or the final
-  bounce) it splashes: the usual blob on the struck face (3×3 for the shooter and sprayer, 5×5
+  rounded, dyed blob model (a cube cut back to an octagon in all three planes by three 45° bands),
+  not the vanilla firework-star particle — riding along on an attachment. It squashes and
+  stretches as it flies: each tick the model's local up is turned onto the velocity and the blob
+  is drawn out along it by its speed, losing across what it gains in length, so the volume reads
+  constant. The shooter's ball keeps two bounces: on a block hit it splashes, reflects off the hit
+  face at 62% of its speed, pancakes flat against that face for two ticks before easing back into
+  its flying shape over three more, throws off two short-lived single-face droplets along the
+  reflection (droplets never throw droplets of their own) with a wet slime step, and keeps flying
+  until the impact after the last bounce spends it; sprayer and slosher shots don't bounce. On
+  impact (or the final bounce) it splashes: the usual blob on the struck face (3×3 for the shooter and sprayer, 5×5
   for the slosher), plus fourteen short rays from the impact point (six axis directions and eight
   diagonals) that paint whatever face they hit, so a floor shot next to a wall also paints the
   wall and fills in the corner. A coloured dust burst and a wet impact sound go with it; the burst
@@ -125,7 +130,7 @@ Rivals server wants.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (36 of ours, plus vanilla's always_pass: 37 in total)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (37 of ours, plus vanilla's always_pass: 38 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so

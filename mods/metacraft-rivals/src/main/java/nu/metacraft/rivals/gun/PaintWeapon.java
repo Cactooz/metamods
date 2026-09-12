@@ -138,7 +138,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	public void fire(ServerLevel level, Player player, PaintColor color) {
 		switch (weapon) {
 			case SHOOTER -> {
-				PaintBall ball = new PaintBall(level, player, color, 1, 0);
+				PaintBall ball = new PaintBall(level, player, color, Weapon.SHOOTER_BOUNCES, 0);
 				ball.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0f, weapon.velocity, weapon.inaccuracy);
 				level.addFreshEntity(ball);
 			}

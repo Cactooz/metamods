@@ -394,11 +394,12 @@ public final class RivalsGameTests {
 			helper.assertTrue(state.is(PaintBlocks.of(PaintColor.CYAN)),
 					Component.literal("the cell where the ball landed should be cyan paint, got " + state));
 			helper.assertTrue(state.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)), "paint sits on its down face");
-			// A default ball carries one bounce, so ten ticks on it may still be in the air on its way
-			// back down from the floor it just painted; what the hit must have spent is that bounce.
+			// A default ball carries the shooter's bounces, so ten ticks on it is still in the air on its
+			// way back up from the floor it just painted (along with the droplets that bounce threw off);
+			// what the hit must have spent is one of those bounces.
 			List<PaintBall> left = helper.getEntities(PaintBall.TYPE, cell, 4.0);
-			helper.assertTrue(left.stream().allMatch(other -> other.bouncesLeft() == 0),
-					"the ball is gone after the hit, or has spent its bounce");
+			helper.assertTrue(left.stream().allMatch(other -> other.isDroplet() || other.bouncesLeft() < Weapon.SHOOTER_BOUNCES),
+					"the ball is gone after the hit, or has spent a bounce");
 			// A bouncing ball outlives the test it was thrown in; left alone it would sail on and paint
 			// into whatever test structure sits next door.
 			left.forEach(Entity::discard);
@@ -809,28 +810,39 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	@GameTest(maxTicks = 60)
-	public void paintBallBouncesOnce(GameTestHelper helper) {
+	/**
+	 * The shooter's ball takes two bounces before an impact spends it: two reflections off the floor,
+	 * then the third hit ends it. Dropped straight down, so every reflection is a clean upward one.
+	 */
+	@GameTest(maxTicks = 100)
+	public void paintBallBouncesTwice(GameTestHelper helper) {
 		stoneFloor(helper, 5);
-		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.CYAN, 1, 0);
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.CYAN, Weapon.SHOOTER_BOUNCES, 0);
 		Vec3 at = helper.absoluteVec(new Vec3(2.5, 4, 2.5));
 		ball.setPos(at.x, at.y, at.z);
 		ball.setDeltaMovement(0, -0.8, 0);
 		helper.getLevel().addFreshEntity(ball);
-		// The impact tick is not known in advance, so sample every tick: the last downward reading before
-		// the bounce is the incoming speed, the first upward one is what the bounce gave back.
+		// The impact ticks are not known in advance, so sample every tick: a drop in bouncesLeft is a
+		// reflection, the last downward reading before the first is the incoming speed, and the first
+		// upward one after it is what that bounce gave back.
 		double[] falling = {0};
 		double[] reflected = {0};
-		for (int tick = 1; tick <= 5; tick++) {
+		int[] left = {Weapon.SHOOTER_BOUNCES};
+		int[] reflections = {0};
+		for (int tick = 1; tick <= 70; tick++) {
 			helper.runAfterDelay(tick, () -> {
 				double dy = ball.getDeltaMovement().y;
-				if (reflected[0] == 0 && dy < 0) falling[0] = dy;
-				if (reflected[0] == 0 && dy > 0) reflected[0] = dy;
+				if (ball.bouncesLeft() < left[0]) {
+					left[0] = ball.bouncesLeft();
+					reflections[0]++;
+				}
+				if (reflections[0] == 0 && dy < 0) falling[0] = dy;
+				if (reflections[0] == 1 && reflected[0] == 0 && dy > 0) reflected[0] = dy;
 			});
 		}
 		helper.runAfterDelay(6, () -> {
 			helper.assertTrue(!ball.isRemoved(), "still flying after the first impact");
-			helper.assertValueEqual(ball.bouncesLeft(), 0, "one bounce used");
+			helper.assertValueEqual(ball.bouncesLeft(), Weapon.SHOOTER_BOUNCES - 1, "one of the two bounces used");
 			helper.assertTrue(helper.getBlockState(new BlockPos(2, 2, 2)).is(PaintBlocks.of(PaintColor.CYAN)), "first impact painted");
 			// Neither reading is the instant of the bounce — the ball was still accelerating when the last
 			// downward one was taken, and drag and gravity had already run when the upward one was — so
@@ -840,8 +852,59 @@ public final class RivalsGameTests {
 			helper.assertTrue(Math.abs(kept - PaintBall.BOUNCE_RESTITUTION) < 0.10,
 					"the bounce keeps about " + PaintBall.BOUNCE_RESTITUTION + " of the incoming speed, kept " + kept);
 		});
-		helper.runAfterDelay(40, () -> {
-			helper.assertTrue(ball.isRemoved(), "gone after the second impact");
+		helper.runAfterDelay(75, () -> {
+			helper.assertValueEqual(reflections[0], Weapon.SHOOTER_BOUNCES, "both bounces reflected the ball");
+			helper.assertTrue(ball.isRemoved(), "gone after the impact that follows the last bounce");
+			// The droplets each bounce threw off outlive nothing, but a stray one mid-flight would sail
+			// into the next test structure.
+			helper.getEntities(PaintBall.TYPE, new BlockPos(2, 2, 2), 8.0).forEach(Entity::discard);
+			helper.succeed();
+		});
+	}
+
+	/** Every bounce throws off a couple of droplets, and those droplets throw off none of their own. */
+	@GameTest(maxTicks = 40)
+	public void bounceSpawnsDroplets(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		PaintBall ball = new PaintBall(helper.getLevel(), gunner(helper), PaintColor.MAGENTA, 1, 0);
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 4, 2.5));
+		ball.setPos(at.x, at.y, at.z);
+		ball.setDeltaMovement(0, -0.8, 0);
+		helper.getLevel().addFreshEntity(ball);
+		// Droplets live eight ticks and are thrown at an impact tick that is not known in advance, so
+		// look every tick and judge them on the first one they exist, while they still carry what the
+		// bounce gave them.
+		List<PaintBall> seen = new ArrayList<>();
+		List<Vec3> thrownAt = new ArrayList<>();
+		List<Vec3> thrownWith = new ArrayList<>();
+		for (int tick = 1; tick <= 10; tick++) {
+			helper.runAfterDelay(tick, () -> {
+				if (!seen.isEmpty()) return;
+				for (PaintBall drop : helper.getEntities(PaintBall.TYPE, new BlockPos(2, 2, 2), 8.0)) {
+					if (!drop.isDroplet()) continue;
+					// Read here, not at the end: a droplet is only briefly carrying what the bounce gave it.
+					seen.add(drop);
+					thrownAt.add(drop.position());
+					thrownWith.add(drop.getDeltaMovement());
+				}
+			});
+		}
+		helper.runAfterDelay(11, () -> {
+			helper.assertValueEqual(ball.bouncesLeft(), 0, "the ball has bounced");
+			helper.assertTrue(!ball.isDroplet(), "the ball itself is not one of its own droplets");
+			helper.assertValueEqual(seen.size(), 2, "the bounce threw off two droplets");
+			Vec3 impact = helper.absoluteVec(new Vec3(2.5, 2.125, 2.5));
+			for (int i = 0; i < seen.size(); i++) {
+				PaintBall drop = seen.get(i);
+				helper.assertValueEqual(drop.bouncesLeft(), 0, "a droplet does not bounce");
+				helper.assertValueEqual(drop.splatRadius(), 0, "a droplet paints a single face");
+				helper.assertTrue(thrownWith.get(i).y > 0,
+						"a droplet leaves along the reflection, upward off a floor, dy=" + thrownWith.get(i).y);
+				// Thrown from the bounce, not from the gun: the shooter stands at (4, 3, 4).
+				double away = thrownAt.get(i).distanceTo(impact);
+				helper.assertTrue(away < 1.5, "a droplet starts at the impact, " + away + " from it");
+			}
+			helper.getEntities(PaintBall.TYPE, new BlockPos(2, 2, 2), 8.0).forEach(Entity::discard);
 			helper.succeed();
 		});
 	}

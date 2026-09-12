@@ -34,6 +34,12 @@ public enum Weapon {
 	// that one weapon is one place to look, instead of half its numbers being in PaintWeapon; each set is
 	// read by exactly the arm of PaintWeapon.fire (or releaseUsing) that the weapon takes.
 
+	/**
+	 * Shooter: how many block hits reflect the ball instead of ending it. Two rather than one — a single
+	 * bounce reads as a ball that stuck to the second wall it met, two as a ball that is bouncing.
+	 */
+	public static final int SHOOTER_BOUNCES = 2;
+
 	/** Sprayer: how many droplets one click throws, and how long each lives before it splashes the floor. */
 	public static final int SPRAYER_DROPLETS = 3;
 	public static final int SPRAYER_LIFETIME = 12;
