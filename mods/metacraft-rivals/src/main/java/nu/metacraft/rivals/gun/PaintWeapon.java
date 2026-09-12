@@ -139,6 +139,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		switch (weapon) {
 			case SHOOTER -> {
 				PaintBall ball = new PaintBall(level, player, color, Weapon.SHOOTER_BOUNCES, 0);
+				ball.setDamage(weapon.damage);
 				ball.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0f, weapon.velocity, weapon.inaccuracy);
 				level.addFreshEntity(ball);
 			}
@@ -148,6 +149,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 				for (int i = 0; i < Weapon.SPRAYER_DROPLETS; i++) {
 					PaintBall drop = new PaintBall(level, player, color, 0, Weapon.SPRAYER_LIFETIME);
 					drop.setSplatRadius(0);
+					drop.setDamage(weapon.damage);
 					drop.shootFromRotation(player, player.getXRot(), player.getYRot(), 0.0f, weapon.velocity, weapon.inaccuracy);
 					level.addFreshEntity(drop);
 				}
@@ -157,6 +159,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 				for (float offset : Weapon.SLOSHER_FAN) {
 					PaintBall ball = new PaintBall(level, player, color, 0, 0);
 					ball.setSplatRadius(Weapon.SLOSHER_SPLAT_RADIUS);
+					ball.setDamage(weapon.damage);
 					ball.setGravity(Weapon.SLOSHER_GRAVITY);
 					ball.shootFromRotation(player, player.getXRot() + Weapon.SLOSHER_PITCH, player.getYRot() + offset,
 							0.0f, weapon.velocity, weapon.inaccuracy);
@@ -184,7 +187,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 * mis-click must not cost anything), and from there to {@link Weapon#CHARGE_FULL_TICKS} the charge scales
 	 * range, ink and kick together. The shot itself is hitscan: one clip along the view, a line of paint
 	 * on the floor under it, and a splash where it stops — under the feet of whoever was standing in the
-	 * way, if anyone was, and otherwise on the block face it ran into.
+	 * way, if anyone was, and otherwise on the block face it ran into. Whoever stopped it also takes
+	 * {@link Weapon#CHARGE_BASE_DAMAGE} plus {@link Weapon#CHARGE_EXTRA_DAMAGE} of the charge, unless
+	 * they are on the shooter's own team.
 	 */
 	@Override
 	public boolean releaseUsing(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {
@@ -227,6 +232,12 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		if (inTheWay != null) {
 			BlockPos below = inTheWay.getEntity().blockPosition().below();
 			painted += Painter.splash(serverLevel, end, below, Direction.UP, color, serverLevel.getRandom(), entity);
+			// The one weapon whose damage rides the charge: a full-charge line is the hardest hit in the
+			// game, a barely-held one is a poke. Attributed to the player, so a kill goes on their name.
+			if (PaintBall.hostile(color, inTheWay.getEntity())) {
+				float hurt = Weapon.CHARGE_BASE_DAMAGE + Weapon.CHARGE_EXTRA_DAMAGE * charge;
+				inTheWay.getEntity().hurtServer(serverLevel, serverLevel.damageSources().indirectMagic(player, player), hurt);
+			}
 		} else if (struck) {
 			painted += Painter.splash(serverLevel, end, hit.getBlockPos(), hit.getDirection(), color, serverLevel.getRandom(), entity);
 		}

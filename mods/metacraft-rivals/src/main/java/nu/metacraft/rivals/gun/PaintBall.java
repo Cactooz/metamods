@@ -18,6 +18,7 @@ import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.sounds.SoundEvents;
 import net.minecraft.sounds.SoundSource;
+import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EntityType;
 import net.minecraft.world.entity.EntityTypes;
 import net.minecraft.world.entity.LivingEntity;
@@ -41,6 +42,8 @@ import nu.metacraft.rivals.paint.Painter;
 import org.jspecify.annotations.Nullable;
 import org.joml.Quaternionf;
 import org.joml.Vector3f;
+
+import java.util.Optional;
 
 /**
  * The thrown blob. A snowball on the server (physics, hit detection) that no client ever sees:
@@ -98,6 +101,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private int bounces = 1;
 	private int lifetime = 0;
 	private int splatRadius = Painter.RADIUS;
+	private float damage = Weapon.SHOOTER.damage;
 	private double gravity = GRAVITY;
 	private int age = 0;
 	private boolean droplet = false;
@@ -150,6 +154,27 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 
 	public void setSplatRadius(int radius) {
 		this.splatRadius = radius;
+	}
+
+	/** Hearts this ball takes off someone from another team it hits square on. */
+	public float damage() {
+		return damage;
+	}
+
+	public void setDamage(float damage) {
+		this.damage = damage;
+	}
+
+	/**
+	 * Is {@code target} something this ball's colour is allowed to hurt? Only living things, and only
+	 * ones not on the ball's own team: a teammate takes the paint under their feet and nothing else. No
+	 * team at all — a mob, a player who never ran {@code /rivals setup} — counts as fair game, because
+	 * the alternative is a mob that the whole arena can hide behind.
+	 */
+	public static boolean hostile(PaintColor color, Entity target) {
+		if (!(target instanceof LivingEntity)) return false;
+		Optional<PaintColor> theirs = PaintColor.byTeam(target.getTeam());
+		return theirs.isEmpty() || theirs.get() != color;
 	}
 
 	/**
@@ -335,6 +360,7 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 			PaintBall drop = new PaintBall(level, shooter, color, 0, DROPLET_LIFETIME);
 			drop.setDroplet(true);
 			drop.setSplatRadius(0);
+			drop.setDamage(Weapon.DROPLET_DAMAGE);
 			drop.setPos(at.x, at.y, at.z);
 			Vec3 scatter = new Vec3(random.nextDouble() * 2 - 1, random.nextDouble() * 2 - 1, random.nextDouble() * 2 - 1);
 			if (scatter.lengthSqr() > 1.0e-6) scatter = scatter.normalize().scale(DROPLET_SCATTER);
@@ -351,12 +377,22 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		}
 	}
 
-	/** No damage (the snowball would hurt blazes); splash from where the ball is, over the ground under the target. */
+	/**
+	 * A direct hit. The paint goes on the ground under the target the same way it always has — that is
+	 * what makes a hit read as a hit — and on top of that the shot now hurts, but only someone from
+	 * another team. Vanilla's snowball damage is deliberately not used (it only ever hurt blazes); this
+	 * is the weapon's own number, attributed to the shooter so a kill goes on their name.
+	 *
+	 * <p>Squids are ordinary players here and take it like anyone else: squid form is cover, not
+	 * armour. Spectators and creative players are refused by vanilla inside {@code hurtServer}.
+	 */
 	@Override
-	protected void onHitEntity(EntityHitResult hit) {
-		if (level() instanceof ServerLevel serverLevel) {
-			BlockPos below = hit.getEntity().blockPosition().below();
-			Painter.splash(serverLevel, position(), below, Direction.UP, color, random, splatRadius, this);
+	public void onHitEntity(EntityHitResult hit) {
+		if (!(level() instanceof ServerLevel serverLevel)) return;
+		BlockPos below = hit.getEntity().blockPosition().below();
+		Painter.splash(serverLevel, position(), below, Direction.UP, color, random, splatRadius, this);
+		if (damage > 0 && hostile(color, hit.getEntity())) {
+			hit.getEntity().hurtServer(serverLevel, serverLevel.damageSources().thrown(this, getOwner()), damage);
 		}
 	}
 

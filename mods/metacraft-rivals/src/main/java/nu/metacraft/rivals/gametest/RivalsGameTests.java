@@ -45,6 +45,7 @@ import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.phys.AABB;
+import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
@@ -558,6 +559,56 @@ public final class RivalsGameTests {
 	}
 
 	/** A splash on the floor beside a wall paints the wall's face too (the rays), not only the floor. */
+	/**
+	 * A ball that lands on someone from the other team takes hearts off them, and still paints the floor
+	 * under their feet. {@code onHitEntity} is called directly: putting a ball in flight and waiting for
+	 * it to arrive is a different test's job.
+	 */
+	@GameTest
+	public void directHitHurtsTheOtherTeam(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		Player target = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(target.getScoreboardName(), team(helper, PaintColor.IT));
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 2.0, 2.5));
+		target.setPos(at.x, at.y, at.z);
+		target.setHealth(target.getMaxHealth());
+		target.invulnerableTime = 0;
+		float before = target.getHealth();
+		PaintBall ball = new PaintBall(helper.getLevel(), null, PaintColor.DATA, 0, 0);
+		ball.setPos(at.x, at.y + 1.0, at.z);
+		helper.assertValueEqual(ball.damage(), Weapon.SHOOTER.damage, "a ball carries the shooter's damage by default");
+		ball.onHitEntity(new EntityHitResult(target));
+		helper.assertValueEqual(target.getHealth(), before - Weapon.SHOOTER.damage, "the hit took the shooter's damage off");
+		helper.assertTrue(isPaint(helper.getLevel().getBlockState(helper.absolutePos(new BlockPos(2, 2, 2))), PaintColor.DATA),
+				"and the floor under them is still painted");
+		// No team at all is fair game: an arena full of untagged mobs must not be cover.
+		helper.getLevel().getScoreboard().removePlayerFromTeam(target.getScoreboardName());
+		helper.assertTrue(PaintBall.hostile(PaintColor.DATA, target), "someone on no team can still be shot");
+		helper.succeed();
+	}
+
+	/** The same ball against one of your own: paint under their feet, not a scratch on them. */
+	@GameTest
+	public void directHitSparesTheOwnTeam(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		Player target = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(target.getScoreboardName(), team(helper, PaintColor.DATA));
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 2.0, 2.5));
+		target.setPos(at.x, at.y, at.z);
+		target.setHealth(target.getMaxHealth());
+		target.invulnerableTime = 0;
+		float before = target.getHealth();
+		PaintBall ball = new PaintBall(helper.getLevel(), null, PaintColor.DATA, 0, 0);
+		ball.setPos(at.x, at.y + 1.0, at.z);
+		ball.onHitEntity(new EntityHitResult(target));
+		helper.assertValueEqual(target.getHealth(), before, "a teammate takes no damage");
+		helper.assertFalse(PaintBall.hostile(PaintColor.DATA, target), "and is not a target at all");
+		helper.assertTrue(PaintBall.hostile(PaintColor.IT, target), "though the other colour may shoot them");
+		helper.assertTrue(isPaint(helper.getLevel().getBlockState(helper.absolutePos(new BlockPos(2, 2, 2))), PaintColor.DATA),
+				"the paint lands on a teammate all the same");
+		helper.succeed();
+	}
+
 	@GameTest
 	public void splashPaintsAdjacentWall(GameTestHelper helper) {
 		stoneFloor(helper, 5);

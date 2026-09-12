@@ -66,6 +66,12 @@ dedicated Rivals server wants.
   Every squid tick sends the players tracking that squid — never the squid itself, which still wants
   to see its own gun — an equipment packet with empty hands and armour; the tick it stops being a
   squid sends the real one back.
+- Shots hurt. A direct hit on someone from another team takes hearts off them as well as painting the
+  ground under their feet: 3 from a shooter's ball, 1 per sprayer droplet (it throws three), 4 per
+  slosher ball (it throws four), ½ from a bounce droplet, and 4 + 6 × charge from the charger's line,
+  which makes a full charge the hardest hit in the game. Teammates take the paint and nothing else, no
+  team at all counts as fair game, and a squid is an ordinary player here — squid form is cover, not
+  armour. Kills are attributed to the shooter.
 - One colour per cell: a hit in another colour wipes the cell and starts it over as a single
   connected face in the new colour, even if the old cell held paint on more than one face.
 - Four weapons, one item class (`PaintWeapon`) parameterised by a `Weapon` enum, given with

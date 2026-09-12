@@ -12,13 +12,15 @@ import java.util.stream.Stream;
  *
  * <p>{@code velocity} and {@code inaccuracy} feed {@code shootFromRotation}; the charger fires a
  * hitscan line instead of a projectile, so both are 0 for it and its {@code inkPerShot} is only the
- * base cost, with the charge surcharge added at release.
+ * base cost, with the charge surcharge added at release. {@code damage} is the same story: a direct
+ * hit on someone from another team hurts, and the charger's share of that is on the charge rather
+ * than on a ball.
  */
 public enum Weapon {
-	SHOOTER("paint_gun", "Paint Gun", 1, 4, 1.8f, 2.0f, -2.5f),
-	SPRAYER("sprayer", "Paint Sprayer", 1, 4, 0.9f, 9.0f, -1.0f),
-	CHARGER("charger", "Paint Charger", 4, 20, 0.0f, 0.0f, -6.0f),
-	SLOSHER("slosher", "Paint Slosher", 15, 14, 1.1f, 0.0f, -3.0f);
+	SHOOTER("paint_gun", "Paint Gun", 1, 4, 1.8f, 2.0f, -2.5f, 3.0f),
+	SPRAYER("sprayer", "Paint Sprayer", 1, 4, 0.9f, 9.0f, -1.0f, 1.0f),
+	CHARGER("charger", "Paint Charger", 4, 20, 0.0f, 0.0f, -6.0f, 0.0f),
+	SLOSHER("slosher", "Paint Slosher", 15, 14, 1.1f, 0.0f, -3.0f, 4.0f);
 
 	/** Registry path and model path. Also accepted by {@code /rivals gun <weapon>}. */
 	public final String id;
@@ -29,6 +31,13 @@ public enum Weapon {
 	public final float inaccuracy;
 	/** Relative pitch nudge on the shot, in degrees; negative is up. */
 	public final float kickPitch;
+	/**
+	 * Hearts off a direct hit on someone from another team, per projectile. The sprayer throws three and
+	 * the slosher four, so a face full of either is worth rather more than the number here. The charger
+	 * is 0 because it fires no projectile: its damage rides the charge, {@link #CHARGE_BASE_DAMAGE} plus
+	 * {@link #CHARGE_EXTRA_DAMAGE}, and is dealt by the hitscan at release.
+	 */
+	public final float damage;
 
 	// Everything else that separates one weapon from the next. They live here rather than on the item so
 	// that one weapon is one place to look, instead of half its numbers being in PaintWeapon; each set is
@@ -64,8 +73,15 @@ public enum Weapon {
 	/** Charger: hitscan reach in blocks, at no charge and what a full charge adds. */
 	public static final double CHARGE_BASE_RANGE = 10.0;
 	public static final double CHARGE_EXTRA_RANGE = 30.0;
+	/** Charger: hearts off whoever stops the line, at no charge and what a full charge adds. */
+	public static final float CHARGE_BASE_DAMAGE = 4.0f;
+	public static final float CHARGE_EXTRA_DAMAGE = 6.0f;
 
-	Weapon(String id, String displayName, int inkPerShot, int cooldownTicks, float velocity, float inaccuracy, float kickPitch) {
+	/** What a bounce droplet is worth — a graze, not a shot. */
+	public static final float DROPLET_DAMAGE = 0.5f;
+
+	Weapon(String id, String displayName, int inkPerShot, int cooldownTicks, float velocity, float inaccuracy,
+			float kickPitch, float damage) {
 		this.id = id;
 		this.displayName = displayName;
 		this.inkPerShot = inkPerShot;
@@ -73,6 +89,7 @@ public enum Weapon {
 		this.velocity = velocity;
 		this.inaccuracy = inaccuracy;
 		this.kickPitch = kickPitch;
+		this.damage = damage;
 	}
 
 	/**
