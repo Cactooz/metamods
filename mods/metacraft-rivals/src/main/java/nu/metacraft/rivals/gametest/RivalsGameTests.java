@@ -1017,6 +1017,42 @@ public final class RivalsGameTests {
 	}
 
 	/**
+	 * Squid form holds over the ink, not only in it. A jump or a ledge takes the paint out from under a
+	 * squid's feet for a few ticks, and dropping the form (with the invisibility) for that is what the
+	 * user saw as "you go out of invisibility because you were away from ink too long". Ink anywhere in
+	 * the four cells below the feet holds it, and a ten-tick grace carries the gap after that.
+	 */
+	@GameTest
+	public void squidStaysSquidOverInk(GameTestHelper helper) {
+		stoneFloor(helper, 5); // floor at y=1
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 1, 4)), Direction.UP, PaintColor.DATA);
+		Vec3 inTheInk = helper.absoluteVec(new Vec3(4.5, 2.0, 4.5)); // the painted cell itself
+		player.setPos(inTheInk.x, inTheInk.y, inTheInk.z);
+		player.setShiftKeyDown(true);
+		PlayerTick.tick(player, 0);
+		helper.assertTrue(PlayerTick.isSquid(player), "squid in its own ink");
+		// Two blocks up: nothing under the feet, paint two cells below. Still a squid, tick after tick.
+		Vec3 jumped = helper.absoluteVec(new Vec3(4.5, 4.0, 4.5));
+		player.setPos(jumped.x, jumped.y, jumped.z);
+		helper.assertTrue(PlayerTick.paintUnder(player) == null, "no paint in the cell the feet are in");
+		helper.assertTrue(PlayerTick.inkBelow(player, PaintColor.DATA), "but ink below");
+		for (long now = 1; now <= 5; now++) PlayerTick.tick(player, now);
+		helper.assertTrue(PlayerTick.isSquid(player), "squid form holds over its own ink");
+		helper.assertTrue(player.hasEffect(MobEffects.INVISIBILITY), "and stays invisible");
+		// Five blocks up: out of reach of the ink, so only the grace is holding it now.
+		Vec3 high = helper.absoluteVec(new Vec3(4.5, 7.0, 4.5));
+		player.setPos(high.x, high.y, high.z);
+		helper.assertTrue(!PlayerTick.inkBelow(player, PaintColor.DATA), "too high for the ink below");
+		PlayerTick.tick(player, 6);
+		helper.assertTrue(PlayerTick.isSquid(player), "the grace carries the gap");
+		PlayerTick.tick(player, 16);
+		helper.assertTrue(!PlayerTick.isSquid(player), "and runs out: no ink, no squid");
+		helper.succeed();
+	}
+
+	/**
 	 * A bottom slab's paint lands as display quads keyed one cell above the slab (like a stair tread), but
 	 * a player standing on the slab has {@code blockPosition()} at the slab's own cell, one below that.
 	 * {@code paintUnder} must still find it by falling back to the cell above the feet.

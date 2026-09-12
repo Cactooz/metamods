@@ -40,7 +40,9 @@ import java.util.UUID;
  * Per-player paint effects, every tick.
  *
  * <p>Sneaking in own-colour paint is squid form: small, quick, invisible, refilling, and unable to
- * shoot. Squid form also holds — it does not require paint under the feet — while the player is
+ * shoot. It holds over the paint as well as in it — own-colour ink anywhere in the four cells under the
+ * feet counts, and a short grace period after that carries a leap between two painted surfaces — so a
+ * jump never costs the form (and the invisibility with it). Squid form also holds — it does not require paint under the feet — while the player is
  * beside a wall inked in their own colour: pushing into that wall climbs it, and easing off clings
  * to it instead of sliding back down, so a climb off the floor paint never drops the player mid-wall.
  * The cling is gravity switched off by attribute rather than a velocity packet, and the climb's packet
@@ -85,6 +87,10 @@ public final class PlayerTick {
 	private static final double DIVE_SURGE_SPEED = 0.45;
 	/** No repeat surge for a re-entry (e.g. a brief unshift) within this many ticks of the last one. */
 	private static final int DIVE_SURGE_COOLDOWN = 10;
+	/** How far below the feet own-colour paint still holds squid form: a ledge, a hop, a short drop. */
+	private static final int INK_BELOW_DEPTH = 4;
+	/** Ticks squid form survives after the last tick any ink held it — a jump, a gap, a leap off a roof. */
+	private static final int SQUID_GRACE = 10;
 	/** How often a player's ovve is checked against their team. Once a second is plenty for getting dressed. */
 	private static final int OVVE_EVERY = 20;
 
@@ -101,6 +107,8 @@ public final class PlayerTick {
 	/** Server tick of each player's last dive surge, so a flicker in and out of squid form does not
 	 * re-trigger it every tick. Cleared alongside the squid bookkeeping on disconnect and server stop. */
 	private static final Map<UUID, Long> LAST_DIVE = new HashMap<>();
+	/** The last tick each player's ink held their squid form, for {@link #SQUID_GRACE}. */
+	private static final Map<UUID, Long> LAST_INK = new HashMap<>();
 	/** Where each squid was last tick, because a real player's server-side delta is not its speed. */
 	private static final Map<UUID, Vec3> LAST_POS = new HashMap<>();
 
@@ -127,6 +135,7 @@ public final class PlayerTick {
 			SquidState.clearAll();
 			LAST_DIVE.clear();
 			LAST_POS.clear();
+			LAST_INK.clear();
 		});
 		// A player who logs out mid-squid (or standing in enemy ink) is never ticked again, so nothing
 		// would ever take the state off them: the UUID would stay in the squid set, and a rejoin would
@@ -136,6 +145,7 @@ public final class PlayerTick {
 			SquidState.clearEnemyInk(handler.getPlayer());
 			LAST_DIVE.remove(handler.getPlayer().getUUID());
 			LAST_POS.remove(handler.getPlayer().getUUID());
+			LAST_INK.remove(handler.getPlayer().getUUID());
 		});
 	}
 
@@ -186,6 +196,36 @@ public final class PlayerTick {
 	}
 
 	/**
+	 * Is there own-colour paint below the player, within {@link #INK_BELOW_DEPTH} cells of their feet?
+	 *
+	 * <p>The same two kinds of floor paint {@link #paintUnder} knows about — a paint block carrying its
+	 * {@link Direction#DOWN} face, or display quads covering a surface's {@link Direction#UP} face — but
+	 * looked for all the way down rather than only in the cell the feet are in, because this answers
+	 * "is the squid over its own ink" rather than "is it standing in it".
+	 */
+	public static boolean inkBelow(Player player, PaintColor own) {
+		if (!(player.level() instanceof ServerLevel level)) return false;
+		PaintDisplays displays = PaintDisplays.of(level);
+		BlockPos feet = player.blockPosition();
+		for (int drop = 0; drop <= INK_BELOW_DEPTH; drop++) {
+			BlockPos cell = feet.below(drop);
+			BlockState state = level.getBlockState(cell);
+			if (state.getBlock() instanceof Paint paint && paint.color() == own
+					&& (paint.faceMask(state) & 1 << Direction.DOWN.ordinal()) != 0) {
+				return true;
+			}
+			if (floorQuads(displays, cell) == own) return true;
+		}
+		return false;
+	}
+
+	/** Is the player inside the {@link #SQUID_GRACE} ticks after the last tick their ink held them? */
+	private static boolean inGrace(Player player, long now) {
+		Long last = LAST_INK.get(player.getUUID());
+		return last != null && now - last <= SQUID_GRACE;
+	}
+
+	/**
 	 * Refresh {@code effect} to its full duration only when it is missing, weaker, or running low;
 	 * re-adding it every tick regardless would make vanilla resend the effect packet every tick.
 	 */
@@ -203,6 +243,7 @@ public final class PlayerTick {
 			SquidState.exit(player);
 			SquidState.clearEnemyInk(player);
 			LAST_POS.remove(player.getUUID());
+			LAST_INK.remove(player.getUUID());
 			return;
 		}
 		if (now % OVVE_EVERY == 0) wearYourColours(player);
@@ -214,7 +255,19 @@ public final class PlayerTick {
 		// player is lifted off the ground `inOwn` goes false, squid form ends, and the wall swim only
 		// ever lasts the one tick that started it.
 		boolean wallBeside = own.isPresent() && paintedWallBeside(player, own.get());
-		boolean squid = (inOwn || wallBeside) && player.isShiftKeyDown();
+		// Ink under the feet, not only ink they are standing in: a jump, a ledge or a step off a kerb
+		// takes the paint out from under a squid for a few ticks, and dropping the form (and with it the
+		// invisibility) for that is the bug the user reported as "you go out of invisibility because you
+		// were away from ink too long".
+		boolean inkBelow = own.isPresent() && inkBelow(player, own.get());
+		boolean held = inOwn || wallBeside || inkBelow;
+		if (held) {
+			LAST_INK.put(player.getUUID(), now);
+		} else if (!inGrace(player, now)) {
+			LAST_INK.remove(player.getUUID());
+		}
+		// And a grace period on top, so a leap between two painted roofs is one swim rather than two.
+		boolean squid = (held || inGrace(player, now)) && player.isShiftKeyDown();
 		boolean wasSquid = SquidState.isSquid(player);
 		if (squid) {
 			SquidState.enter(player);
