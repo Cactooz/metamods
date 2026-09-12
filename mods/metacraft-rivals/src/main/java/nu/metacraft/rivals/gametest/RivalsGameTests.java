@@ -909,6 +909,38 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
+	/**
+	 * Someone standing in the line stops it: the paint lands under their feet, and the wall they were
+	 * standing in front of is left clean.
+	 */
+	@GameTest
+	public void chargerSplashesUnderAHitPlayer(GameTestHelper helper) {
+		stoneFloor(helper, 7); // floor at y=1, x/z 0..6
+		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(6, y, 3), Blocks.STONE); // the wall behind them
+		Player player = gunner(helper);
+		ItemStack charger = new ItemStack(PaintWeapon.of(Weapon.CHARGER));
+		player.setItemInHand(InteractionHand.MAIN_HAND, charger);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.CYAN));
+		Vec3 at = helper.absoluteVec(new Vec3(0.5, 2.0, 3.5));
+		player.setPos(at.x, at.y, at.z);
+		player.setYRot(-90f); // look +X
+		player.setXRot(0f);
+		// The mock-player helper builds a player but never adds it to the level, and the scan only sees
+		// entities the level knows about, so this one has to be put there by hand.
+		Player target = helper.makeMockPlayer(GameType.SURVIVAL);
+		Vec3 stand = helper.absoluteVec(new Vec3(3.5, 2.0, 3.5));
+		target.setPos(stand.x, stand.y, stand.z);
+		helper.getLevel().addFreshEntity(target);
+		boolean fired = PaintWeapon.of(Weapon.CHARGER).releaseUsing(charger, helper.getLevel(), player, 72000 - PaintWeapon.CHARGE_FULL_TICKS);
+		helper.assertTrue(fired, "full charge fires");
+		helper.assertTrue(helper.getBlockState(new BlockPos(3, 2, 3)).is(PaintBlocks.of(PaintColor.CYAN)),
+				"the floor under the player in the way is painted");
+		helper.assertTrue(!helper.getBlockState(new BlockPos(5, 2, 3)).is(PaintBlocks.of(PaintColor.CYAN)),
+				"the line stopped at the player: the wall behind them is clean");
+		target.discard();
+		helper.succeed();
+	}
+
 	/** A tap is not a charge: nothing fires and no ink is spent. */
 	@GameTest
 	public void chargerIgnoresShortRelease(GameTestHelper helper) {

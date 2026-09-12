@@ -3,6 +3,8 @@ package nu.metacraft.rivals.gun;
 import eu.pb4.polymer.core.api.item.PolymerItem;
 import net.fabricmc.fabric.api.networking.v1.context.PacketContext;
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.BlockPos;
+import net.minecraft.core.Direction;
 import net.minecraft.core.HolderLookup;
 import net.minecraft.core.Registry;
 import net.minecraft.core.component.DataComponents;
@@ -22,6 +24,7 @@ import net.minecraft.world.entity.Entity;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.LivingEntity;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.entity.projectile.ProjectileUtil;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUseAnimation;
@@ -29,7 +32,9 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
+import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
@@ -195,7 +200,8 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 * under {@link #MIN_CHARGE_TICKS} it was a tap and nothing happens (no ink, no cooldown — a
 	 * mis-click must not cost anything), and from there to {@link #CHARGE_FULL_TICKS} the charge scales
 	 * range, ink and kick together. The shot itself is hitscan: one clip along the view, a line of paint
-	 * on the floor under it, and a splash where it stops.
+	 * on the floor under it, and a splash where it stops — under the feet of whoever was standing in the
+	 * way, if anyone was, and otherwise on the block face it ran into.
 	 */
 	@Override
 	public boolean releaseUsing(ItemStack stack, Level level, LivingEntity entity, int timeLeft) {
@@ -213,12 +219,24 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		}
 		double range = CHARGE_BASE_RANGE + CHARGE_EXTRA_RANGE * charge;
 		Vec3 from = entity.getEyePosition();
-		Vec3 to = from.add(entity.getLookAngle().scale(range));
+		Vec3 reach = entity.getLookAngle().scale(range);
+		Vec3 to = from.add(reach);
 		BlockHitResult hit = serverLevel.clip(new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, entity));
 		boolean struck = hit.getType() == HitResult.Type.BLOCK;
 		Vec3 end = struck ? hit.getLocation() : to;
+		// Anyone standing in the way stops the line where they are: scanned only as far as the block hit,
+		// so a hit that comes back is by construction the nearer of the two. Paint goes under their feet,
+		// the same shape a ball's entity hit makes — a charger line that passed through a player and
+		// painted the wall behind them read as a miss.
+		AABB along = entity.getBoundingBox().expandTowards(reach).inflate(1.0);
+		EntityHitResult inTheWay = ProjectileUtil.getEntityHitResult(serverLevel, entity, from, end, along,
+				candidate -> candidate != entity && candidate.isAlive() && !candidate.isSpectator(), 0.0f);
+		if (inTheWay != null) end = inTheWay.getLocation();
 		Painter.line(serverLevel, from, end, color, serverLevel.getRandom(), entity);
-		if (struck) {
+		if (inTheWay != null) {
+			BlockPos below = inTheWay.getEntity().blockPosition().below();
+			Painter.splash(serverLevel, end, below, Direction.UP, color, serverLevel.getRandom(), entity);
+		} else if (struck) {
 			Painter.splash(serverLevel, end, hit.getBlockPos(), hit.getDirection(), color, serverLevel.getRandom(), entity);
 		}
 		Ink.add(stack, -cost);
