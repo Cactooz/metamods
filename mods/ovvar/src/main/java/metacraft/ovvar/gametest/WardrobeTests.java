@@ -25,6 +25,7 @@ import metacraft.ovvar.sewing.WardrobeGui;
 import metacraft.ovvar.sewing.WardrobeMannequin;
 import metacraft.ovvar.sewing.StashSession;
 import eu.pb4.sgui.api.elements.GuiElement;
+import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
@@ -38,6 +39,7 @@ import com.google.gson.JsonObject;
 import com.mojang.serialization.JsonOps;
 
 import java.io.IOException;
+import java.io.UncheckedIOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
@@ -54,11 +56,46 @@ import java.util.concurrent.atomic.AtomicReference;
  * and never multiplies, two ovves of one owner are one design, and an unpick hands the patch out
  * once no matter how many ovves show it; and the ownership rules: somebody else's ovve is not worn,
  * sewn on or unpicked, the owner's own is, and the MOTD says which server this is. The tests that swap the server's backend for a temporary
- * one take turns ({@link #BUSY}: game tests in a batch run together) and put the configured one back.
+ * one take turns ({@link #BUSY}: game tests in a batch run together) and put a throwaway one back —
+ * never the run dir's configured store (a live JDBC backend, in a deployed run dir, whose rows are
+ * real): every mock player these tests spawn joins for real and is fetched on join, so the
+ * configured store must never be the thing listening when that happens.
  */
 public final class WardrobeTests {
 	/** Held by whichever sequence test is using the server's wardrobe store right now. */
 	private static final AtomicBoolean BUSY = new AtomicBoolean();
+
+	static {
+		// The moment the server is up — before the first test spawns a mock player and well before
+		// any test claims BUSY — detach the store from whatever config/ovvar.json names. Fabric-api's
+		// GameTest has no batch() to force these onto one worker (javap confirms), so without this a
+		// stray on-join fetch for a fixed test UUID can hit a live JDBC store with real rows before
+		// any test-owned backend is in place.
+		ServerLifecycleEvents.SERVER_STARTED.register(server -> Wardrobes.use(server, idleBackend()));
+	}
+
+	private static WardrobeBackend idleBackend() {
+		try {
+			return new FileBackend(Files.createTempDirectory("ovvar-wardrobes-idle"));
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	/**
+	 * Runs a store test's step; whatever it throws (a failed assertion or anything else) the lock
+	 * and the throwaway backend come back first, so a broken test never leaves {@link #BUSY} held
+	 * forever and turns every other store test's wait into a permanent "another store test is
+	 * running" failure instead of the retry it is meant to be.
+	 */
+	private static void guarded(MinecraftServer server, Runnable step) {
+		try {
+			step.run();
+		} catch (RuntimeException | Error e) {
+			release(server);
+			throw e;
+		}
+	}
 
 	private static final Chapter CHAPTER = Chapter.values()[0];
 	private static final Patches.Patch BEER_PATCH = Patches.get("beer"), HEART_PATCH = Patches.get("heart");
@@ -146,14 +183,14 @@ public final class WardrobeTests {
 		AtomicReference<Wardrobes.Outcome> outcome = new AtomicReference<>();
 		helper.startSequence()
 				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					Wardrobes.use(server, new FileBackend(dir));
 					Wardrobes.fetch(owner);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
 				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "sew outcome " + outcome.get()))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					if (Wardrobes.current(owner).version() != 1) helper.fail("cached version " + Wardrobes.current(owner).version() + ", wanted 1");
 					// Another server unpicks and sews on: the store is at version 5 with only the heart on.
 					try {
@@ -164,15 +201,15 @@ public final class WardrobeTests {
 					}
 					outcome.set(null);
 					Wardrobes.update(owner, w -> w.unpick(CHAPTER, Spot.FRONT_TOP_LEFT).orElse(null), outcome::set);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.CONFLICT, "stale write outcome " + outcome.get()))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner) && Wardrobes.current(owner).version() == 5, "cache not refetched to version 5"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					if (Wardrobes.current(owner).at(CHAPTER, Spot.FRONT_TOP_LEFT).isPresent()) helper.fail("the beer survived the refetch");
 					if (Wardrobes.current(owner).count(BEER_PATCH) != 1) helper.fail("the beer is not back in the stash after the refetch");
 					outcome.set(null);
 					Wardrobes.update(owner, w -> w.sew(CHAPTER, BEER).orElse(null), outcome::set);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK && Wardrobes.current(owner).version() == 6, "retry after the refetch: " + outcome.get()))
 				.thenExecute(() -> release(server))
 				.thenSucceed();
@@ -188,30 +225,30 @@ public final class WardrobeTests {
 		AtomicReference<Wardrobes.Outcome> outcome = new AtomicReference<>();
 		helper.startSequence()
 				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					Wardrobes.use(server, new FileBackend(dir));
 					// Their first tick in a player's inventory binds them; nothing to adopt, both are plain.
 					OvveItem.syncDesign(player, a);
 					OvveItem.syncDesign(player, b);
 					if (!owner.equals(OvveItem.owner(a)) || !owner.equals(OvveItem.owner(b))) helper.fail("not bound on pickup");
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
 				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "sew outcome " + outcome.get()))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					OvveItem.syncDesign(player, a);
 					OvveItem.syncDesign(player, b);
 					if (!BEER.equals(Looks.at(a, Spot.FRONT_TOP_LEFT)) || !BEER.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("the sew did not reach both ovves");
 					outcome.set(null);
 					Wardrobes.update(owner, w -> w.unpick(CHAPTER, Spot.FRONT_TOP_LEFT).orElse(null), outcome::set);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "unpick outcome " + outcome.get()))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					OvveItem.syncDesign(player, a);
 					OvveItem.syncDesign(player, b);
 					if (Looks.at(a, Spot.FRONT_TOP_LEFT) != null || Looks.at(b, Spot.FRONT_TOP_LEFT) != null) helper.fail("the unpick did not reach both ovves");
 					release(server);
-				})
+				}))
 				.thenSucceed();
 	}
 
@@ -229,33 +266,33 @@ public final class WardrobeTests {
 		AtomicReference<Wardrobes.Outcome> outcome = new AtomicReference<>();
 		helper.startSequence()
 				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					Wardrobes.use(server, new FileBackend(dir));
 					Wardrobes.fetch(owner);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
 				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "sew outcome " + outcome.get()))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					OvveItem.refresh(a);
 					OvveItem.refresh(b);
 					if (!BEER.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("b does not show the beer");
 					// Into the hand (a survival server): the store lets go of it first, and only once.
 					OwnedSewing.unpick(null, a, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 1, "first unpick not answered"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					if (given.size() != 1 || !BEER.equals(given.get(0).placement()) || given.get(0).toStash()) helper.fail("first unpick: given " + given + ", refused " + refused);
 					if (Wardrobes.current(owner).count(BEER_PATCH) != 0) helper.fail("an unpick into the hand also left one in the stash");
 					// b still carries the old copy; the unpick asks the store, not the item.
 					if (!BEER.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("b was refreshed before being asked");
 					OwnedSewing.unpick(null, b, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 2, "second unpick not answered"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					if (given.size() != 1 || refused.size() != 1) helper.fail("second unpick: given " + given + ", refused " + refused);
 					release(server);
-				})
+				}))
 				.thenSucceed();
 	}
 
@@ -364,19 +401,19 @@ public final class WardrobeTests {
 		AtomicReference<Wardrobes.Outcome> outcome = new AtomicReference<>();
 		helper.startSequence()
 				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					Wardrobes.use(server, new FileBackend(dir));
 					Wardrobes.fetch(owner);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
 				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "sew outcome " + outcome.get()))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					OvveItem.refresh(ovve);
 					OwnedSewing.unpick(stranger, ovve, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 1, "the unpick was not answered"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					if (!given.isEmpty()) helper.fail("a stranger unpicked a patch: " + given);
 					if (!refused.get(0).contains("belongs to")) helper.fail("refusal text: " + refused.get(0));
 					Wardrobe now = Wardrobes.current(owner);
@@ -384,7 +421,7 @@ public final class WardrobeTests {
 					if (now.count(BEER_PATCH) != 0) helper.fail("the stash changed on a refused unpick");
 					if (!BEER.equals(Looks.at(ovve, Spot.FRONT_TOP_LEFT))) helper.fail("the ovve lost its patch anyway");
 					release(server);
-				})
+				}))
 				.thenSucceed();
 	}
 
@@ -401,19 +438,19 @@ public final class WardrobeTests {
 		List<String> refused = new ArrayList<>();
 		helper.startSequence()
 				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					Wardrobes.use(server, new FileBackend(dir));
 					Wardrobes.fetch(owner);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
 				.thenExecute(() -> OwnedSewing.sew(stranger, ovve, HEART, true, () -> sewn.add("sewn"), refused::add))
 				.thenWaitUntil(() -> assertThat(sewn.size() + refused.size() == 1, "the sew was not answered"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					if (!sewn.isEmpty()) helper.fail("a stranger sewed on somebody else's ovve");
 					if (!refused.get(0).contains("belongs to")) helper.fail("refusal text: " + refused.get(0));
 					if (Wardrobes.current(owner).version() != 0) helper.fail("the store moved on a refused sew");
 					release(server);
-				})
+				}))
 				.thenSucceed();
 	}
 
@@ -431,24 +468,32 @@ public final class WardrobeTests {
 		List<String> refused = new ArrayList<>();
 		helper.startSequence()
 				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					Wardrobes.use(server, new FileBackend(dir));
 					Wardrobes.fetch(owner);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
 				.thenExecute(() -> OwnedSewing.sew(player, ovve, BEER, true, () -> sewn.add("sewn"), refused::add))
 				.thenWaitUntil(() -> assertThat(sewn.size() + refused.size() == 1, "the sew was not answered"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					if (sewn.isEmpty()) helper.fail("the owner could not sew on their own ovve: " + refused);
 					if (!BEER.equals(Looks.at(ovve, Spot.FRONT_TOP_LEFT))) helper.fail("the sew did not reach the ovve");
-					OwnedSewing.unpick(player, ovve, Spot.FRONT_TOP_LEFT, true, given::add, refused::add);
-				})
+					// The store's own copy, not the ovve's, is what unpick reads: re-seed it straight from the
+					// (isolated) backend rather than trust the cache to still show what the sew callback just
+					// wrote — a mock player join anywhere else in the suite can fetch this same fixed test
+					// UUID in between and clobber the shared cache with whatever it finds.
+					Wardrobes.refresh(owner);
+				}))
+				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner) && Wardrobes.current(owner).at(CHAPTER, Spot.FRONT_TOP_LEFT).isPresent(),
+						"the re-seeded wardrobe does not show the beer"))
+				.thenExecute(() -> guarded(server, () ->
+						OwnedSewing.unpick(player, ovve, Spot.FRONT_TOP_LEFT, true, given::add, refused::add)))
 				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 1, "the unpick was not answered"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					if (given.isEmpty()) helper.fail("the owner could not unpick from their own ovve: " + refused);
 					if (Wardrobes.current(owner).count(BEER_PATCH) != 1) helper.fail("the unpicked patch is not in the stash");
 					release(server);
-				})
+				}))
 				.thenSucceed();
 	}
 
@@ -531,16 +576,16 @@ public final class WardrobeTests {
 		Patches.Patch gasque = Patches.get("gasque"), kth = Patches.get("kth"), nolle = Patches.get("nolle");
 		helper.startSequence()
 				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					Wardrobes.use(server, new FileBackend(dir));
 					Wardrobes.fetch(owner);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
 				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(gasque, 1).add(kth, 1).add(nolle, 1)
 						.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElseThrow()
 						.add(HEART_PATCH, 1).sew(CHAPTER, HEART).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "setup outcome " + outcome.get()))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, Piece.TOP);
 					int filledCollection = 0;
 					for (int i = 0; i < 20; i++) {
@@ -558,8 +603,8 @@ public final class WardrobeTests {
 						if (isEmpty(gui, slot)) helper.fail("action slot " + slot + " missing on a survival server");
 					}
 					if (!isEmpty(gui, 49)) helper.fail("finish-sewing button present with no session running");
-				})
-				.thenExecute(() -> {
+				}))
+				.thenExecute(() -> guarded(server, () -> {
 					// With a session running, "finish sewing" (col 4 of the action row, slot 49) appears.
 					StashConfig sessions = OvvarConfig.get().stash();
 					try {
@@ -575,7 +620,7 @@ public final class WardrobeTests {
 						OvvarConfig.modify(config -> new OvvarConfig(config.sewingMinigame(), config.stitches(), config.server(), config.designs(), sessions));
 					}
 					release(server);
-				})
+				}))
 				.thenSucceed();
 	}
 
@@ -589,12 +634,12 @@ public final class WardrobeTests {
 		StashConfig stash = OvvarConfig.get().stash();
 		helper.startSequence()
 				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					Wardrobes.use(server, new FileBackend(dir));
 					Wardrobes.fetch(owner);
-				})
+				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
-				.thenExecute(() -> {
+				.thenExecute(() -> guarded(server, () -> {
 					try {
 						OvvarConfig.modify(config -> new OvvarConfig(config.sewingMinigame(), config.stitches(), config.server(), config.designs(),
 								new StashConfig(true, stash.sewGameModes(), stash.ingameObjective(), stash.bankOnPickup(), stash.bankInCreative(),
@@ -613,7 +658,7 @@ public final class WardrobeTests {
 						OvvarConfig.modify(config -> new OvvarConfig(config.sewingMinigame(), config.stitches(), config.server(), config.designs(), stash));
 					}
 					release(server);
-				})
+				}))
 				.thenSucceed();
 	}
 
@@ -748,9 +793,9 @@ public final class WardrobeTests {
 		helper.succeed();
 	}
 
-	/** The configured store back, and the next test may go. */
+	/** A throwaway store back (never the run dir's configured one), and the next test may go. */
 	private static void release(MinecraftServer server) {
-		Wardrobes.open(server, OvvarConfig.get().designs());
+		Wardrobes.use(server, idleBackend());
 		BUSY.set(false);
 	}
 
