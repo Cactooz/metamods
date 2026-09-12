@@ -37,7 +37,7 @@ import nu.metacraft.rivals.paint.PaintBlock;
 import nu.metacraft.rivals.paint.PaintBlocks;
 import nu.metacraft.rivals.paint.Painter;
 import nu.metacraft.rivals.paint.PaintTally;
-import nu.metacraft.rivals.pack.SplatTexture;
+import nu.metacraft.rivals.pack.SplatArt;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
@@ -81,32 +81,51 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** Every colour's splat is a 16×16 PNG: transparent outside the blob, that colour inside. */
+	/** Every generated splat is 32×32, paint texels carry the alpha marker 229, the rest is fully transparent. */
 	@GameTest
-	public void splatTextureIsColouredBlob(GameTestHelper helper) throws IOException {
+	public void splatArtCarriesTheMarkerAlpha(GameTestHelper helper) throws IOException {
 		for (PaintColor color : PaintColor.values()) {
-			int rgb = color.rgb;
-			BufferedImage image = ImageIO.read(new ByteArrayInputStream(SplatTexture.png(rgb, color.ordinal())));
-			helper.assertTrue(image != null, "PNG decodes: " + color.id);
-			helper.assertValueEqual(image.getWidth(), SplatTexture.SIZE, "width: " + color.id);
-			helper.assertValueEqual(image.getHeight(), SplatTexture.SIZE, "height: " + color.id);
-			int opaque = 0;
-			int transparent = 0;
-			int exactColour = 0;
+			BufferedImage image = ImageIO.read(new ByteArrayInputStream(SplatArt.texture(color.rgb, SplatArt.SHAPES[0], 0)));
+			helper.assertValueEqual(image.getWidth(), SplatArt.SIZE, color.id + " width");
+			helper.assertValueEqual(image.getHeight(), SplatArt.SIZE, color.id + " height");
+			int paint = 0;
+			int clear = 0;
 			for (int y = 0; y < image.getHeight(); y++) {
 				for (int x = 0; x < image.getWidth(); x++) {
-					int argb = image.getRGB(x, y);
-					int alpha = (argb >>> 24) & 0xFF;
-					if (alpha == 0) transparent++;
-					else if (alpha == 0xFF) opaque++;
-					if (argb == (0xFF000000 | rgb)) exactColour++;
+					int alpha = (image.getRGB(x, y) >>> 24) & 0xFF;
+					if (alpha == SplatArt.PAINT_ALPHA) paint++;
+					else if (alpha == 0) clear++;
+					else helper.fail(color.id + ": unexpected alpha " + alpha + " at " + x + "," + y);
 				}
 			}
-			helper.assertTrue(opaque > 0, "has opaque pixels: " + color.id);
-			helper.assertTrue(transparent > 0, "has transparent pixels: " + color.id);
-			helper.assertTrue(opaque + transparent == SplatTexture.SIZE * SplatTexture.SIZE,
-					"no half-transparent pixels: " + color.id);
-			helper.assertTrue(exactColour > 0, "fill pixels are the exact colour: " + color.id);
+			helper.assertTrue(paint > 100 && clear > 50, color.id + ": paint=" + paint + " clear=" + clear);
+		}
+		helper.succeed();
+	}
+
+	/** The blockstate override lists 32 variants per face and every model/texture it names is in the pack file set. */
+	@GameTest
+	public void blockstateOverridesReferenceGeneratedModels(GameTestHelper helper) {
+		Map<String, byte[]> files = SplatArt.packFiles();
+		for (PaintColor color : PaintColor.values()) {
+			String path = "assets/minecraft/blockstates/" + color.donorPath() + ".json";
+			helper.assertTrue(files.containsKey(path), "override present: " + path);
+			JsonObject state = JsonParser.parseString(new String(files.get(path), StandardCharsets.UTF_8)).getAsJsonObject();
+			JsonArray multipart = state.getAsJsonArray("multipart");
+			helper.assertValueEqual(multipart.size(), 7, color.id + " multipart entries (6 faces + none)");
+			for (JsonElement part : multipart) {
+				JsonArray apply = part.getAsJsonObject().getAsJsonArray("apply");
+				helper.assertValueEqual(apply.size(), SplatArt.SHAPES.length * SplatArt.ROTATIONS, color.id + " variants per face");
+				for (JsonElement variant : apply) {
+					String model = variant.getAsJsonObject().get("model").getAsString(); // metacraft-rivals:block/splat_x_y_z
+					String modelPath = "assets/metacraft-rivals/models/block/" + model.substring(model.indexOf('/') + 1) + ".json";
+					helper.assertTrue(files.containsKey(modelPath), "model in pack: " + modelPath);
+					JsonObject modelJson = JsonParser.parseString(new String(files.get(modelPath), StandardCharsets.UTF_8)).getAsJsonObject();
+					String texture = modelJson.getAsJsonObject("textures").get("splat").getAsString();
+					String texturePath = "assets/metacraft-rivals/textures/" + texture.substring(texture.indexOf(':') + 1) + ".png";
+					helper.assertTrue(files.containsKey(texturePath), "texture in pack: " + texturePath);
+				}
+			}
 		}
 		helper.succeed();
 	}

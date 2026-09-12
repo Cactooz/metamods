@@ -40,9 +40,9 @@ public enum PaintColor {
 		this.barColor = barColor;
 	}
 
-	/** Pack path of the donor's block texture, the file the splat replaces. */
-	public String donorTexturePath() {
-		return "assets/minecraft/textures/block/" + BuiltInRegistries.BLOCK.getKey(donor).getPath() + ".png";
+	/** The donor block's registry path, e.g. {@code sculk_vein}: the blockstate file the pack overrides. */
+	public String donorPath() {
+		return BuiltInRegistries.BLOCK.getKey(donor).getPath();
 	}
 
 	/** Every colour's id, comma-separated, for messages that list the teams. */
