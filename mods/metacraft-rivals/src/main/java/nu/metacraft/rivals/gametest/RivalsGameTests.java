@@ -525,22 +525,59 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** Every weapon's item definition, model and palette ship in the jar, and each model stays inside the item bounds. */
+	/**
+	 * Every weapon's item definition and model ship in the jar, on the one shared pair of Julle textures,
+	 * with Julle's own display transforms kept and their ink faces still on tint index 0 so the team dye
+	 * reaches them. And the sprayer is gone: it did what the shooter does, so its files must not linger in
+	 * a pack that no longer registers the item.
+	 */
 	@GameTest
 	public void gunModelAssetsArePresent(GameTestHelper helper) throws IOException {
 		String base = "/assets/" + Rivals.MOD_ID + "/";
-		for (String id : new String[] {"paint_gun", "sprayer", "charger", "slosher"}) {
-			for (String path : new String[] {"items/" + id + ".json", "models/item/" + id + ".json", "textures/item/" + id + "_palette.png"}) {
+		// One body/ink pair for all four, 128x128 as Julle exported them.
+		for (String shared : new String[] {"julle_body", "julle_ink"}) {
+			try (InputStream in = Rivals.class.getResourceAsStream(base + "textures/item/" + shared + ".png")) {
+				helper.assertTrue(in != null, "shared texture present: " + shared);
+				BufferedImage image = ImageIO.read(in);
+				helper.assertValueEqual(image.getWidth(), 128, shared + " is 128 px wide");
+				helper.assertValueEqual(image.getHeight(), 128, shared + " is 128 px tall");
+			}
+		}
+		for (String gone : new String[] {"items/sprayer.json", "models/item/sprayer.json",
+				"textures/item/sprayer_palette.png", "textures/item/paint_gun_palette.png",
+				"textures/item/charger_palette.png", "textures/item/slosher_palette.png"}) {
+			try (InputStream in = Rivals.class.getResourceAsStream(base + gone)) {
+				helper.assertTrue(in == null, "the sprayer and the Kenney palettes are gone: " + gone);
+			}
+		}
+		for (String id : new String[] {"paint_gun", "charger", "slosher", "roller"}) {
+			for (String path : new String[] {"items/" + id + ".json", "models/item/" + id + ".json"}) {
 				try (InputStream in = Rivals.class.getResourceAsStream(base + path)) {
 					helper.assertTrue(in != null, "asset present: " + path);
 				}
 			}
 			try (InputStream in = Rivals.class.getResourceAsStream(base + "models/item/" + id + ".json")) {
 				JsonObject model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+				JsonObject textures = model.getAsJsonObject("textures");
+				helper.assertValueEqual(textures.get("0").getAsString(), Rivals.MOD_ID + ":item/julle_body", id + ": body texture");
+				helper.assertValueEqual(textures.get("1").getAsString(), Rivals.MOD_ID + ":item/julle_ink", id + ": ink texture");
+				helper.assertValueEqual(model.getAsJsonArray("texture_size").toString(), "[128,128]", id + ": Julle's atlas size");
+				helper.assertValueEqual(model.get("gui_light").getAsString(), "side", id + ": gui_light kept");
+				// Julle's display transforms, verbatim: the first person is what the LED's placement is
+				// computed from and the third person is what everyone else sees the weapon in.
+				JsonObject display = model.getAsJsonObject("display");
+				for (String context : new String[] {"gui", "ground", "fixed", "head",
+						"thirdperson_righthand", "thirdperson_lefthand", "firstperson_righthand", "firstperson_lefthand"}) {
+					helper.assertTrue(display.has(context), id + ": keeps Julle's " + context + " transform");
+					for (String part : new String[] {"rotation", "translation", "scale"}) {
+						helper.assertValueEqual(display.getAsJsonObject(context).getAsJsonArray(part).size(), 3,
+								id + ": " + context + "." + part + " is three numbers");
+					}
+				}
 				JsonArray elements = model.getAsJsonArray("elements");
 				helper.assertTrue(elements.size() >= 5, id + ": model has elements");
 				helper.assertTrue(elements.size() <= 400, id + ": model stays under 400 elements, got " + elements.size());
-				boolean tinted = false;
+				int inkFaces = 0;
 				for (JsonElement e : elements) {
 					JsonObject box = e.getAsJsonObject();
 					for (String key : new String[] {"from", "to"}) {
@@ -550,10 +587,16 @@ public final class RivalsGameTests {
 						}
 					}
 					for (var face : box.getAsJsonObject("faces").entrySet()) {
-						if (face.getValue().getAsJsonObject().has("tintindex")) tinted = true;
+						JsonObject json = face.getValue().getAsJsonObject();
+						if (!json.has("tintindex")) continue;
+						// Tint 0 is the team dye on an ink face; tint 1 is the LED's own, checked by the ink test.
+						if (json.get("tintindex").getAsInt() != 0) continue;
+						helper.assertValueEqual(json.get("texture").getAsString(), "#1",
+								id + ": the dyed faces are the ink texture's");
+						inkFaces++;
 					}
 				}
-				helper.assertTrue(tinted, id + ": some faces are tinted");
+				helper.assertTrue(inkFaces > 0, id + ": some faces take the team dye, got " + inkFaces);
 			}
 			try (InputStream in = Rivals.class.getResourceAsStream(base + "items/" + id + ".json")) {
 				JsonObject definition = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
@@ -1274,7 +1317,7 @@ public final class RivalsGameTests {
 		}
 		// And every weapon has to wear it: a second tint source for custom_model_data colour 0, and one
 		// element whose faces take that tint.
-		for (String id : new String[] {"paint_gun", "sprayer", "charger", "slosher"}) {
+		for (String id : new String[] {"paint_gun", "charger", "slosher", "roller"}) {
 			try (InputStream in = Rivals.class.getResourceAsStream("/assets/" + Rivals.MOD_ID + "/items/" + id + ".json")) {
 				JsonArray tints = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8))
 						.getAsJsonObject().getAsJsonObject("model").getAsJsonArray("tints");
@@ -1968,7 +2011,7 @@ public final class RivalsGameTests {
 		});
 	}
 
-	/** A sprayer droplet with a 12-tick lifetime splashes the floor beneath it when time runs out. */
+	/** A spatter droplet with a 12-tick lifetime splashes the floor beneath it when time runs out. */
 	@GameTest
 	public void dropletSplashesAfterLifetime(GameTestHelper helper) {
 		stoneFloor(helper, 5);
@@ -2003,24 +2046,33 @@ public final class RivalsGameTests {
 		});
 	}
 
-	/** One click of the sprayer throws three short-lived droplets for one ink. */
+	/**
+	 * The roller's flick is a fan of three thrown high and slow: Splatoon's roller swing throws its drops
+	 * in an arc that lands a few blocks ahead rather than along the crosshair, which here is three balls
+	 * {@link Weapon#ROLLER_FAN_YAW} degrees apart pitched {@link Weapon#ROLLER_PITCH} above the view at the
+	 * weapon's own low velocity, each landing as a 5×5 bucketful. What pulls the trigger is the release,
+	 * and that is {@code rollerFlicksOnATapAndNotOnAHold}'s business; this is the shape of the shot.
+	 */
 	@GameTest
-	public void sprayerThrowsThreeDroplets(GameTestHelper helper) {
+	public void rollerFlickThrowsThreeBalls(GameTestHelper helper) {
 		Player player = gunner(helper);
-		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.SPRAYER)));
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
-		InteractionResult result = PaintWeapon.of(Weapon.SPRAYER).use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
-		helper.assertTrue(result.consumesAction(), "sprays");
-		List<PaintBall> drops = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
-		helper.assertValueEqual(drops.size(), 3, "three droplets");
-		for (PaintBall drop : drops) {
-			helper.assertValueEqual(drop.bouncesLeft(), 0, "droplets do not bounce");
-			helper.assertValueEqual(drop.splatRadius(), 0, "droplets paint a single face");
+		player.setXRot(0.0f);
+		player.setYRot(0.0f);
+		PaintWeapon.of(Weapon.ROLLER).fire(helper.getLevel(), player, PaintColor.DATA);
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0);
+		helper.assertValueEqual(balls.size(), Weapon.ROLLER_FLICK_BALLS, "three drops off the flick");
+		for (PaintBall ball : balls) {
+			helper.assertValueEqual(ball.weapon(), Weapon.ROLLER, "thrown by the roller");
+			helper.assertValueEqual(ball.splatRadius(), Weapon.ROLLER_SPLAT_RADIUS, "a flick lands as a bucketful");
+			helper.assertValueEqual(ball.bouncesLeft(), 0, "a flick's drops do not bounce");
+			helper.assertValueEqual(ball.damage(), Weapon.ROLLER.damage, "the flick's damage");
+			// Thrown above the crosshair: with a level view every drop leaves going up.
+			helper.assertTrue(ball.getDeltaMovement().y > 0,
+					"the flick arcs: " + ball.getDeltaMovement().y + " upward at a level view");
 		}
-		helper.assertValueEqual(Ink.get(player.getItemInHand(InteractionHand.MAIN_HAND)), Ink.MAX - Weapon.SPRAYER.inkPerShot, "ink cost");
-		helper.assertTrue(player.getCooldowns().isOnCooldown(player.getItemInHand(InteractionHand.MAIN_HAND)),
-				"the sprayer goes on cooldown: the fire rate is the cooldown");
-		drops.forEach(Entity::discard);
+		balls.forEach(Entity::discard);
 		helper.succeed();
 	}
 
@@ -2628,9 +2680,11 @@ public final class RivalsGameTests {
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("count"), 1.0, "shooter fires one ball");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("gravity"), PaintBall.GRAVITY, "shooter gravity");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("splat_radius"), (double) Painter.RADIUS, "shooter splat radius");
-			helper.assertValueEqual(WeaponTuning.get(Weapon.SPRAYER).value("count"), (double) Weapon.SPRAYER_DROPLETS, "sprayer droplets");
-			helper.assertValueEqual(WeaponTuning.get(Weapon.SPRAYER).value("lifetime"), (double) Weapon.SPRAYER_LIFETIME, "sprayer lifetime");
-			helper.assertValueEqual(WeaponTuning.get(Weapon.SPRAYER).value("splat_radius"), 0.0, "a droplet paints a single face");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("count"), (double) Weapon.ROLLER_FLICK_BALLS, "roller flick drops");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("fan_yaw"), (double) Weapon.ROLLER_FAN_YAW, "roller flick fan");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("fan_pitch"), (double) Weapon.ROLLER_PITCH, "roller flick arc");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("gravity"), Weapon.ROLLER_GRAVITY, "roller flick gravity");
+			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("splat_radius"), (double) Weapon.ROLLER_SPLAT_RADIUS, "roller 5x5");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("count"), (double) Weapon.SLOSHER_FAN.length, "slosher balls");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("gravity"), Weapon.SLOSHER_GRAVITY, "slosher gravity");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("fan_pitch"), (double) Weapon.SLOSHER_PITCH, "slosher lob");
@@ -2732,7 +2786,7 @@ public final class RivalsGameTests {
 				WeaponTuning.load(file);
 				helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("velocity"), 0.5, "the shooter's velocity came back");
 				helper.assertValueEqual(WeaponTuning.get(Weapon.SLOSHER).value("gravity"), 0.2, "the slosher's gravity came back");
-				helper.assertValueEqual(WeaponTuning.get(Weapon.SPRAYER).value("velocity"), (double) Weapon.SPRAYER.velocity,
+				helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("velocity"), (double) Weapon.ROLLER.velocity,
 						"a weapon nobody tuned is untouched by the file");
 				JsonObject root = JsonParser.parseString(Files.readString(file, StandardCharsets.UTF_8)).getAsJsonObject();
 				helper.assertValueEqual(root.keySet(), Set.of("shooter", "slosher"), "only the two tuned weapons are in the file");

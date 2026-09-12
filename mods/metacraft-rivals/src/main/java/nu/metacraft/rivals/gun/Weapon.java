@@ -23,9 +23,9 @@ import java.util.stream.Stream;
  */
 public enum Weapon {
 	SHOOTER("paint_gun", "Paint Gun", 1, 4, 1.8f, 2.0f, -2.5f, 3.0f),
-	SPRAYER("sprayer", "Paint Sprayer", 1, 4, 0.9f, 9.0f, -1.0f, 1.0f),
 	CHARGER("charger", "Paint Charger", 4, 20, 0.0f, 0.0f, -6.0f, 0.0f),
-	SLOSHER("slosher", "Paint Slosher", 15, 14, 1.1f, 0.0f, -3.0f, 4.0f);
+	SLOSHER("slosher", "Paint Slosher", 15, 14, 1.1f, 0.0f, -3.0f, 4.0f),
+	ROLLER("roller", "Paint Roller", 9, 15, 0.55f, 0.0f, -4.0f, 30.0f);
 
 	/** Registry path and model path. Also accepted by {@code /rivals gun <weapon>}. */
 	public final String id;
@@ -37,10 +37,10 @@ public enum Weapon {
 	/** Relative pitch nudge on the shot, in degrees; negative is up. */
 	public final float kickPitch;
 	/**
-	 * Hearts off a direct hit on someone from another team, per projectile. The sprayer throws three and
-	 * the slosher four, so a face full of either is worth rather more than the number here. The charger
-	 * is 0 because it fires no projectile: its damage rides the charge, {@link #CHARGE_BASE_DAMAGE} plus
-	 * {@link #CHARGE_EXTRA_DAMAGE}, and is dealt by the hitscan at release.
+	 * Hearts off a direct hit on someone from another team, per projectile. The slosher throws four and
+	 * the roller's flick three, so a face full of either is worth rather more than the number here. The
+	 * charger is 0 because it fires no projectile: its damage rides the charge, {@link #CHARGE_BASE_DAMAGE}
+	 * plus {@link #CHARGE_EXTRA_DAMAGE}, and is dealt by the hitscan at release.
 	 */
 	public final float damage;
 
@@ -54,9 +54,19 @@ public enum Weapon {
 	 */
 	public static final int SHOOTER_BOUNCES = 2;
 
-	/** Sprayer: how many droplets one click throws, and how long each lives before it splashes the floor. */
-	public static final int SPRAYER_DROPLETS = 3;
-	public static final int SPRAYER_LIFETIME = 12;
+	/**
+	 * Roller: the flick. Splatoon's Splat Roller swing throws three drops in a near-vertical arc that
+	 * lands a few blocks ahead, which is a fan of three at {@link #ROLLER_FAN_YAW} degrees of yaw thrown
+	 * {@link #ROLLER_PITCH} degrees above the crosshair at the enum's own low {@code velocity}: the
+	 * pitch and the speed together are what makes it an arc rather than a shot.
+	 * ({@code splat_roller.json}: 3 projectiles at speed 0.55, startup 6, recovery 15.)
+	 */
+	public static final int ROLLER_FLICK_BALLS = 3;
+	public static final float ROLLER_FAN_YAW = 20.0f;
+	public static final float ROLLER_PITCH = -67.0f;
+	public static final double ROLLER_GRAVITY = 0.06;
+	/** Roller: the flick lands as a bucketful, 5x5 on the face it finds. */
+	public static final int ROLLER_SPLAT_RADIUS = 2;
 
 	/** Slosher: yaw offsets of the fan, degrees from the look direction. */
 	public static final float[] SLOSHER_FAN = {-15.0f, -5.0f, 5.0f, 15.0f};

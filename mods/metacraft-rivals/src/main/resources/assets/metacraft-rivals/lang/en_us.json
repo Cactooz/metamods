@@ -1,8 +1,8 @@
 {
 	"item.metacraft-rivals.paint_gun": "Paint Gun",
-	"item.metacraft-rivals.sprayer": "Paint Sprayer",
 	"item.metacraft-rivals.charger": "Paint Charger",
 	"item.metacraft-rivals.slosher": "Paint Slosher",
+	"item.metacraft-rivals.roller": "Paint Roller",
 	"block.metacraft-rivals.paint_data": "DATA Paint",
 	"block.metacraft-rivals.paint_it": "IT Paint",
 	"entity.metacraft-rivals.paint_ball": "Paint Ball"

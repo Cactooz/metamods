@@ -588,9 +588,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	public void modifyClientTooltip(List<Component> tooltip, ItemStack stack, PacketContext context) {
 		tooltip.add(Component.literal(switch (weapon) {
 			case SHOOTER -> "Shoots paint in your team's colour";
-			case SPRAYER -> "Sprays a cone of droplets up close";
 			case CHARGER -> "Right click to aim, left click to fire a long line of paint";
 			case SLOSHER -> "Throws a bucketful in a wide fan";
+			case ROLLER -> "Hold right click to roll, tap it to flick";
 		}).withStyle(ChatFormatting.GRAY));
 	}
 }

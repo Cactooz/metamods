@@ -237,10 +237,12 @@ public final class WeaponTuning {
 			values.put(Param.SPECIAL_LIFETIME, (double) Weapon.SPECIAL_LIFETIME);
 			switch (weapon) {
 				case SHOOTER -> values.put(Param.BOUNCES, (double) Weapon.SHOOTER_BOUNCES);
-				case SPRAYER -> {
-					values.put(Param.COUNT, (double) Weapon.SPRAYER_DROPLETS);
-					values.put(Param.LIFETIME, (double) Weapon.SPRAYER_LIFETIME);
-					values.put(Param.SPLAT_RADIUS, 0.0);
+				case ROLLER -> {
+					values.put(Param.COUNT, (double) Weapon.ROLLER_FLICK_BALLS);
+					values.put(Param.FAN_YAW, (double) Weapon.ROLLER_FAN_YAW);
+					values.put(Param.FAN_PITCH, (double) Weapon.ROLLER_PITCH);
+					values.put(Param.GRAVITY, Weapon.ROLLER_GRAVITY);
+					values.put(Param.SPLAT_RADIUS, (double) Weapon.ROLLER_SPLAT_RADIUS);
 				}
 				case SLOSHER -> {
 					values.put(Param.COUNT, (double) Weapon.SLOSHER_FAN.length);
