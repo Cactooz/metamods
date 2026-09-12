@@ -1,5 +1,6 @@
 package nu.metacraft.rivals.gametest;
 
+import eu.pb4.polymer.core.api.block.PolymerBlock;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -1335,6 +1336,46 @@ public final class RivalsGameTests {
 		for (int x = 1; x <= 3; x++) tally.track(helper.absolutePos(new BlockPos(x, 2, 2)));
 		Map<PaintColor, Integer> after = tally.count(level);
 		helper.assertValueEqual(after.get(PaintColor.DATA) - before.get(PaintColor.DATA), 4, "three floor faces plus one wall face");
+		helper.succeed();
+	}
+
+	/** Spec §7: a 3×3 floor — centre all four bits, an edge three, a corner two. */
+	@GameTest
+	public void floorPaintConnects(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		for (int x = 1; x <= 3; x++) for (int z = 1; z <= 3; z++) helper.setBlock(new BlockPos(x, 1, z), Blocks.STONE);
+		for (int x = 1; x <= 3; x++) for (int z = 1; z <= 3; z++) Painter.paintFace(level, helper.absolutePos(new BlockPos(x, 1, z)), Direction.UP, PaintColor.DATA);
+		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(2, 2, 2)))), 15, "centre: all four");
+		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(1, 2, 2)))), 0b1110, "west edge: everything but NEG_U (west)");
+		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(1, 2, 1)))), 0b1010, "north-west corner: POS_U (east) and POS_V (south)");
+		BlockState centre = level.getBlockState(helper.absolutePos(new BlockPos(2, 2, 2)));
+		helper.assertValueEqual(((PolymerBlock) centre.getBlock()).getPolymerBlockState(centre, PacketContext.get()), PaintStates.connected(PaintColor.DATA, Direction.DOWN, 15), "the client sees the all-connected state");
+		helper.succeed();
+	}
+
+	/** A 3-wide, 2-high north wall (paint cells south of it): the bottom-middle cell connects up and sideways, not down. */
+	@GameTest
+	public void wallPaintUsesTheWorldFrame(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		for (int x = 1; x <= 3; x++) for (int y = 2; y <= 3; y++) helper.setBlock(new BlockPos(x, y, 1), Blocks.STONE);
+		for (int x = 1; x <= 3; x++) for (int y = 2; y <= 3; y++) Painter.paintFace(level, helper.absolutePos(new BlockPos(x, y, 1)), Direction.SOUTH, PaintColor.IT);
+		BlockState cell = level.getBlockState(helper.absolutePos(new BlockPos(2, 2, 2)));
+		helper.assertValueEqual(cell.getValue(ConnectedPaintBlock.FACE), Direction.NORTH, "attaches north");
+		helper.assertValueEqual(ConnectedPaintBlock.bits(cell), 0b1011, "NEG_U (west), POS_U (east), POS_V (up); no NEG_V (down)");
+		helper.succeed();
+	}
+
+	/** IT over the middle of a DATA row: the DATA neighbours drop that bit, the IT cell has none. */
+	@GameTest
+	public void overpaintReconnects(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		for (int x = 1; x <= 3; x++) helper.setBlock(new BlockPos(x, 1, 2), Blocks.STONE);
+		for (int x = 1; x <= 3; x++) Painter.paintFace(level, helper.absolutePos(new BlockPos(x, 1, 2)), Direction.UP, PaintColor.DATA);
+		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(1, 2, 2)))), 0b0010, "west cell connects east");
+		Painter.paintFace(level, helper.absolutePos(new BlockPos(2, 1, 2)), Direction.UP, PaintColor.IT);
+		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(1, 2, 2)))), 0, "west cell lost its neighbour");
+		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(3, 2, 2)))), 0, "east cell lost its neighbour");
+		helper.assertValueEqual(ConnectedPaintBlock.bits(level.getBlockState(helper.absolutePos(new BlockPos(2, 2, 2)))), 0, "the IT cell has no IT neighbours");
 		helper.succeed();
 	}
 }
