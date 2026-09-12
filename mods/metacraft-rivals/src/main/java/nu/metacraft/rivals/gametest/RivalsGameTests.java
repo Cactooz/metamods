@@ -553,18 +553,15 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
-	/** The gloss shader ships in the pack and keys on the paint alpha marker. */
+	/** The gloss lives in the terrain shader pair (what actually draws chunks in 26.2), keyed on the paint alpha marker. */
 	@GameTest
 	public void glossShaderCarriesTheMarkerGuard(GameTestHelper helper) {
-		String fsh = new String(RivalsPack.shader("block.fsh"), StandardCharsets.UTF_8);
-		String vsh = new String(RivalsPack.shader("block.vsh"), StandardCharsets.UTF_8);
-		// A narrow window around 229/255, not a band: a wide one also catches vanilla texels (nether
-		// portals, frosted ice, stained-glass pane edges, tripwire) and makes them glossy for everyone.
-		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.898") && fsh.contains("0.004"),
-				"fragment shader guards on the marker alpha");
-		helper.assertTrue(!fsh.contains("tex.a > 0.85"), "the wide marker band is gone");
-		helper.assertTrue(fsh.contains("#ifdef ALPHA_CUTOUT"), "vanilla cutout path kept");
-		helper.assertTrue(vsh.contains("out vec3 viewPos"), "vertex shader exports the view position");
+		String fsh = new String(RivalsPack.shader("terrain.fsh"), StandardCharsets.UTF_8);
+		String vsh = new String(RivalsPack.shader("terrain.vsh"), StandardCharsets.UTF_8);
+		helper.assertTrue(fsh.contains("RIVALS_GLOSS") && fsh.contains("0.898") && fsh.contains("0.004"), "fragment shader guards on the marker alpha");
+		helper.assertTrue(fsh.contains("sampleRGSS") && fsh.contains("#ifdef ALPHA_CUTOUT"), "vanilla terrain sampling and cutout kept");
+		helper.assertTrue(vsh.contains("out vec3 viewPos") && vsh.contains("ChunkPosition"), "vertex shader exports the view position from the chunk-relative position");
+		helper.assertTrue(RivalsPack.class.getResource("/rivals_shaders/block.fsh") == null, "the block shader override is gone");
 		helper.succeed();
 	}
 

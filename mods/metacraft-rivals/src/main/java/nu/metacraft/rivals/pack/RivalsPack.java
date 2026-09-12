@@ -12,7 +12,9 @@ import java.util.Map;
 /**
  * The resource pack: the mod's own assets (gun model, palette, lang) plus generated splat art per
  * colour, shipped as a multipart blockstate override replacing the donor block's vanilla blockstate.
- * Required, because without it players see sculk veins and resin clumps where the paint is.
+ * Required, because without it players see sculk veins and resin clumps where the paint is. Also
+ * ships a terrain shader override: chunk geometry in 26.2 is drawn by terrain.vsh/terrain.fsh (not
+ * block.*), so the paint gloss is keyed into that pair instead.
  */
 public final class RivalsPack {
 	private RivalsPack() {}
@@ -29,8 +31,8 @@ public final class RivalsPack {
 			long quadFiles = files.keySet().stream().filter(path -> path.contains("splat_quad_")).count();
 			Rivals.LOGGER.info("[{}] pack: {} pack files (splat art for {} colours × {} shapes × {} rotations, plus {} quad item files)",
 					Rivals.MOD_ID, files.size(), PaintColor.values().length, SplatArt.SHAPES.length, SplatArt.ROTATIONS, quadFiles);
-			builder.addData("assets/minecraft/shaders/core/block.vsh", shader("block.vsh"));
-			builder.addData("assets/minecraft/shaders/core/block.fsh", shader("block.fsh"));
+			builder.addData("assets/minecraft/shaders/core/terrain.vsh", shader("terrain.vsh"));
+			builder.addData("assets/minecraft/shaders/core/terrain.fsh", shader("terrain.fsh"));
 		});
 	}
 
