@@ -53,7 +53,7 @@ import java.util.UUID;
  * potion effect, because there is no attribute for it. Entering squid form from a stand is a dive: a
  * horizontal shove along the player's look direction and a quiet splash, gated by a short per-player
  * cooldown so it fires once per dive rather than every tick spent in the paint. A swimming squid
- * leaves a wake — a couple of ink specks at its feet every tick it is actually moving, a soft swim
+ * leaves a wake — a burst of ink at its feet every tick it is actually moving, a soft swim
  * note every six — and the dive throws a ring of them; a squid that has stopped leaves nothing, so
  * the trail reads as movement rather than as a permanent marker saying "someone is here".
  *
@@ -96,12 +96,13 @@ public final class PlayerTick {
 
 	/** Below this many blocks per tick of horizontal movement a squid is holding still, not swimming. */
 	private static final double RIPPLE_SPEED = 0.05;
-	/** Ink crumbs per swimming tick. */
+	/** Ink pillars per swimming tick, plus the one crumb that goes with them. */
 	private static final int RIPPLE_PARTICLES = 2;
+	private static final int RIPPLE_CRUMBS = 1;
 	/** Ticks between two swim notes. */
 	private static final int SWIM_SOUND_EVERY = 6;
-	/** Specks thrown in a ring on the dive, and how far out they land. */
-	private static final int DIVE_RING_PARTICLES = 8;
+	/** Pillars thrown in a ring on the dive, and how far out they land. */
+	private static final int DIVE_RING_PARTICLES = 6;
 	private static final double DIVE_RING_RADIUS = 0.5;
 
 	/** Server tick of each player's last dive surge, so a flicker in and out of squid form does not
@@ -399,16 +400,22 @@ public final class PlayerTick {
 	 * Ink specks at the squid's feet, if it is moving horizontally at all. Returns how many were sent —
 	 * the only thing a server-side test can see, since particles leave no trace in the level.
 	 *
-	 * <p>Everyone gets them, the squid included: a couple of small crumbs down at foot level are under the
-	 * camera of a half-height squid, and leaving your own wake out is what makes squid form feel like
-	 * nothing is happening.
+	 * <p>Mostly dust pillars — vanilla's mace-smash particle, a chunky column that rises and falls, so the
+	 * wake reads as displaced ink rather than as grit — with one block crumb under them for texture. The
+	 * shots and the splashes keep the crumb on its own; this is the one place ink is supposed to look big.
+	 *
+	 * <p>Everyone gets them, the squid included: they come out at foot level, under the camera of a
+	 * half-height squid, and leaving your own wake out is what makes squid form feel like nothing is
+	 * happening.
 	 */
 	public static int ripples(ServerLevel level, Player player, PaintColor color, Vec3 velocity) {
 		if (velocity.horizontalDistance() <= RIPPLE_SPEED) return 0;
-		// A little upward speed so the crumbs hop out of the ink and fall back rather than sitting on it.
-		level.sendParticles(Painter.crumbs(color), player.getX(), player.getY() + 0.05,
+		// A little upward speed so the ink hops out of the pool and falls back rather than sitting on it.
+		level.sendParticles(Painter.pillar(color), player.getX(), player.getY() + 0.05,
 				player.getZ(), RIPPLE_PARTICLES, 0.35, 0.02, 0.35, 0.05);
-		return RIPPLE_PARTICLES;
+		level.sendParticles(Painter.crumbs(color), player.getX(), player.getY() + 0.05,
+				player.getZ(), RIPPLE_CRUMBS, 0.3, 0.02, 0.3, 0.05);
+		return RIPPLE_PARTICLES + RIPPLE_CRUMBS;
 	}
 
 	/**
@@ -430,7 +437,7 @@ public final class PlayerTick {
 			PaintColor.byTeam(player.getTeam()).ifPresent(color -> {
 				for (int i = 0; i < DIVE_RING_PARTICLES; i++) {
 					double angle = i * 2.0 * Math.PI / DIVE_RING_PARTICLES;
-					level.sendParticles(Painter.crumbs(color),
+					level.sendParticles(Painter.pillar(color),
 							player.getX() + Math.cos(angle) * DIVE_RING_RADIUS, player.getY() + 0.05,
 							player.getZ() + Math.sin(angle) * DIVE_RING_RADIUS, 1, 0.0, 0.0, 0.0, 0.0);
 				}

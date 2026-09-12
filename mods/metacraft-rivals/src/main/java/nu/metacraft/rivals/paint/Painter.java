@@ -160,6 +160,20 @@ public final class Painter {
 				PaintStates.splat(c, 1 << Direction.DOWN.ordinal() | 1 << Direction.UP.ordinal())));
 	}
 
+	/** One pillar option per colour, for the same reason {@link #CRUMBS} is cached. */
+	private static final Map<PaintColor, BlockParticleOption> PILLARS = new EnumMap<>(PaintColor.class);
+
+	/**
+	 * The big ink splash: vanilla's mace-smash particle (a dust pillar) carrying a paint state. A crumb
+	 * is a single small lump; a dust pillar throws a chunky column that rises and falls, which is what
+	 * a squid displacing ink looks like from outside. Same paint state as {@link #crumbs}, so it comes
+	 * out in the team colour rather than through a vanilla block-colour provider.
+	 */
+	public static BlockParticleOption pillar(PaintColor color) {
+		return PILLARS.computeIfAbsent(color, c -> new BlockParticleOption(ParticleTypes.DUST_PILLAR,
+				PaintStates.splat(c, 1 << Direction.DOWN.ordinal() | 1 << Direction.UP.ordinal())));
+	}
+
 	/**
 	 * The charger's trail: crumbs along the segment, and under every whole block position it passes
 	 * through a look straight down for up to {@link #LINE_DROP} blocks, painting the face it lands on.

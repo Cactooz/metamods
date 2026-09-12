@@ -1100,8 +1100,13 @@ public final class RivalsGameTests {
 	public void squidSwimLeavesRipples(GameTestHelper helper) {
 		Player player = gunner(helper);
 		ServerLevel level = helper.getLevel();
-		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.2, 0, 0)), 2, "swimming east leaves a wake");
-		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.IT, new Vec3(0, 0, -0.2)), 2, "swimming north too");
+		// Two dust pillars and a crumb: the pillars are the mace-smash particle, which is what makes the
+		// wake read as a mass of ink rather than as grit.
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, new Vec3(0.2, 0, 0)), 3, "swimming east leaves a wake");
+		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.IT, new Vec3(0, 0, -0.2)), 3, "swimming north too");
+		helper.assertTrue(Painter.pillar(PaintColor.DATA).getType() == ParticleTypes.DUST_PILLAR, "the wake is dust pillars");
+		helper.assertTrue(Painter.pillar(PaintColor.DATA).getState().getBlock() == Painter.crumbs(PaintColor.DATA).getState().getBlock(),
+				"carrying the same paint state the crumbs do, so it comes out in the team colour");
 		helper.assertValueEqual(PlayerTick.ripples(level, player, PaintColor.DATA, Vec3.ZERO), 0, "a still squid leaves nothing");
 		// Only horizontal movement counts: falling is not swimming, and a crawl under the threshold is
 		// the squid holding position rather than moving.
