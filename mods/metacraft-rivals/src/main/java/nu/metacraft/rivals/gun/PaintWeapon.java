@@ -64,6 +64,8 @@ import java.util.Optional;
  */
 public final class PaintWeapon extends Item implements PolymerItem {
 	private static final Map<Weapon, PaintWeapon> ITEMS = new EnumMap<>(Weapon.class);
+	/** World up, for the barrel offset: right is look × up. */
+	private static final Vec3 UP = new Vec3(0, 1, 0);
 
 	private final Weapon weapon;
 
@@ -282,13 +284,39 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		muzzle(level, shooter, color);
 	}
 
+	/** How far a muzzle burst is worth sending; past this nobody reads it as a shot anyway. */
+	private static final double MUZZLE_RANGE = 32.0;
+	/** The burst everyone but the shooter sees, at eye + look × this. */
+	private static final double MUZZLE_REACH = 0.9;
+	/** The shooter's own, smaller burst: at the barrel tip, off to the right of the view and below it. */
+	private static final double BARREL_REACH = 1.4;
+	private static final double BARREL_RIGHT = 0.3;
+	private static final double BARREL_DROP = 0.25;
+
 	/** Everything about a shot but the camera kick: the nudge back, the burst of colour, the layered sounds. */
 	void muzzle(ServerLevel level, Player shooter, PaintColor color) {
 		Vec3 look = shooter.getLookAngle();
 		shooter.push(-look.x * 0.06, 0, -look.z * 0.06);
 		shooter.hurtMarked = true;
-		Vec3 muzzle = shooter.getEyePosition().add(look.scale(0.9));
-		level.sendParticles(new DustParticleOptions(color.rgb, 1.2f), muzzle.x, muzzle.y, muzzle.z, 10, 0.1, 0.1, 0.1, 0.02);
+		// The full burst is for everyone else. Ten grains of dust at the shooter's own eyes hang in front
+		// of their camera for the whole of a held trigger and clog the first-person view, so the shooter
+		// gets three small ones at the barrel tip instead — off the centre of the screen, where a muzzle is.
+		Vec3 muzzle = shooter.getEyePosition().add(look.scale(MUZZLE_REACH));
+		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.2f);
+		for (ServerPlayer viewer : level.players()) {
+			if (viewer == shooter || viewer.position().distanceToSqr(muzzle) > MUZZLE_RANGE * MUZZLE_RANGE) continue;
+			level.sendParticles(viewer, dust, false, false, muzzle.x, muzzle.y, muzzle.z, 10, 0.1, 0.1, 0.1, 0.02);
+		}
+		if (shooter instanceof ServerPlayer self) {
+			Vec3 across = look.cross(UP);
+			Vec3 right = across.lengthSqr() < 1.0e-6 ? Vec3.ZERO : across.normalize(); // straight up or down: no side
+			Vec3 barrel = shooter.getEyePosition()
+					.add(look.scale(BARREL_REACH))
+					.add(right.scale(BARREL_RIGHT))
+					.subtract(UP.scale(BARREL_DROP));
+			level.sendParticles(self, new DustParticleOptions(color.rgb, 0.8f), false, false,
+					barrel.x, barrel.y, barrel.z, 3, 0.05, 0.05, 0.05, 0.0);
+		}
 		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SNOWBALL_THROW, SoundSource.PLAYERS, 0.7f, 0.7f);
 		level.playSound(null, shooter.getX(), shooter.getY(), shooter.getZ(), SoundEvents.SLIME_BLOCK_PLACE, SoundSource.PLAYERS, 0.5f, 1.4f);
 		// A bucketful wants weight under the snowball throw; a low slime step is that weight.

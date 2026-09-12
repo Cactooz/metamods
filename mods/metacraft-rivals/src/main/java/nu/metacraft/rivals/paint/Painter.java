@@ -113,6 +113,12 @@ public final class Painter {
 	/** How often the charger's trail drops dust, and how far under it looks for a floor to paint. */
 	public static final double LINE_STEP = 0.5;
 	public static final double LINE_DROP = 6.0;
+	/**
+	 * How far along the shot the trail's dust starts. The line is drawn from the shooter's eyes, so dust
+	 * from the first blocks of it lands inside their own camera and greys out the shot they are aiming.
+	 * The paint under the line still starts at the eyes; only the dust is held back.
+	 */
+	public static final double LINE_DUST_START = 1.5;
 
 	/**
 	 * The charger's trail: dust along the segment, and under every whole block position it passes
@@ -121,14 +127,15 @@ public final class Painter {
 	 * at the far end. Returns how many cells changed.
 	 */
 	public static int line(ServerLevel level, Vec3 from, Vec3 to, PaintColor color, @Nullable Entity source) {
-		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.4f);
+		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.2f);
 		double length = from.distanceTo(to);
 		int steps = (int) Math.ceil(length / LINE_STEP);
 		int changed = 0;
 		BlockPos last = null;
 		for (int i = 0; i <= steps; i++) {
-			Vec3 at = length <= 0 ? from : from.lerp(to, Math.min(1.0, i * LINE_STEP / length));
-			level.sendParticles(dust, at.x, at.y, at.z, 2, 0.02, 0.02, 0.02, 0.0);
+			double along = i * LINE_STEP;
+			Vec3 at = length <= 0 ? from : from.lerp(to, Math.min(1.0, along / length));
+			if (along >= LINE_DUST_START) level.sendParticles(dust, at.x, at.y, at.z, 1, 0.02, 0.02, 0.02, 0.0);
 			BlockPos here = BlockPos.containing(at);
 			if (here.equals(last)) continue;
 			last = here;
@@ -184,17 +191,29 @@ public final class Painter {
 		int changed = splat(level, struck, face, color, random, radius);
 		Vec3 normal = Vec3.atLowerCornerOf(face.getUnitVec3i());
 		Vec3 from = impact.add(normal.scale(0.05));
-		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.6f);
+		// The burst is sized to the splat it goes with. A sprayer droplet paints one face and used to
+		// throw the same twenty-four grains as a slosher's bucketful, which up close is a wall of dust
+		// in front of the shooter; a single face now gets four small ones and no ray dust at all.
+		int weight = Math.max(0, Math.min(2, radius));
+		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.0f + 0.2f * weight);
+		int perRay = switch (weight) {
+			case 0 -> 0;
+			case 1 -> 2;
+			default -> 3;
+		};
 		for (Vec3 ray : RAY_DIRECTIONS) {
 			if (ray.dot(normal) < 0) continue;
 			Vec3 to = from.add(ray.scale(RAY_LENGTH));
 			BlockHitResult hit = level.clip(clipContext(from, to, source));
 			if (hit.getType() != HitResult.Type.BLOCK) continue;
 			if (paintFace(level, hit.getBlockPos(), hit.getDirection(), color)) changed++;
+			if (perRay == 0) continue;
 			Vec3 at = hit.getLocation();
-			level.sendParticles(dust, at.x, at.y, at.z, 4, 0.1, 0.1, 0.1, 0.01);
+			level.sendParticles(dust, at.x, at.y, at.z, perRay, 0.1, 0.1, 0.1, 0.01);
 		}
-		level.sendParticles(dust, impact.x, impact.y, impact.z, 24, 0.35, 0.35, 0.35, 0.02);
+		int burst = 4 + 6 * weight;
+		double spread = 0.15 + 0.1 * weight;
+		level.sendParticles(dust, impact.x, impact.y, impact.z, burst, spread, spread, spread, 0.02);
 		level.playSound(null, impact.x, impact.y, impact.z, SoundEvents.SLIME_BLOCK_HIT, SoundSource.BLOCKS, 0.8f, 1.3f);
 		return changed;
 	}

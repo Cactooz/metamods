@@ -42,12 +42,18 @@ Rivals server wants.
   bounce) it splashes: the usual blob on the struck face (3×3 for the shooter and sprayer, 5×5
   for the slosher), plus fourteen short rays from the impact point (six axis directions and eight
   diagonals) that paint whatever face they hit, so a floor shot next to a wall also paints the
-  wall and fills in the corner. A coloured dust burst and a wet impact sound go with it. Colour
-  comes from the shooter's vanilla team, whose name is the colour id.
+  wall and fills in the corner. A coloured dust burst and a wet impact sound go with it; the burst
+  is sized to the splat (4 grains for a single face, 10 for a 3×3, 16 for a 5×5, with ray dust only
+  from radius 1 up), so a sprayer at point-blank range doesn't fill its own screen. Colour comes
+  from the shooter's vanilla team, whose name is the colour id.
 - Firing has a kick: the client's pitch is nudged up on the shot and eased back down two ticks
   later (scaled to the charger's charge), plus a small push, a muzzle particle burst and a
   layered sound (a low slime step added under the slosher's throw for weight). Recoil packets
-  only reach real connected players; mock players (game tests) are unaffected.
+  only reach real connected players; mock players (game tests) are unaffected. The muzzle burst
+  goes to every viewer *but* the shooter (per-player particles, 32 blocks): in first person those
+  grains hang in the middle of the camera. The shooter gets three small ones at the barrel tip
+  instead, offset right and down out of the crosshair. The charger's trail starts its dust 1.5
+  blocks along the shot for the same reason; the paint under the line still starts at the eyes.
 - Paint blocks only ever sit on a full face — vanilla's own attach rule for a multiface block, and
   exactly the rule paint wants. A face that isn't full (stairs, slabs, fences, panes, walls, glass
   panes) instead gets a set of flat splat-quad item displays that wrap the block's own outline
