@@ -2,13 +2,23 @@ package nu.metacraft.rivals.paint;
 
 import net.minecraft.core.BlockPos;
 import net.minecraft.core.Direction;
+import net.minecraft.core.particles.DustParticleOptions;
 import net.minecraft.server.level.ServerLevel;
+import net.minecraft.sounds.SoundEvents;
+import net.minecraft.sounds.SoundSource;
 import net.minecraft.util.RandomSource;
+import net.minecraft.world.entity.Entity;
+import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BooleanProperty;
+import net.minecraft.world.phys.BlockHitResult;
+import net.minecraft.world.phys.HitResult;
+import net.minecraft.world.phys.Vec3;
+import net.minecraft.world.phys.shapes.CollisionContext;
 import nu.metacraft.rivals.PaintColor;
+import org.jspecify.annotations.Nullable;
 
 /**
  * Where a hit puts paint. The struck block is the surface; the paint lives in the cell in front of the
@@ -75,5 +85,48 @@ public final class Painter {
 		if (!level.setBlock(cell, next, Block.UPDATE_ALL)) return false;
 		PaintTally.of(level).track(cell);
 		return true;
+	}
+
+	/** Ray length from the impact point, in blocks. */
+	public static final double RAY_LENGTH = 1.5;
+	/** The six axis directions and the eight body diagonals, unit length. */
+	public static final Vec3[] RAY_DIRECTIONS = rayDirections();
+
+	private static Vec3[] rayDirections() {
+		Vec3[] rays = new Vec3[14];
+		int i = 0;
+		for (Direction d : DIRECTIONS) rays[i++] = Vec3.atLowerCornerOf(d.getUnitVec3i());
+		for (int x = -1; x <= 1; x += 2) {
+			for (int y = -1; y <= 1; y += 2) {
+				for (int z = -1; z <= 1; z += 2) rays[i++] = new Vec3(x, y, z).normalize();
+			}
+		}
+		return rays;
+	}
+
+	/**
+	 * A full impact: the 3×3 blob on the struck face, then fourteen short rays from the impact point that
+	 * paint whatever face they hit (so a floor shot beside a wall also paints the wall and the corner),
+	 * with a coloured dust burst and a wet sound. Returns how many cells changed.
+	 */
+	public static int splash(ServerLevel level, Vec3 impact, BlockPos struck, Direction face, PaintColor color,
+			RandomSource random, @Nullable Entity source) {
+		int changed = splat(level, struck, face, color, random);
+		Vec3 from = impact.add(Vec3.atLowerCornerOf(face.getUnitVec3i()).scale(0.05));
+		DustParticleOptions dust = new DustParticleOptions(color.rgb, 1.6f);
+		for (Vec3 ray : RAY_DIRECTIONS) {
+			Vec3 to = from.add(ray.scale(RAY_LENGTH));
+			ClipContext context = source != null
+					? new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, source)
+					: new ClipContext(from, to, ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, CollisionContext.empty());
+			BlockHitResult hit = level.clip(context);
+			if (hit.getType() != HitResult.Type.BLOCK) continue;
+			if (paintFace(level, hit.getBlockPos(), hit.getDirection(), color)) changed++;
+			Vec3 at = hit.getLocation();
+			level.sendParticles(dust, at.x, at.y, at.z, 4, 0.1, 0.1, 0.1, 0.01);
+		}
+		level.sendParticles(dust, impact.x, impact.y, impact.z, 24, 0.35, 0.35, 0.35, 0.02);
+		level.playSound(null, impact.x, impact.y, impact.z, SoundEvents.SLIME_BLOCK_HIT, SoundSource.BLOCKS, 0.8f, 1.3f);
+		return changed;
 	}
 }

@@ -378,6 +378,25 @@ public final class RivalsGameTests {
 		});
 	}
 
+	/** A splash on the floor beside a wall paints the wall's face too (the rays), not only the floor. */
+	@GameTest
+	public void splashPaintsAdjacentWall(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.STONE); // wall east of the hit
+		BlockPos struck = new BlockPos(3, 1, 2);
+		Vec3 impact = helper.absoluteVec(new Vec3(3.6, 2.0, 2.5));
+		int changed = Painter.splash(helper.getLevel(), impact, helper.absolutePos(struck), Direction.UP, PaintColor.CYAN,
+				helper.getLevel().getRandom(), null);
+		helper.assertTrue(changed >= 5, "blob plus rays painted at least five cells, got " + changed);
+		BlockState floorCell = helper.getBlockState(new BlockPos(3, 2, 2));
+		helper.assertTrue(floorCell.is(PaintBlocks.of(PaintColor.CYAN)) && floorCell.getValue(MultifaceBlock.getFaceProperty(Direction.DOWN)),
+				"floor cell painted");
+		BlockState wallCell = helper.getBlockState(new BlockPos(3, 2, 2)); // same cell holds the wall's west face
+		helper.assertTrue(wallCell.getValue(MultifaceBlock.getFaceProperty(Direction.EAST)),
+				Component.literal("the wall face east of the hit is painted, got " + wallCell));
+		helper.succeed();
+	}
+
 	/** Setup creates one vanilla team per colour with the matching colour, no friendly fire, no collisions. */
 	@GameTest
 	public void setupCreatesTeams(GameTestHelper helper) {

@@ -87,16 +87,16 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	protected void onHitBlock(BlockHitResult hit) {
 		super.onHitBlock(hit);
 		if (level() instanceof ServerLevel serverLevel) {
-			Painter.splat(serverLevel, hit.getBlockPos(), hit.getDirection(), color, random);
+			Painter.splash(serverLevel, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, this);
 		}
 	}
 
-	/** No damage (the snowball would hurt blazes); paint the ground under whoever was hit. */
+	/** No damage (the snowball would hurt blazes); splash from where the ball is, over the ground under the target. */
 	@Override
 	protected void onHitEntity(EntityHitResult hit) {
 		if (level() instanceof ServerLevel serverLevel) {
 			BlockPos below = hit.getEntity().blockPosition().below();
-			Painter.splat(serverLevel, below, Direction.UP, color, random);
+			Painter.splash(serverLevel, position(), below, Direction.UP, color, random, this);
 		}
 	}
 }
