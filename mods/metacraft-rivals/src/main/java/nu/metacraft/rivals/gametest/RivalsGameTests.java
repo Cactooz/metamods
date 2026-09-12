@@ -1367,7 +1367,8 @@ public final class RivalsGameTests {
 			helper.assertTrue(json.has("bilinear") && !json.get("bilinear").getAsBoolean(),
 					json.get("sampler_name").getAsString() + " is sampled with no filtering");
 		}
-		helper.assertValueEqual(overlays.size(), InkArt.INK_STATES, "one overlay per quarter of the meter: " + overlays);
+		helper.assertValueEqual(overlays.size(), InkArt.INK_STATES,
+				"one overlay per quarter of the health you can lose: " + overlays);
 		String chainText = new String(files.get(chainPath), StandardCharsets.UTF_8);
 		for (int state = 1; state <= InkArt.INK_STATES; state++) {
 			// A texture input's location is bare: 26.3's PostChain resolves it as
@@ -1396,7 +1397,13 @@ public final class RivalsGameTests {
 		helper.assertTrue(ink.contains("TONE_SHADOW = 0.3") && ink.contains("TONE_BASE = 0.6")
 						&& ink.contains("TONE_LIGHT = 0.85"),
 				"the shader steps the overlay's luminance into four tones of the team colour");
-		helper.assertTrue(ink.contains("floor(amount * 255.0 / 64.0)"), "and picks the state in quarters");
+		// The states are not four hard steps any more: the layer the next state adds fades in over the
+		// quarter, the way powder snow's frost does, so being hurt grows blobs in instead of popping
+		// them onto the glass whole. Only the opacity is continuous — the tones stay quantised.
+		helper.assertTrue(!ink.contains("floor(amount * 255.0 / 64.0)"),
+				"the state is no longer picked as one of four hard steps");
+		helper.assertTrue(ink.contains("smoothstep") && ink.contains("mix(frame, tone, opacity)"),
+				"the arriving layer fades in over the frame instead");
 		helper.assertTrue(!ink.contains("GRID"), "with no grid snapping of its own: the texture is the grid");
 		helper.assertTrue(ink.contains("ProbeSampler"), "the ink reads the data pixel");
 		for (PaintColor team : PaintColor.values()) {

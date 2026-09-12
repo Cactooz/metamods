@@ -325,7 +325,8 @@ dedicated Rivals server wants.
 
   **The ink itself is four textures**, not a field of procedural blobs — two flat tones and a signed
   distance function had no depth and did not read as pixel art. `textures/effect/ink_1.png` …
-  `ink_4.png` are 320×180 RGBA overlays, one per quarter of the meter, bound to the ink pass as
+  `ink_4.png` are 320×180 RGBA overlays, one per quarter of the health you can lose — with the next
+  quarter fading in, see below — bound to the ink pass as
   `PostChainConfig` texture inputs with `bilinear: false`. The directory and the bare names in the
   JSON go together: a texture input's `location` is resolved by `PostChain` as
   `textures/effect/<path>.png`, so the chain says `metacraft-rivals:ink_1` and the file sits at
@@ -340,6 +341,14 @@ dedicated Rivals server wants.
   creeps in from the sides. They are ordinary resources: an artist paints over them and nothing else
   changes. The format is written out in `textures/effect/README.md`, and `tools/ink_overlays.py` (Pillow)
   drew the placeholders that are checked in.
+
+  **The states crossfade.** The amount is continuous, not four steps: `s = amount × 4`, layer
+  `n = floor(s)` is fully on the glass, and the texels the next state *adds* on top of it — the overlays
+  are cumulative, so that is state `n+1`'s alpha minus state `n`'s — are blended over the frame at
+  `smoothstep(0, 1, fract(s))`, the way powder snow's frost fades in. So being hurt grows the next round
+  of blobs in over the quarter instead of popping it onto the screen whole, and at `n = 0` the whole of
+  state 1 fades up from a clean screen. Only that opacity is continuous: the four tones stay quantised
+  and the alpha edges stay hard, because that is the pixel-art look.
 
   The drawing is **blobs, not a frame**: seventeen round splats, each a body disc with lobes thrown onto
   its rim and drips hanging off its lowest edge, fused with a metaball threshold so a splat reads as one

@@ -48,6 +48,11 @@ when the health comes back, and healing up wipes it.
 | `ink_3.png` | 128–191 | about three quarters gone — most of the way |
 | `ink_4.png` | 192–255 | nearly dead — nearly covered, **centre still clear** |
 
+The shader does not cut from one to the next. It draws the state below at full strength and fades in
+the texels the next one *adds* on top of it, over that whole quarter of health — which is the second
+reason the states have to be cumulative, and the reason the texels a state adds are worth composing as
+whole new splats rather than as a redrawn edge.
+
 Three rules the drawings have to keep:
 
 - **Ink comes in from the edges.** It is thrown at the player's face; it does not appear in the middle
