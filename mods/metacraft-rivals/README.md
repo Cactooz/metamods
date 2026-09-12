@@ -117,6 +117,12 @@ dedicated Rivals server wants.
   and left click is its trigger — the charge it has built if it is scoped, a snap shot at no charge if
   it is not.
 
+  Holding an item in use costs a vanilla player their sprint and four fifths of their speed — a bow's
+  behaviour, read client-side off the `minecraft:use_effects` component — so the shooter and the roller
+  carry their own: the shooter keeps sprinting at 72% (about what firing costs in Splatoon) and the
+  roller at 100%, since its `roll_speed` attribute is what decides how fast a roll is. The charger is
+  left on vanilla's, because being pinned in place is what its damage is paid for.
+
   Left click throws a **splat bomb** on everything but the charger: a slow lob that bounces where it
   lands and counts twenty ticks down there rather than going off on contact, so it is a thing you can
   run away from and throwing one is a decision about where someone will be. It splashes a 7×7 patch

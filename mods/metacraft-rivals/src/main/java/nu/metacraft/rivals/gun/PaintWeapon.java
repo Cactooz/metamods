@@ -36,6 +36,7 @@ import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.item.component.UseEffects;
 import net.minecraft.world.level.ClipContext;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.phys.AABB;
@@ -63,15 +64,22 @@ import java.util.UUID;
  * Every paint weapon, in one item class parameterised by a {@link Weapon}. Right click fires: it throws
  * paint in the colour of the holder's vanilla team, and no team means no shot. Left click is the
  * special — a splat bomb on three of the four weapons, and the charger's own shot, since the charger's
- * right click is the scope and pressing both buttons at once is how a scoped rifle is fired. Vanilla clients keep sending use packets
- * while the button is held, so the item cooldown is the fire rate. Clients see a stand-in vanilla item
- * wearing our 3D model; the model's tank is dye-tinted, and each inventory tick writes the holder's
- * team colour into the server-side stack as that dye, so every viewer sees the weapon in its holder's
- * colour.
+ * right click is the scope and pressing both buttons at once is how a scoped rifle is fired. Clients
+ * see a stand-in vanilla item wearing our 3D model; the model's ink is dye-tinted, and each inventory
+ * tick writes the holder's team colour into the server-side stack as that dye, so every viewer sees the
+ * weapon in its holder's colour.
  *
- * <p>Only the slosher swings the arm: it is a bucket, and the throw reads as one. The other three
- * return {@link InteractionResult#CONSUME}, which takes the click without animating the hand — a
- * four-tick swing loop on the shooter and sprayer looks like a stutter, not like firing.
+ * <p>How the trigger is read depends on the weapon. A vanilla client repeats a <em>held</em> right
+ * click only every four ticks, which is a ceiling of five shots a second, so the shooter and the roller
+ * are {@link #isHeld held} instead: the press starts using the item and {@link #onUseTick} does the
+ * work every tick until the button is let go. The slosher stays one slosh per click — its own cadence
+ * is twelve ticks, so the repeat fits inside it — and the charger has always been held, for its charge.
+ * Either way the item cooldown is the fire rate, and it is checked on the server rather than trusted to
+ * the client.
+ *
+ * <p>Only the slosher swings the arm: it is a bucket, and the throw reads as one. The others return
+ * {@link InteractionResult#CONSUME}, which takes the click without animating the hand — a swing loop on
+ * a three-tick shooter looks like a stutter, not like firing.
  */
 public final class PaintWeapon extends Item implements PolymerItem {
 	private static final Map<Weapon, PaintWeapon> ITEMS = new EnumMap<>(Weapon.class);
@@ -85,11 +93,29 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		this.weapon = weapon;
 	}
 
+	/**
+	 * What a client does to a player who is holding an item in use. Vanilla's default is a bow's: no
+	 * sprinting and a fifth of the walking speed, applied in {@code LocalPlayer} off the
+	 * {@code minecraft:use_effects} component — and since round 7 the shooter and the roller are held
+	 * items, so without this holding the trigger would leave a player crawling. The component is a
+	 * default on the item, so it reaches the client on every stack.
+	 *
+	 * <p>The numbers are Splatoon's own idea rather than vanilla's: firing a shooter there slows you to
+	 * about seven tenths, not one fifth, and a roller at full tilt is the fastest thing on the map — its
+	 * own {@code roll_speed} attribute does the work, so the component leaves it alone. The charger is
+	 * deliberately left on vanilla's default: a charger that could run while scoped would be a sniper
+	 * rifle with no cost at all, and being pinned in place is what the weapon trades its damage for.
+	 */
+	private static final UseEffects SHOOTER_USE = new UseEffects(true, false, 0.72f);
+	private static final UseEffects ROLLER_USE = new UseEffects(true, false, 1.0f);
+
 	public static void register() {
 		for (Weapon weapon : Weapon.values()) {
 			Identifier id = Rivals.id(weapon.id);
-			ITEMS.put(weapon, Registry.register(BuiltInRegistries.ITEM, id,
-					new PaintWeapon(weapon, new Item.Properties().stacksTo(1).setId(ResourceKey.create(Registries.ITEM, id)))));
+			Item.Properties properties = new Item.Properties().stacksTo(1).setId(ResourceKey.create(Registries.ITEM, id));
+			if (weapon == Weapon.SHOOTER) properties.component(DataComponents.USE_EFFECTS, SHOOTER_USE);
+			if (weapon == Weapon.ROLLER) properties.component(DataComponents.USE_EFFECTS, ROLLER_USE);
+			ITEMS.put(weapon, Registry.register(BuiltInRegistries.ITEM, id, new PaintWeapon(weapon, properties)));
 		}
 	}
 

@@ -46,6 +46,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.DyedItemColor;
 import net.minecraft.world.item.component.FireworkExplosion;
+import net.minecraft.world.item.component.UseEffects;
 import net.minecraft.world.level.EmptyBlockGetter;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.block.Block;
@@ -2474,6 +2475,21 @@ public final class RivalsGameTests {
 		helper.assertTrue(shooter.isHeld(), "the shooter is held, not clicked");
 		helper.assertValueEqual(shooter.getUseDuration(gun, player), Weapon.CHARGE_MAX_TICKS,
 				"held for as long as the button is down");
+		// A client slows a player who is holding an item in use to a fifth of their speed and takes their
+		// sprint away — vanilla's default for a bow, and ruinous for a weapon that is held to fire. The
+		// use_effects component is what that behaviour is read from, so the held weapons carry their own.
+		UseEffects effects = gun.get(DataComponents.USE_EFFECTS);
+		helper.assertTrue(effects != null, "the shooter says what holding it costs");
+		helper.assertTrue(effects.canSprint(), "and it does not take the sprint away");
+		helper.assertTrue(effects.speedMultiplier() > 0.5f,
+				"nor most of the speed: " + effects.speedMultiplier());
+		UseEffects rolling = new ItemStack(PaintWeapon.of(Weapon.ROLLER)).get(DataComponents.USE_EFFECTS);
+		helper.assertTrue(rolling != null && rolling.speedMultiplier() == 1.0f,
+				"and a roller loses none of it: its own roll_speed is the movement rule");
+		UseEffects scoped = new ItemStack(PaintWeapon.of(Weapon.CHARGER)).get(DataComponents.USE_EFFECTS);
+		helper.assertTrue(scoped != null && !scoped.canSprint() && scoped.speedMultiplier() < 0.5f,
+				"the charger keeps vanilla's own — no sprint and a fifth of the speed: being pinned down "
+						+ "is what a scope costs, got " + scoped);
 		int cooldown = WeaponTuning.get(Weapon.SHOOTER).intValue(Param.COOLDOWN);
 		helper.assertTrue(cooldown < 4, "the cadence is faster than a client's four-tick repeat: " + cooldown);
 		int before = Ink.get(gun);
