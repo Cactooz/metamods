@@ -49,7 +49,6 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.function.Function;
 import java.util.function.Supplier;
 
 /**
@@ -61,10 +60,12 @@ import java.util.function.Supplier;
  * handed in, so the whole machine can be driven by a test at whatever speed it likes rather than waited
  * out in real time. Nothing here reads {@code server.getTickCount()} on its own.
  *
- * <p><b>The roster is handed in too.</b> {@link #start} takes a supplier of the players and a lookup for
- * what they are wearing, and only <em>defaults</em> to the online player list and {@link OvveTeams#worn}.
- * That is the same seam {@link Readiness} has, and for the same reason: ovvar is matched on an item id and
- * is not on this module's classpath, so a game test cannot dress a real player.
+ * <p><b>The roster is handed in too.</b> {@link #start} takes a supplier of the players and only
+ * <em>defaults</em> to the online player list, which is the same seam {@link Readiness} has: a test can
+ * hand in its own mock players without them being logged in.
+ *
+ * <p>A player's side is their vanilla scoreboard team and nothing else — the two team names come from
+ * {@link TeamNames} — so {@link PaintColor#byTeam} is the single question asked about anybody.
  *
  * <p><b>Frozen</b> means a −100 % {@code MOVEMENT_SPEED} modifier and a −100 % {@code JUMP_STRENGTH} one,
  * transient attribute modifiers by id exactly as the roller's speed bonus is, rather than potion effects:
@@ -108,9 +109,8 @@ public final class Match {
 	/** The last whole second the countdown announced, so each number is titled once. */
 	private static int lastCount = -1;
 
-	/** Who is playing, and what decides their team. Set at start; see the class note. */
+	/** Who is playing. Set at start; see the class note. */
 	private static Supplier<List<ServerPlayer>> roster = List::of;
-	private static Function<Player, Optional<PaintColor>> ovve = OvveTeams::worn;
 
 	/** Whose respawn freeze runs out when (absolute ticks). */
 	private static final Map<UUID, Long> respawning = new HashMap<>();
@@ -179,19 +179,19 @@ public final class Match {
 		}
 	}
 
-	/** The command's form: the online players, their real ovves, the server's own clock. */
+	/** The command's form: the online players and the server's own clock. */
 	public static Result start(MinecraftServer server, ServerLevel level, int minutes, boolean force) {
-		return start(server, level, () -> server.getPlayerList().getPlayers(), OvveTeams::worn, minutes, force,
+		return start(server, level, () -> server.getPlayerList().getPlayers(), minutes, force,
 				server.getTickCount());
 	}
 
 	/**
-	 * Begin a match: check everybody is dressed (unless {@code force}), create the teams and put every
-	 * dressed player on their own, clear the arena's paint, hand out the weapon each player picked,
-	 * teleport them to their team's spawn in survival, freeze them and start the countdown.
+	 * Begin a match: check everybody is on one of the two sides (unless {@code force}), make sure both
+	 * teams exist, clear the arena's paint, hand out the weapon each player picked, teleport them to their
+	 * side's spawn in survival, freeze them and start the countdown.
 	 */
 	public static Result start(MinecraftServer server, ServerLevel level, Supplier<List<ServerPlayer>> players,
-			Function<Player, Optional<PaintColor>> worn, int minutes, boolean force, long now) {
+			int minutes, boolean force, long now) {
 		if (running()) return Result.no("A match is already running (" + state + "). /rivals match stop first.");
 		if (minutes < MIN_MINUTES || minutes > MAX_MINUTES) {
 			return Result.no("A match is " + MIN_MINUTES + " to " + MAX_MINUTES + " minutes, not " + minutes);
@@ -201,14 +201,14 @@ public final class Match {
 			return Result.no("No spawn for every team in this level. Set them with /rivals spawn set <"
 					+ PaintColor.idList() + ">");
 		}
-		Readiness.Report report = Readiness.of(players.get(), worn);
+		Readiness.Report report = Readiness.of(players.get());
 		if (!force && !report.ready()) {
 			return Result.no(report.lines().isEmpty()
 					? "Nobody is playing"
-					: "Not ready: " + report.undressedNames() + " wearing no ovve. Add force to start anyway.");
+					: "Not on a team: " + report.teamlessNames() + " — /team join <" + TeamNames.nameList()
+							+ ">. Add force to start anyway.");
 		}
 		roster = players;
-		ovve = worn;
 		arena = level;
 		Match.minutes = minutes;
 		winner = null;
@@ -218,28 +218,28 @@ public final class Match {
 		respawning.clear();
 		// The same teams /rivals setup makes, made again: a match should not fail because nobody ran it.
 		RivalsCommands.setupTeams(server);
-		int dressed = 0;
+		int teamed = 0;
 		for (Readiness.Line line : report.lines()) {
 			if (line.team().isEmpty()) continue;
 			join(server, line.player(), line.team().get());
-			dressed++;
+			teamed++;
 		}
 		clearArena(level);
 		enter(State.COUNTDOWN, now, COUNTDOWN_TICKS);
 		for (ServerPlayer player : roster.get()) freeze(player);
-		int playing = dressed;
+		int playing = teamed;
 		return new Result(true, Component.literal("Match starting: " + playing + " player"
 				+ (playing == 1 ? "" : "s") + ", " + minutes + " minute" + (minutes == 1 ? "" : "s")
 				+ ". Counting down…").withStyle(ChatFormatting.GREEN));
 	}
 
 	/**
-	 * Put one player into the match: their ovve's scoreboard team (which is what gives their paint a
-	 * colour), the weapon they picked, their team's spawn, survival. Also what a player who joins
+	 * Put one player into the match: their side's scoreboard team (which is what gives their paint a
+	 * colour), the weapon they picked, their side's spawn, survival. Also what a player who joins
 	 * mid-match gets.
 	 */
 	public static void join(MinecraftServer server, ServerPlayer player, PaintColor color) {
-		PlayerTeam team = server.getScoreboard().getPlayerTeam(color.id);
+		PlayerTeam team = server.getScoreboard().getPlayerTeam(TeamNames.nameOf(color));
 		if (team != null) server.getScoreboard().addPlayerToTeam(player.getScoreboardName(), team);
 		arm(player);
 		place(player, color);
@@ -251,11 +251,11 @@ public final class Match {
 	/**
 	 * A player who arrives while the match is on: same treatment, and frozen for the respawn grace rather
 	 * than dropped into a firefight the instant their screen loads. Returns whether they were let in — a
-	 * player with no ovve is not.
+	 * player on neither side is not.
 	 */
 	public static boolean addMidMatch(ServerPlayer player, long now) {
 		if (state != State.PLAYING || arena == null) return false;
-		Optional<PaintColor> color = ovve.apply(player);
+		Optional<PaintColor> color = PaintColor.byTeam(player.getTeam());
 		if (color.isEmpty()) return false;
 		MinecraftServer server = player.level().getServer();
 		if (server == null) return false;
@@ -303,7 +303,6 @@ public final class Match {
 		finalCounts = Map.of();
 		respawning.clear();
 		roster = List::of;
-		ovve = OvveTeams::worn;
 	}
 
 	// ---- the clock
@@ -482,8 +481,7 @@ public final class Match {
 
 	/** A player who just died in a live match: their own spawn, three frozen seconds, a clean screen. */
 	static void respawn(ServerPlayer player, long now) {
-		Optional<PaintColor> color = PaintColor.byTeam(player.getTeam()).or(() -> ovve.apply(player));
-		color.ifPresent(c -> place(player, c));
+		PaintColor.byTeam(player.getTeam()).ifPresent(color -> place(player, color));
 		InkOnScreen.clear(player);
 		Roll.stop(player);
 		arm(player);

@@ -36,9 +36,9 @@ import java.util.Optional;
  * who joins while a match is <em>playing</em> is not given the lobby treatment at all: they are added to
  * the match ({@link Match#addMidMatch}), which arms them and gives them the respawn grace.
  *
- * <p>Respawning in the lobby puts a dressed player back on their own team's spawn and everyone else at the
- * world spawn — the same rule as in a match, minus the freeze, so that a lobby death does not scatter
- * people across the map.
+ * <p>Respawning in the lobby puts a player on one of the two sides back on that side's own spawn, and
+ * everyone else at the world spawn — the same rule as in a match, minus the freeze, so that a lobby death
+ * does not scatter people across the map.
  */
 public final class Lobby {
 	/** The permission that keeps a player's own game mode. */
@@ -48,7 +48,7 @@ public final class Lobby {
 
 	public static void init() {
 		ServerPlayConnectionEvents.JOIN.register((handler, sender, server) -> receiveOnJoin(handler.getPlayer()));
-		// A lobby death: the team spawn if they are dressed, the world spawn if not. The match's own hook
+		// A lobby death: the team spawn if they are on one, the world spawn if not. The match's own hook
 		// answers a death during PLAYING and this one steps aside for it.
 		ServerPlayerEvents.AFTER_RESPAWN.register((oldPlayer, newPlayer, alive) -> {
 			if (alive || Match.state() == Match.State.PLAYING) return;
@@ -99,10 +99,10 @@ public final class Lobby {
 		return true;
 	}
 
-	/** Their own team's spawn if their ovve says which, the world spawn otherwise. */
+	/** Their own side's spawn if their scoreboard team is one of the two, the world spawn otherwise. */
 	public static void sendToSpawn(ServerPlayer player) {
 		if (!(player.level() instanceof ServerLevel level)) return;
-		Optional<PaintColor> color = OvveTeams.worn(player).or(() -> PaintColor.byTeam(player.getTeam()));
+		Optional<PaintColor> color = PaintColor.byTeam(player.getTeam());
 		Optional<Arena.Spawn> spawn = color.flatMap(c -> Arena.of(level).spawn(c));
 		if (spawn.isPresent()) {
 			Arena.Spawn at = spawn.get();

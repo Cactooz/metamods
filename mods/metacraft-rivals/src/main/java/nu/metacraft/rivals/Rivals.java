@@ -34,6 +34,7 @@ public class Rivals implements ModInitializer {
 	@Override
 	public void onInitialize() {
 		PaintBlocks.register();
+		TeamNames.init();
 		Unpaintable.init();
 		PaintBall.register();
 		PaintWeapon.register();

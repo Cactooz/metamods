@@ -75,6 +75,7 @@ import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
+import net.minecraft.world.scores.TeamColor;
 import nu.metacraft.rivals.Arena;
 import nu.metacraft.rivals.Lobby;
 import nu.metacraft.rivals.Match;
@@ -82,6 +83,7 @@ import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.OvveTeams;
 import nu.metacraft.rivals.PlayerTick;
 import nu.metacraft.rivals.Readiness;
+import nu.metacraft.rivals.TeamNames;
 import nu.metacraft.rivals.Rivals;
 import nu.metacraft.rivals.SquidDisplay;
 import nu.metacraft.rivals.SquidState;
@@ -128,7 +130,6 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.function.Function;
 import nu.metacraft.rivals.pack.RivalsPack;
 import nu.metacraft.rivals.gun.Ink;
 import nu.metacraft.rivals.gun.InkHud;
@@ -842,70 +843,70 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * {@code /rivals ready} lines everybody up: name, the team their ovve puts them on, the weapon they
-	 * picked — and it fails, naming them, if anybody is wearing no ovve, which is what {@code match start}
-	 * leans on. Spectators are left out rather than counted as undressed.
+	 * {@code /rivals ready} lines everybody up: name, side and the weapon they picked, grouped by side with
+	 * whoever is on neither last — and it fails, naming them, if anybody is on neither, which is what
+	 * {@code match start} leans on. Spectators are left out rather than counted as teamless.
 	 *
-	 * <p>ovvar is a soft integration matched on an item's registry id and is not on this module's
-	 * classpath, so no game test can put a real ovve on a mock player. The ovve lookup is therefore
-	 * handed in: the stand-in runs the real {@link OvveTeams#colourOf(Identifier)} over an
-	 * {@code ovvar:}-namespaced id, so everything but the armour-slot read is the production path — and
-	 * the ids it is given are the ones ovvar registers.
+	 * <p>A side is a plain vanilla scoreboard team under the name {@link TeamNames} gives it, so a mock
+	 * player joins one the way a real one does: {@code /team join}, which is what {@code addPlayerToTeam}
+	 * is underneath.
 	 */
 	@GameTest
-	public void readinessNamesWhoeverIsUndressed(GameTestHelper helper) {
-		ServerPlayer dressedData = connected(mockServerPlayer(helper, GameType.SURVIVAL));
-		ServerPlayer dressedIt = connected(mockServerPlayer(helper, GameType.SURVIVAL));
-		ServerPlayer bare = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+	public void readinessNamesWhoeverIsOnNoTeam(GameTestHelper helper) {
+		ServerScoreboard board = helper.getLevel().getScoreboard();
+		ServerPlayer onData = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		ServerPlayer onIt = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		ServerPlayer teamless = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		ServerPlayer watching = connected(mockServerPlayer(helper, GameType.SPECTATOR));
-		// The stand-in for "what is this player wearing": an ovvar id per player, run through the real
-		// prefix mapping. ovvar:media_frack is in the namespace and belongs to no chapter, which is the
-		// case that has to read as undressed rather than as a team.
-		Map<UUID, String> worn = new LinkedHashMap<>();
-		worn.put(dressedData.getUUID(), "ovvar:data_ovve");
-		worn.put(dressedIt.getUUID(), "ovvar:it_kisel_ovve");
-		worn.put(bare.getUUID(), "ovvar:media_frack");
-		Function<Player, Optional<PaintColor>> ovve = player -> {
-			String id = worn.get(player.getUUID());
-			return id == null ? Optional.empty() : OvveTeams.colourOf(Identifier.parse(id));
-		};
 		WeaponChoice choices = WeaponChoice.of(helper.getLevel().getServer());
 		try {
-			choices.set(dressedData, Weapon.ROLLER);
-			List<ServerPlayer> everyone = List.of(dressedData, dressedIt, bare, watching);
-			Readiness.Report report = Readiness.of(everyone, ovve);
+			board.addPlayerToTeam(onData.getScoreboardName(), team(helper, PaintColor.DATA));
+			board.addPlayerToTeam(onIt.getScoreboardName(), team(helper, PaintColor.IT));
+			choices.set(onData, Weapon.ROLLER);
+			// Listed teamless-first on the way in, to prove the report groups them rather than echoing the order.
+			List<ServerPlayer> everyone = List.of(teamless, onIt, watching, onData);
+			Readiness.Report report = Readiness.of(everyone);
 			helper.assertValueEqual(report.lines().size(), 3, "the spectator is not playing");
-			helper.assertTrue(!report.ready(), "and one of the three is undressed");
-			helper.assertValueEqual(report.undressed().size(), 1, "exactly one");
-			helper.assertTrue(report.undressedNames().equals(bare.getScoreboardName()),
-					"named: " + report.undressedNames());
+			helper.assertFalse(report.ready(), "and one of the three is on no team");
+			helper.assertValueEqual(report.teamless().size(), 1, "exactly one");
+			helper.assertValueEqual(report.teamlessNames(), teamless.getScoreboardName(),
+					"named: " + report.teamlessNames());
+			helper.assertValueEqual(report.on(PaintColor.DATA), 1, "one on DATA");
+			helper.assertValueEqual(report.on(PaintColor.IT), 1, "and one on IT");
+			// Grouped: DATA, then IT, then whoever is on neither.
 			Readiness.Line first = report.lines().get(0);
-			helper.assertValueEqual(first.team().orElse(null), PaintColor.DATA, "a data ovve is a DATA player");
-			helper.assertValueEqual(first.weapon().orElse(null), Weapon.ROLLER, "and their pick is in the line");
+			helper.assertValueEqual(first.team().orElse(null), PaintColor.DATA, "DATA comes first");
+			helper.assertValueEqual(first.player(), onData, "and it is the player on DATA");
+			helper.assertValueEqual(first.weapon().orElse(null), Weapon.ROLLER, "their pick is in the line");
 			helper.assertTrue(first.text().contains("DATA") && first.text().contains("Paint Roller"),
 					"the printed line says both: " + first.text());
 			Readiness.Line second = report.lines().get(1);
-			helper.assertValueEqual(second.team().orElse(null), PaintColor.IT, "a chapter ovve counts too");
+			helper.assertValueEqual(second.team().orElse(null), PaintColor.IT, "then IT");
 			helper.assertTrue(second.weapon().isEmpty() && second.text().contains("none yet"),
 					"and a player who never picked says so: " + second.text());
-			helper.assertTrue(report.lines().get(2).text().contains("no ovve"),
-					"as does an undressed one: " + report.lines().get(2).text());
-			// Dress the last one and the report goes green.
-			worn.put(bare.getUUID(), "ovvar:it_ovve");
-			Readiness.Report after = Readiness.of(everyone, ovve);
-			helper.assertTrue(after.ready(), "everybody dressed: ready");
-			helper.assertTrue(after.undressed().isEmpty(), "nobody left to name");
+			Readiness.Line last = report.lines().get(2);
+			helper.assertTrue(last.team().isEmpty() && last.text().contains("no team"),
+					"with the teamless one last: " + last.text());
+			// Put the last one on a team and the report goes green.
+			board.addPlayerToTeam(teamless.getScoreboardName(), team(helper, PaintColor.IT));
+			Readiness.Report after = Readiness.of(everyone);
+			helper.assertTrue(after.ready(), "everybody on a side: ready");
+			helper.assertTrue(after.teamless().isEmpty(), "nobody left to name");
+			helper.assertValueEqual(after.on(PaintColor.IT), 2, "two on IT now");
 			// And nobody at all is not ready either: there is no match without players.
-			helper.assertTrue(!Readiness.of(List.of(watching), ovve).ready(), "a lone spectator is not a match");
+			helper.assertFalse(Readiness.of(List.of(watching)).ready(), "a lone spectator is not a match");
 		} finally {
-			choices.forget(dressedData.getUUID());
+			choices.forget(onData.getUUID());
+			board.removePlayerFromTeam(onData.getScoreboardName());
+			board.removePlayerFromTeam(onIt.getScoreboardName());
+			board.removePlayerFromTeam(teamless.getScoreboardName());
 		}
 		helper.succeed();
 	}
 
 	/**
-	 * Two dressed players, a one-minute match, and the whole machine walked through on a clock of the
-	 * test's own: LOBBY → COUNTDOWN → PLAYING → ENDED → LOBBY.
+	 * Two players on the two sides, a one-minute match, and the whole machine walked through on a clock of
+	 * the test's own: LOBBY → COUNTDOWN → PLAYING → ENDED → LOBBY.
 	 *
 	 * <p>Everything here happens inside one server tick. {@link Match} is one machine for the server and
 	 * its own {@code END_SERVER_TICK} hook drives it off the real tick count, so a test that spanned ticks
@@ -916,43 +917,39 @@ public final class RivalsGameTests {
 	@GameTest
 	public void matchWalksFromCountdownToLobby(GameTestHelper helper) {
 		ServerLevel level = helper.getLevel();
+		ServerScoreboard board = level.getScoreboard();
 		Arena arena = Arena.of(level);
 		WeaponChoice choices = WeaponChoice.of(level.getServer());
 		ServerPlayer one = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		ServerPlayer two = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		ServerPlayer late = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		List<ServerPlayer> players = List.of(one, two);
-		Map<UUID, String> worn = new LinkedHashMap<>();
-		worn.put(one.getUUID(), "ovvar:data_ovve");
-		worn.put(two.getUUID(), "ovvar:it_ovve");
-		Function<Player, Optional<PaintColor>> ovve = player -> {
-			String id = worn.get(player.getUUID());
-			return id == null ? Optional.empty() : OvveTeams.colourOf(Identifier.parse(id));
-		};
 		long t = 1_000_000L;
 		try {
 			arena.forget();
+			fenceIn(helper, arena);
+			board.addPlayerToTeam(one.getScoreboardName(), team(helper, PaintColor.DATA));
 			// No spawns, no match: there is nowhere to put anybody.
-			helper.assertTrue(!Match.start(level.getServer(), level, () -> players, ovve, 1, false, t).started(),
+			helper.assertFalse(Match.start(level.getServer(), level, () -> players, 1, false, t).started(),
 					"a match with no spawns is refused");
 			Vec3 dataAt = helper.absoluteVec(new Vec3(1.5, 2.0, 1.5));
 			Vec3 itAt = helper.absoluteVec(new Vec3(6.5, 2.0, 6.5));
 			arena.setSpawn(PaintColor.DATA, new Arena.Spawn(dataAt, 0f, 0f));
 			arena.setSpawn(PaintColor.IT, new Arena.Spawn(itAt, 180f, 0f));
 			choices.set(two, Weapon.CHARGER);
-			// An undressed player is refused without force, and let in with it.
-			worn.remove(two.getUUID());
-			Match.Result refused = Match.start(level.getServer(), level, () -> players, ovve, 1, false, t);
-			helper.assertTrue(!refused.started(), "an undressed player stops the start");
+			// A player on neither team is refused without force, and let in with it.
+			Match.Result refused = Match.start(level.getServer(), level, () -> players, 1, false, t);
+			helper.assertFalse(refused.started(), "a player on no team stops the start");
 			helper.assertTrue(refused.message().getString().contains(two.getScoreboardName()),
 					"and is named: " + refused.message().getString());
-			worn.put(two.getUUID(), "ovvar:it_ovve");
+			board.addPlayerToTeam(two.getScoreboardName(), team(helper, PaintColor.IT));
 
-			Match.Result started = Match.start(level.getServer(), level, () -> players, ovve, 1, false, t);
-			helper.assertTrue(started.started(), "both dressed: " + started.message().getString());
+			Match.Result started = Match.start(level.getServer(), level, () -> players, 1, false, t);
+			helper.assertTrue(started.started(), "both on a side: " + started.message().getString());
 			helper.assertValueEqual(Match.state(), Match.State.COUNTDOWN, "counting down");
 			helper.assertValueEqual(Match.ticksLeft(t), (long) Match.COUNTDOWN_TICKS, "five seconds of it");
 			helper.assertTrue(Match.isFrozen(one) && Match.isFrozen(two), "and nobody can move");
-			// The teams are the ovves', made by the same code /rivals setup runs.
+			// The sides are the scoreboard teams they joined, under the configured names.
 			helper.assertValueEqual(PaintColor.byTeam(one.getTeam()).orElse(null), PaintColor.DATA, "one is DATA");
 			helper.assertValueEqual(PaintColor.byTeam(two.getTeam()).orElse(null), PaintColor.IT, "two is IT");
 			// Each is holding the weapon they picked — the shooter for the one who never picked.
@@ -971,11 +968,11 @@ public final class RivalsGameTests {
 			helper.assertTrue(Match.clock(Match.ticksLeft(playing)).equals("⏱ 1:00"),
 					"which reads " + Match.clock(Match.ticksLeft(playing)));
 
-			// A player who turns up mid-match is dressed, armed and given the respawn grace rather than
-			// dropped straight into a firefight.
-			ServerPlayer late = connected(mockServerPlayer(helper, GameType.SURVIVAL));
-			worn.put(late.getUUID(), "ovvar:data_ovve");
-			helper.assertTrue(Match.addMidMatch(late, playing), "the latecomer is let in");
+			// A player who turns up mid-match on a side is armed and given the respawn grace rather than
+			// dropped straight into a firefight; one on no side is not let in at all.
+			helper.assertFalse(Match.addMidMatch(late, playing), "a latecomer on no team is not let in");
+			board.addPlayerToTeam(late.getScoreboardName(), team(helper, PaintColor.DATA));
+			helper.assertTrue(Match.addMidMatch(late, playing), "but one on a team is");
 			helper.assertTrue(late.getInventory().getItem(0).getItem() instanceof PaintWeapon, "with a weapon");
 			helper.assertTrue(Match.isFrozen(late) && Match.isRespawning(late, playing), "and a moment to look around");
 
@@ -991,6 +988,9 @@ public final class RivalsGameTests {
 			arena.forget();
 			choices.forget(one.getUUID());
 			choices.forget(two.getUUID());
+			board.removePlayerFromTeam(one.getScoreboardName());
+			board.removePlayerFromTeam(two.getScoreboardName());
+			board.removePlayerFromTeam(late.getScoreboardName());
 		}
 		helper.succeed();
 	}
@@ -999,21 +999,23 @@ public final class RivalsGameTests {
 	@GameTest
 	public void matchStopEndsItEarly(GameTestHelper helper) {
 		ServerLevel level = helper.getLevel();
+		ServerScoreboard board = level.getScoreboard();
 		Arena arena = Arena.of(level);
 		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		List<ServerPlayer> players = List.of(player);
-		Function<Player, Optional<PaintColor>> ovve = who -> Optional.of(PaintColor.DATA);
 		long t = 2_000_000L;
 		try {
 			arena.forget();
+			fenceIn(helper, arena);
+			board.addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 			arena.setSpawn(PaintColor.DATA, new Arena.Spawn(helper.absoluteVec(new Vec3(1.5, 2.0, 1.5)), 0f, 0f));
 			arena.setSpawn(PaintColor.IT, new Arena.Spawn(helper.absoluteVec(new Vec3(6.5, 2.0, 6.5)), 0f, 0f));
-			helper.assertTrue(!Match.stop(t), "nothing to stop in the lobby");
-			helper.assertTrue(Match.start(level.getServer(), level, () -> players, ovve, 5, false, t).started(), "started");
+			helper.assertFalse(Match.stop(t), "nothing to stop in the lobby");
+			helper.assertTrue(Match.start(level.getServer(), level, () -> players, 5, false, t).started(), "started");
 			Match.tick(level.getServer(), t + Match.COUNTDOWN_TICKS);
 			helper.assertValueEqual(Match.state(), Match.State.PLAYING, "playing");
 			// A second start while one is running is refused rather than restarting it.
-			helper.assertTrue(!Match.start(level.getServer(), level, () -> players, ovve, 5, false, t).started(),
+			helper.assertFalse(Match.start(level.getServer(), level, () -> players, 5, false, t).started(),
 					"one match at a time");
 			helper.assertTrue(Match.stop(t + 400), "stopped early");
 			helper.assertValueEqual(Match.state(), Match.State.ENDED, "which is the same ending");
@@ -1021,6 +1023,7 @@ public final class RivalsGameTests {
 		} finally {
 			Match.clearAll();
 			arena.forget();
+			board.removePlayerFromTeam(player.getScoreboardName());
 		}
 		helper.succeed();
 	}
@@ -1115,6 +1118,20 @@ public final class RivalsGameTests {
 			helper.getLevel().getScoreboard().removePlayerFromTeam(player.getScoreboardName(), team(helper, PaintColor.IT));
 		}
 		helper.succeed();
+	}
+
+	/**
+	 * Arena bounds around this test's own structure and nothing else.
+	 *
+	 * <p>{@code Match.start} clears the arena's paint, and an arena with no box <em>is</em> the whole level
+	 * — so a match test that started without bounds wiped the paint of every other test in the batch,
+	 * including one mid-flight ten ticks from its assertion. Fencing the match in is the same thing an
+	 * operator does with {@code /rivals arena set}.
+	 */
+	private static void fenceIn(GameTestHelper helper, Arena arena) {
+		AABB bounds = helper.getBounds();
+		arena.setBox(BlockPos.containing(bounds.minX, bounds.minY, bounds.minZ),
+				BlockPos.containing(bounds.maxX, bounds.maxY, bounds.maxZ));
 	}
 
 	private static PlayerTeam team(GameTestHelper helper, PaintColor color) {
@@ -1559,17 +1576,100 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
+	/**
+	 * {@code /rivals setup} makes one team per side, under the name the config gives that side, and does
+	 * not touch one that already exists beyond the two rules a match needs: an existing team may well be
+	 * the server's own, pointed at a side by the config, and renaming or recolouring it would be rude.
+	 *
+	 * <p>The sides are pointed at names of this test's own rather than at the default {@code data} and
+	 * {@code it}. Those two teams are where every other test's mock player stands, and deleting a scoreboard
+	 * team deletes its membership — which no {@code finally} can put back. Everything here is synchronous
+	 * and the names go back afterwards, the same discipline {@link #withTuning} keeps.
+	 */
 	@GameTest
-	public void setupCreatesTeams(GameTestHelper helper) {
-		int touched = RivalsCommands.setupTeams(helper.getLevel().getServer());
-		helper.assertValueEqual(touched, PaintColor.values().length, "teams touched");
+	public void setupCreatesTeamsUnderTheConfiguredNames(GameTestHelper helper) {
 		ServerScoreboard board = helper.getLevel().getScoreboard();
-		for (PaintColor color : PaintColor.values()) {
-			PlayerTeam team = board.getPlayerTeam(color.id);
-			helper.assertTrue(team != null, "team exists: " + color.id);
-			helper.assertTrue(team.getColor().equals(Optional.of(color.teamColor)), "team colour: " + color.id);
-			helper.assertTrue(!team.isAllowFriendlyFire(), "friendly fire off: " + color.id);
-			helper.assertTrue(team.getCollisionRule() == Team.CollisionRule.NEVER, "no collisions: " + color.id);
+		String dataName = "rivals-setup-test-data";
+		String itName = "rivals-setup-test-it";
+		String theirName = "rivals-setup-test-house";
+		try {
+			helper.assertTrue(TeamNames.set(PaintColor.DATA, dataName) && TeamNames.set(PaintColor.IT, itName),
+					"both sides point at a team of this test's own");
+			List<String> made = RivalsCommands.setupTeams(helper.getLevel().getServer());
+			helper.assertValueEqual(made, List.of(dataName, itName), "both teams were made, under those names");
+			for (PaintColor color : PaintColor.values()) {
+				PlayerTeam team = board.getPlayerTeam(TeamNames.nameOf(color));
+				helper.assertTrue(team != null, "team exists: " + TeamNames.nameOf(color));
+				helper.assertTrue(team.getColor().equals(Optional.of(color.teamColor)), "team colour: " + color.id);
+				helper.assertTrue(!team.isAllowFriendlyFire(), "friendly fire off: " + color.id);
+				helper.assertTrue(team.getCollisionRule() == Team.CollisionRule.NEVER, "no collisions: " + color.id);
+				helper.assertValueEqual(PaintColor.byTeam(team).orElse(null), color, "and it is " + color + "'s team");
+			}
+			// Run again: nothing to make, so nothing is renamed or recoloured either.
+			helper.assertTrue(RivalsCommands.setupTeams(helper.getLevel().getServer()).isEmpty(),
+					"a second setup makes nothing");
+			// A team that was already there keeps its own display name and colour, but gets the match's rules.
+			PlayerTeam theirs = board.addPlayerTeam(theirName);
+			theirs.setDisplayName(Component.literal("House Blue"));
+			theirs.setColor(Optional.of(TeamColor.AQUA));
+			theirs.setAllowFriendlyFire(true);
+			helper.assertTrue(TeamNames.set(PaintColor.IT, theirName), "IT points at their team instead");
+			helper.assertValueEqual(RivalsCommands.setupTeams(helper.getLevel().getServer()), List.of(),
+					"nothing to make: both teams exist");
+			helper.assertTrue(theirs.getDisplayName().getString().equals("House Blue"), "their name stands");
+			helper.assertTrue(theirs.getColor().equals(Optional.of(TeamColor.AQUA)), "and their colour");
+			helper.assertTrue(!theirs.isAllowFriendlyFire(), "but friendly fire is off, which the match needs");
+		} finally {
+			TeamNames.resetAll();
+			for (String name : List.of(dataName, itName, theirName)) {
+				PlayerTeam made = board.getPlayerTeam(name);
+				if (made != null) board.removePlayerTeam(made);
+			}
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * Which scoreboard team each side is comes out of {@code config/metacraft-rivals/teams.json}, so a
+	 * server that already runs teams of its own can point a side at one instead of keeping a second pair.
+	 * {@link PaintColor#byTeam} — the one question anything in this mod asks about a player's side —
+	 * follows the configured names, and a team called by a side's old id is then nobody's.
+	 *
+	 * <p>Set through the config object rather than through the file: the file is read once per server, and
+	 * a test that wrote one would be racing every other test in the batch. Synchronous, with the names put
+	 * back afterwards, for the same reason {@link #withTuning} is.
+	 */
+	@GameTest
+	public void teamNamesFollowTheConfig(GameTestHelper helper) {
+		ServerScoreboard board = helper.getLevel().getScoreboard();
+		String renamedName = "rivals-names-test-red";
+		String strangerName = "rivals-names-test-stranger";
+		PlayerTeam renamed = board.addPlayerTeam(renamedName);
+		PlayerTeam stranger = board.addPlayerTeam(strangerName);
+		try {
+			helper.assertValueEqual(TeamNames.nameOf(PaintColor.DATA), "data", "the default name is the side's own id");
+			helper.assertValueEqual(TeamNames.slotOf("it").orElse(null), PaintColor.IT, "and it reads back");
+			helper.assertTrue(TeamNames.slotOf(strangerName).isEmpty(), "a team of nobody's is nobody's");
+			helper.assertTrue(TeamNames.renamed().isEmpty(), "nothing is off its default");
+
+			helper.assertTrue(TeamNames.set(PaintColor.DATA, renamedName), "DATA is pointed elsewhere");
+			helper.assertValueEqual(TeamNames.nameOf(PaintColor.DATA), renamedName, "which is the name it now uses");
+			helper.assertValueEqual(TeamNames.slotOf(renamedName).orElse(null), PaintColor.DATA, "and it resolves");
+			helper.assertTrue(TeamNames.slotOf("data").isEmpty(), "while the old name is nobody's");
+			helper.assertValueEqual(TeamNames.renamed(), List.of(PaintColor.DATA), "one side is off its default");
+			helper.assertValueEqual(TeamNames.nameList(), renamedName + ", it", "listed as " + TeamNames.nameList());
+			// Two sides may not share a name: a team cannot be both, and the lookup would have to guess.
+			helper.assertFalse(TeamNames.set(PaintColor.IT, renamedName), "IT cannot take DATA's team");
+			helper.assertValueEqual(TeamNames.nameOf(PaintColor.IT), "it", "so IT keeps its own");
+			// And a real team under the configured name is DATA, while any other team is nobody's.
+			helper.assertValueEqual(PaintColor.byTeam(renamed).orElse(null), PaintColor.DATA,
+					"a team under the configured name is DATA");
+			helper.assertTrue(PaintColor.byTeam(stranger).isEmpty(), "and one under any other name is nobody's");
+			helper.assertTrue(PaintColor.byTeam(null).isEmpty(), "as is no team at all");
+		} finally {
+			TeamNames.resetAll();
+			board.removePlayerTeam(renamed);
+			board.removePlayerTeam(stranger);
 		}
 		helper.succeed();
 	}

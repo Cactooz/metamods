@@ -50,8 +50,13 @@ public enum PaintColor {
 		return Optional.empty();
 	}
 
-	/** The colour of a vanilla scoreboard team, matched by team name; empty for no team or an unknown name. */
+	/**
+	 * The colour of a vanilla scoreboard team; empty for no team, or for a team that is neither side's.
+	 *
+	 * <p>Matched through {@link TeamNames}, not on the colour's own id: which scoreboard team each side is
+	 * is configurable, so a server can point a side at a team it already runs.
+	 */
 	public static Optional<PaintColor> byTeam(@Nullable PlayerTeam team) {
-		return team == null ? Optional.empty() : byId(team.getName());
+		return team == null ? Optional.empty() : TeamNames.slotOf(team.getName());
 	}
 }

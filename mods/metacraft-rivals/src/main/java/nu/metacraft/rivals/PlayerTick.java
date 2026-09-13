@@ -397,7 +397,7 @@ public final class PlayerTick {
 		if (PaintColor.byTeam(player.getTeam()).orElse(null) == color) return;
 		RivalsCommands.setupTeams(level.getServer());
 		ServerScoreboard board = level.getScoreboard();
-		PlayerTeam team = board.getPlayerTeam(color.id);
+		PlayerTeam team = board.getPlayerTeam(TeamNames.nameOf(color));
 		if (team == null) return;
 		board.addPlayerToTeam(player.getScoreboardName(), team);
 		if (player instanceof ServerPlayer server && server.connection != null) {

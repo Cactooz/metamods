@@ -32,6 +32,7 @@ import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.paint.PaintTally;
 import nu.metacraft.rivals.paint.Unpaintable;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -64,10 +65,11 @@ public final class RivalsCommands {
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
 				literal("rivals")
 						.then(literal("setup").requires(ADMIN).executes(ctx -> {
-							int touched = setupTeams(ctx.getSource().getServer());
-							ctx.getSource().sendSuccess(() -> Component.literal("Teams ready: " + PaintColor.idList()
-									+ ". Join with /team join <colour> @s"), true);
-							return touched;
+							List<String> made = setupTeams(ctx.getSource().getServer());
+							ctx.getSource().sendSuccess(() -> Component.literal("Teams ready — " + TeamNames.describe()
+									+ ". " + (made.isEmpty() ? "All of them existed already" : "Made: " + String.join(", ", made))
+									+ ". Join with /team join <" + TeamNames.nameList() + "> @s"), true);
+							return made.size();
 						}))
 						// A plain word rather than a registry or enum argument: the ids are the weapon's own, and an
 						// unknown one should say what is on offer instead of failing to parse.
@@ -140,20 +142,31 @@ public final class RivalsCommands {
 												StringArgumentType.getString(ctx, "weapon"))))))));
 	}
 
-	/** Create or update one vanilla team per colour. Returns the number of teams touched. */
-	public static int setupTeams(MinecraftServer server) {
+	/**
+	 * One vanilla team per side, under the name {@link TeamNames} says that side uses. Returns the names
+	 * of the teams it had to create, which is what the message reports.
+	 *
+	 * <p>A team that already exists keeps its own name and colour: it may well be the server's own team,
+	 * pointed at a side by the config, and renaming or recolouring somebody else's team because a match is
+	 * being set up would be rude. What is applied either way is the two rules a match needs to work — no
+	 * friendly fire and no collision — because those are mechanics rather than presentation.
+	 */
+	public static List<String> setupTeams(MinecraftServer server) {
 		ServerScoreboard board = server.getScoreboard();
-		int touched = 0;
+		List<String> made = new ArrayList<>();
 		for (PaintColor color : PaintColor.values()) {
-			PlayerTeam team = board.getPlayerTeam(color.id);
-			if (team == null) team = board.addPlayerTeam(color.id);
-			team.setDisplayName(Component.literal(color.displayName));
-			team.setColor(Optional.of(color.teamColor));
+			String name = TeamNames.nameOf(color);
+			PlayerTeam team = board.getPlayerTeam(name);
+			if (team == null) {
+				team = board.addPlayerTeam(name);
+				team.setDisplayName(Component.literal(color.displayName));
+				team.setColor(Optional.of(color.teamColor));
+				made.add(name);
+			}
 			team.setAllowFriendlyFire(false);
 			team.setCollisionRule(Team.CollisionRule.NEVER);
-			touched++;
 		}
-		return touched;
+		return made;
 	}
 
 	private static int gun(CommandSourceStack source, Weapon weapon) throws CommandSyntaxException {
@@ -352,11 +365,14 @@ public final class RivalsCommands {
 	}
 
 	/**
-	 * Re-read the config files an arena builder edits between rounds. Only the unpaintable list for now:
-	 * the weapon tuning is edited from inside the game and written after every change, so re-reading it
-	 * would throw away what {@code /rivals tune} just set.
+	 * Re-read the config files an arena builder edits between rounds: the unpaintable list and the team
+	 * names. Not the weapon tuning — that is edited from inside the game and written after every change,
+	 * so re-reading it would throw away what {@code /rivals tune} just set.
 	 */
 	public static int reload(CommandSourceStack source) {
+		TeamNames.reload();
+		source.sendSuccess(() -> Component.literal("Teams — " + TeamNames.describe() + ", from "
+				+ TeamNames.configPath() + ". Run /rivals setup to make any that do not exist yet."), true);
 		int listed = Unpaintable.reload();
 		source.sendSuccess(() -> Component.literal("Unpaintable: the #" + Rivals.MOD_ID + ":unpaintable tag plus "
 				+ listed + " block" + (listed == 1 ? "" : "s") + " from " + Unpaintable.configPath()), true);

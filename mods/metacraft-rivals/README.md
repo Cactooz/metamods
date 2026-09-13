@@ -21,9 +21,14 @@ dedicated Rivals server wants.
 
 ## How it works
 
-- Two teams, one colour each, in their ovvar chapter's ovve: **DATA** `#BD3754` and **IT**
-  `#8A57BD`. A team's name is its colour id (`data`, `it`); `/rivals setup` creates both
-  (it lists `PaintColor.idList()`, so a third colour would need no command change).
+- Two sides, one colour each: **DATA** `#BD3754` and **IT** `#8A57BD`. A side *is* a plain vanilla
+  scoreboard team, and which team is configurable — `config/metacraft-rivals/teams.json`,
+  `{"teams": {"data": "data", "it": "it"}}`, where the keys are the two colour slots and each value is the
+  scoreboard team name that slot uses. It defaults to the slot's own id, so out of the box the teams are
+  called `data` and `it` as before; a server that already runs teams of its own points a slot at one
+  instead of keeping a second pair. `PaintColor.byTeam` — the single question anything here asks about a
+  player's side — resolves through those names, `/rivals setup` creates any that do not exist and says
+  which it made, and `/rivals reload` re-reads the file. Players join with `/team join <name>`.
 - A painted region renders as a continuous sheet, not a decal picked at random per cell. A
   single-face cell is `ConnectedPaintBlock`: server-side properties for its face and four in-plane
   connection bits — which of its floor/wall neighbours hold the same colour on the same face —
@@ -245,8 +250,8 @@ dedicated Rivals server wants.
   /rivals match status          the state and the time left
   ```
 
-  `start` checks readiness (unless forced), makes the teams `/rivals setup` makes, puts every dressed
-  player on their ovve's team, clears the paint inside the arena, hands each player the weapon they
+  `start` checks readiness (unless forced), makes sure both teams exist the way `/rivals setup` does, puts
+  every player on a side into the match, clears the paint inside the arena, hands each player the weapon they
   picked (the shooter if they never picked), teleports them to their team's spawn in survival, and
   freezes them for the countdown: titles 5…1, a note under each, then **GO!**. Frozen is a −100 %
   `MOVEMENT_SPEED` modifier plus a −100 % `JUMP_STRENGTH` one — transient attribute modifiers by id,
@@ -267,17 +272,16 @@ dedicated Rivals server wants.
   respawn, so nobody loads into a firefight.
 
   The clock and the roster are both handed in: `Match.tick` takes the tick count and `start` takes a
-  supplier of the players plus the ovve lookup, defaulting to the online list and `OvveTeams.worn`.
-  Nothing in `Match` reads `getTickCount()` on its own, which is what lets the game tests walk the whole
-  machine through inside a single tick — and they must, because the real `END_SERVER_TICK` hook drives the
-  same singleton.
-- **Readiness.** `/rivals ready` prints one line per online non-spectator player — name, the team their
-  ovve puts them on (or "no ovve"), the weapon they picked (or "none yet") — and **fails**, naming them,
-  if anybody is undressed. A player with no ovve has no team, and a player with no team cannot be given a
-  colour, cannot paint and cannot score, so a match that starts with one has a passenger in it;
-  `/rivals match start` refuses on the same check unless the word `force` is added. Spectators are left
-  out rather than counted as undressed — a spectator is deliberately not playing. Nobody at all is not
-  ready either: there is no match without players.
+  supplier of the players, defaulting to the online list. Nothing in `Match` reads `getTickCount()` on its
+  own, which is what lets the game tests walk the whole machine through inside a single tick — and they
+  must, because the real `END_SERVER_TICK` hook drives the same singleton.
+- **Readiness.** `/rivals ready` prints one line per online non-spectator player — name, side (or "no
+  team"), the weapon they picked (or "none yet") — grouped by side with whoever is on neither last, and
+  **fails**, naming them, if anybody is on neither. A player on neither side has no colour, cannot paint
+  and cannot score, so a match that starts with one has a passenger in it; the failure says
+  `/team join <name>` with the configured names in it, and `/rivals match start` refuses on the same check
+  unless the word `force` is added. Spectators are left out rather than counted as teamless — a spectator
+  is deliberately not playing. Nobody at all is not ready either: there is no match without players.
 - **Spawns and arena bounds.** `Arena` is saved data, one per level (id `rivals_arena`), and holds a
   spawn per team — position, yaw *and* pitch — plus an optional box. It is saved, unlike the tally and
   the display quads, because setting an arena up is work an operator does once.
@@ -625,19 +629,19 @@ dedicated Rivals server wants.
 ## Play
 
 ```
-/rivals setup            teams data and it
+/rivals setup            make the two teams (names from config/metacraft-rivals/teams.json)
 /team join data @s
 /rivals gun              shooter, the default
 /rivals gun slosher      or charger / roller
 /rivals kit              one of every weapon
 /rivals score
 /rivals reset
-/rivals reload           re-read config/metacraft-rivals/unpaintable.json
+/rivals reload           re-read teams.json and unpaintable.json
 /rivals weapons          the weapon picker dialog (any player)
 /rivals weapons pick roller   what its buttons run
 /rivals spawn set data   where a team starts
 /rivals arena set <from> <to>
-/rivals ready            who is here, dressed and armed
+/rivals ready            who is here, on which side, and armed
 /rivals match start 3    three minutes
 /rivals match stop
 /rivals match status
@@ -645,10 +649,16 @@ dedicated Rivals server wants.
 
 ### Running a match
 
+The two sides are plain **vanilla scoreboard teams**. Which ones is set in
+`config/metacraft-rivals/teams.json` (`{"teams": {"data": "data", "it": "it"}}` — the keys are the two
+colour slots, the values are the team names they use), written with its own `_help` the first time the
+server starts and re-read by `/rivals reload`. Point a slot at a team the server already runs, or leave the
+defaults and let `/rivals setup` make `data` and `it`. Players join a side with `/team join <name>`.
+
 In order, once per arena:
 
 ```
-/rivals setup                          the two teams
+/rivals setup                          make any of the two teams that do not exist yet
 /rivals spawn set data                 stand where DATA starts, facing the way they should face
 /rivals spawn set it
 /rivals arena set 10 60 10 90 90 90    the bounds; paint outside them is refused
@@ -658,16 +668,17 @@ In order, once per arena:
 Then, once per round:
 
 ```
-# players get dressed in their chapter's ovve and pick a weapon
+/team join data @s                     each player picks a side (or an operator assigns them)
 /rivals weapons                        each player, or right-click the weapon selector
-/rivals ready                          fails and names anybody with no ovve
+/rivals ready                          fails and names anybody on neither team
 /rivals match start 3                  ... or  /rivals match start 3 force
 /rivals match status                   the state and the clock
 /rivals match stop                     the whistle, early
 ```
 
-`match start` does the rest: teams, a clean arena, everybody's chosen weapon, a teleport to their team's
-spawn, the countdown, the timer bar, the result and the fireworks, and the lobby ten seconds later.
+`match start` does the rest: both teams made if need be, a clean arena, everybody's chosen weapon, a
+teleport to their side's spawn, the countdown, the timer bar, the result and the fireworks, and the lobby
+ten seconds later.
 
 ### Tuning
 
