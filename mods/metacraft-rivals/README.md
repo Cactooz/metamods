@@ -118,7 +118,7 @@ dedicated Rivals server wants.
   | shooter | 1 | 3 ticks (held) | 8, −0.34/tick from tick 3, floor 4 | one ball at 2.0 straight for 8 blocks, then 0.5 falling at 0.075; one bounce; 3×3 splat; spread 6° on the ground, 12° in the air | `splattershot.json` |
   | charger | 2 → 18 | 20 ticks | 8 → 16 over a partial charge, **32 at a full one** | hold right click to aim (the spyglass scope; a full charge is 20 ticks), left click to fire a hitscan line of 9 → 24 blocks, stopped by the first block or player in it | `splat_charger.json` |
   | slosher | 7 | 12 ticks (click) | 7, flat | 2 pellets 8° apart, lobbed 15° up at 1.1 under gravity 0.06, 5×5 splat, no bounce | `slosher.json` |
-  | roller | 9 a flick, 1 per 5 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed, no sprinting, and a head that runs over anyone in front once per 10 ticks — both only while you are actually moving, so a roller parked in a doorway is not a wall of damage, and paint thrown up where the head touches the ground; **tap** it to flick 3 drops in a high arc | `splat_roller.json` |
+  | roller | 9 a flick, 1 per 5 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed, no sprinting, and a head that runs over anyone in front once per 10 ticks — both only while you are actually moving, so a roller parked in a doorway is not a wall of damage, and paint thrown up where the head touches the ground; **left click** to flick 3 drops in a high arc | `splat_roller.json` |
   | splat bomb | 70 | 4 s of its own | 36 at the centre → 6 at 3.25 blocks | thrown 30° up at 0.75, bounces where it lands and goes off 20 ticks later | `splat_bomb.json` |
 
   Standing in your own ink refills the tank in ten seconds on your feet and three as a squid, and a
@@ -134,15 +134,30 @@ dedicated Rivals server wants.
   paints nothing until the tank has something in it — and it says so once when it happens, because a
   roller that has quietly stopped painting reads as a roller that is broken.
 
-  **Controls.** Right click fires. The shooter and the roller are *held*: a vanilla client repeats a
+  **Controls.** Three buttons:
+
+  | weapon | right click | left click | F (swap hands key) |
+  |---|---|---|---|
+  | shooter | hold to fire | — | special (splat bomb) |
+  | charger | hold to scope/charge | fire the charge | special |
+  | slosher | slosh | — | special |
+  | roller | hold to roll | **flick** | special |
+
+  The charger is the one weapon with nothing on F: its charge *is* its special, it reads none of the
+  `special_*` tuning, and pressing F with one in hand says so rather than doing nothing.
+
+  Right click fires. The shooter and the roller are *held*: a vanilla client repeats a
   held right click only every four ticks, which is not a fire rate a shooter can have, so the press
   starts using the item and `Item#onUseTick` does the work every tick until the button is let go — the
   shooter fires whenever its cooldown is up, the roller rolls. The slosher stays a click, because
-  twelve ticks is slower than the client's repeat anyway. The roller's release is its other gesture:
-  under six ticks it was a tap and throws the bucketful, longer and it was a roll and throws nothing.
-  The charger is the exception on both counts: right click is its scope and letting go fires nothing,
-  and left click is its trigger — the charge it has built if it is scoped, a snap shot at no charge if
-  it is not.
+  twelve ticks is slower than the client's repeat anyway. Letting the button go is only ever the end of
+  a roll: the flick used to be a *tap* of the same button, told from a roll by how soon the release came
+  after the press, which meant a player who wanted a flick had to give up the roll to ask for it and a
+  player who wanted neither got one by accident. It is the left button now, and the two are independent —
+  flick mid-roll, and the roll is stopped for the throw and starts again on the next tick if the right
+  button is still down. The charger is the exception on both counts: right click is its scope and letting
+  go fires nothing, and left click is its trigger — the charge it has built if it is scoped, a snap shot
+  at no charge if it is not.
 
   **How a vanilla client is made to hold.** Starting the use on the server is only half of it, and for
   one round it was the only half: `Minecraft.handleKeybinds` sends the `RELEASE_USE_ITEM` packet only
@@ -183,20 +198,25 @@ dedicated Rivals server wants.
   None of this took effect at all until the client started using the item for real: `use_effects` is
   applied in `LocalPlayer`, and only while it is using.
 
-  Left click throws a **splat bomb** on everything but the charger: a slow lob that bounces where it
+  **F** — the swap-hands key — throws a **splat bomb** on everything but the charger: a slow lob that bounces where it
   lands and counts twenty ticks down there rather than going off on contact, so it is a thing you can
   run away from and throwing one is a decision about where someone will be. It splashes a 7×7 patch
   and takes 36 hearts off at the centre falling to 6 at three and a quarter blocks (linear in distance
   squared, no line-of-sight test), for 70 ink and a four-second wait of its own — separate from the
-  fire cooldown, so the trigger is never held up by it; all of it is tunable as `special_*`.
+  fire cooldown, so the trigger is never held up by it; all of it is tunable as `special_*`. F reaches
+  the server as a `ServerboundPlayerActionPacket` carrying `SWAP_ITEM_WITH_OFFHAND`, which nothing in the
+  Fabric API covers, so a mixin on `handlePlayerAction` turns it into `PaintWeapon.swapHands` and
+  **cancels the packet**: vanilla never runs, so nothing moves between the hands, whether the bomb went or
+  was refused for its ink or its wait. F with anything else in hand is still vanilla's swap.
+
   Server-side, a left click arrives as up to two packets in the same tick — an attack
   on the block or entity under the crosshair, then a swing — so Fabric's `AttackBlockCallback` and
   `AttackEntityCallback` (both returning `FAIL`, so a paint weapon never breaks the arena or
   punches anyone) and a mixin on `handlePunch`, 26.3's replacement for the swing packet, all go
   through one `PaintWeapon.leftClick` that answers the first of the tick and ignores the rest. The
   client sends the punch even while an item is in use, which is exactly what lets the charger aim
-  with one button and fire with the other; it does not repeat it while the button is held, so a
-  left click is one special.
+  with one button and fire with the other, and the roller flick out of a roll; it does not repeat it
+  while the button is held, so a left click is one flick.
 
   Only the slosher swings the arm on use — it's a bucket, and the throw reads as one — so its
   `use` returns `SUCCESS_SERVER` (the server broadcasts the swing, including to the thrower); the
@@ -704,7 +724,7 @@ ones that do.
 | the damage | `damage`, `decay_start`, `decay_per_tick`, `decayed_damage` | the three that throw a ball |
 | a bounce | `spatter_count`, `spatter_lifetime`, `spatter_speed`, `spatter_scatter`, `spatter_damage` | the three that throw a ball |
 | the splat bomb | `special_ink`, `special_cooldown`, `special_refill_delay`, `special_radius`, `special_damage`, `special_edge_damage`, `special_blast`, `special_fuse`, `special_velocity`, `special_gravity`, `special_lifetime` | everything but the charger |
-| the roll | `roll_width`, `roll_damage`, `roll_hit_cooldown`, `roll_ink_every`, `roll_speed`, `flick_tap` | the roller alone |
+| the roll | `roll_width`, `roll_damage`, `roll_hit_cooldown`, `roll_ink_every`, `roll_speed` | the roller alone |
 | the charge | `charge_min`, `charge_full`, `range_min`, `range_full`, `charge_ink_min`, `charge_ink_full`, `charge_damage_min`, `charge_damage_partial`, `charge_damage_full` | the charger alone |
 
 `straight_blocks` and `decayed_speed` are the shot's shape — how far it flies straight and fast, and
@@ -720,7 +740,9 @@ is the line a partial charge climbs (8 → 16), and `charge_damage_full` (32) is
 the charge is full. Splatoon's charger is built on exactly that discontinuity — held to the top it
 splats, let go a moment early it does not — and a straight 8 → 32 would make every fraction of a charge
 worth its fraction of a kill, which is a duller weapon. The charger takes no `special_*`, because its
-left click is its shot rather than a bomb.
+left click is its shot and it has no bomb to put on F. `flick_tap` is gone with the tap it timed: the
+roller's flick is the left button, so there is nothing to tell a tap from a hold, and a tuning file that
+still names the key is accepted with a line in the log and the key dropped.
 
 Every parameter has a range, which `/rivals tune <weapon>` prints beside it and a refusal states:
 several of them are loop bounds and spawn counts, so a `splat_radius` of 500 (a million block writes

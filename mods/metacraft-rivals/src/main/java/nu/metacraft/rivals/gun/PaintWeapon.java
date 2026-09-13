@@ -228,7 +228,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 * the swing alone; the two callbacks here answer the first pair and the {@code handlePunch} mixin the
 	 * swing, all of them through {@link #leftClick}, which takes the first of the tick and ignores the
 	 * rest. Both callbacks refuse the vanilla action: a paint weapon must not break the arena, and a
-	 * special thrown by punching someone must not also be a punch.
+	 * flick thrown at someone must not also be a punch.
 	 */
 	public static void init() {
 		AttackBlockCallback.EVENT.register((player, level, hand, pos, direction) ->
@@ -281,8 +281,8 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	}
 
 	/**
-	 * The special, once per tick per player, for whoever is holding a paint weapon in their main hand.
-	 * Returns whether anything happened, which is what the tests read.
+	 * The second trigger, once per tick per player, for whoever is holding a paint weapon in their main
+	 * hand. Returns whether anything happened, which is what the tests read.
 	 */
 	public static boolean leftClick(Player player) {
 		if (!(player.level() instanceof ServerLevel level)) return false;
@@ -291,17 +291,66 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		long now = level.getServer().getTickCount();
 		Long last = LAST_LEFT_CLICK.put(player.getUUID(), now);
 		if (last != null && last == now) return false;
-		return weapon.special(level, player, held);
+		return weapon.leftClick(level, player, held);
 	}
 
 	/**
-	 * What a left click does with this weapon in hand.
+	 * What a left click does with this weapon in hand: the second gesture of the two weapons that have
+	 * one, and nothing at all for the two that do not.
 	 *
-	 * <p>Three of the four throw a splat bomb: a slow lob that splashes a wide patch of paint where it
-	 * lands and hurts everyone from another team standing in it, for most of a tank and a four-second
-	 * wait of its own. The charger fires instead — the shot it has been charging under the scope if the
-	 * player is scoped, and a snap shot at no charge if they are not — because the one weapon whose right
-	 * click is already a hold needs its own button to pull the trigger with.
+	 * <p>The roller <b>flicks</b>. It is the button the gesture always wanted: the flick used to be a
+	 * <em>tap</em> of the right button, told from a roll by how long the release came after the press,
+	 * which meant a player who wanted one had to let go of the roll to ask for it and a player who wanted
+	 * neither got one by accident. On the left button the two are independent — flick while rolling, and
+	 * the roll is stopped for the throw and starts again on the next tick if the right button is still
+	 * down — and the flick pays its own ink and its own recovery whether a roll was running or not.
+	 *
+	 * <p>The charger <b>fires</b>: the shot it has been charging under the scope if the player is scoped,
+	 * and a snap shot at no charge if they are not, because the one weapon whose right click is already a
+	 * hold needs its own button to pull the trigger with.
+	 *
+	 * <p>The shooter and the slosher do nothing. Their right click is the whole weapon, and their
+	 * {@link #special} is on F with everybody else's.
+	 */
+	public boolean leftClick(ServerLevel level, Player player, ItemStack gun) {
+		return switch (weapon) {
+			case ROLLER -> {
+				// The roll is stopped before the throw rather than after it: the head is being lifted off the
+				// floor to swing, and a roll that went on painting through the flick would paint from a drum
+				// that is over the player's shoulder.
+				Roll.stop(player);
+				yield flick(level, player, gun);
+			}
+			case CHARGER -> fireCharge(level, player, gun);
+			case SHOOTER, SLOSHER -> false;
+		};
+	}
+
+	/**
+	 * The charger's trigger. The charge is whatever the scope has built, or none at all when the player is
+	 * not scoped, and the scope is let go by the shot — the ink is checked first, so a shot refused for an
+	 * empty tank leaves the player still aiming rather than dropping them out of the scope for nothing.
+	 */
+	private boolean fireCharge(ServerLevel level, Player player, ItemStack gun) {
+		Optional<PaintColor> ready = ready(level, player, gun); // team, refill, squid
+		if (ready.isEmpty()) return false;
+		float charge = chargeOf(player);
+		if (Ink.get(gun) < chargeCost(WeaponTuning.get(weapon), Math.max(charge, 0.0f))) {
+			outOfInk(level, player, gun);
+			return false;
+		}
+		if (charge >= 0) player.stopUsingItem();
+		return chargerShot(level, player, gun, Math.max(charge, 0.0f), ready.get());
+	}
+
+	/**
+	 * The special, on F: a splat bomb, a slow lob that splashes a wide patch of paint where it lands and
+	 * hurts everyone from another team standing in it, for most of a tank and a four-second wait of its
+	 * own. Three of the four weapons throw one.
+	 *
+	 * <p>The charger does not, and says so rather than doing nothing: its charge <em>is</em> its special,
+	 * it reads none of the {@code special_*} tuning ({@link WeaponTuning#applies}), and somebody pressing
+	 * F with one in hand has asked a fair question.
 	 */
 	public boolean special(ServerLevel level, Player player, ItemStack gun) {
 		Optional<PaintColor> ready = ready(level, player, gun); // team, refill, squid
@@ -309,15 +358,9 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		PaintColor color = ready.get();
 		WeaponTuning tuning = WeaponTuning.get(weapon);
 		if (weapon == Weapon.CHARGER) {
-			float charge = chargeOf(player);
-			// The ink is checked before the scope is let go: a shot refused for an empty tank leaves the
-			// player still aiming, rather than dropping them out of the scope for nothing.
-			if (Ink.get(gun) < chargeCost(tuning, Math.max(charge, 0.0f))) {
-				outOfInk(level, player, gun);
-				return false;
-			}
-			if (charge >= 0) player.stopUsingItem();
-			return chargerShot(level, player, gun, Math.max(charge, 0.0f), color);
+			actionBar(player, Component.literal("The charger carries no bomb — left click fires the line")
+					.withStyle(ChatFormatting.GRAY));
+			return false;
 		}
 		long now = level.getServer().getTickCount();
 		int wait = tuning.intValue(Param.SPECIAL_COOLDOWN);
@@ -564,13 +607,10 @@ public final class PaintWeapon extends Item implements PolymerItem {
 		if (!(entity instanceof Player player)) return false;
 		int held = getUseDuration(stack, entity) - timeLeft;
 		if (weapon == Weapon.ROLLER) {
-			// Hold to roll, tap to flick — and a vanilla client sends only a press and a release, so the
-			// release is the only place the two can be told apart. Anything under flick_tap ticks was a
-			// click, and a click throws the bucketful.
+			// Letting go of the roller is the end of the roll and nothing else. It used to be the flick as
+			// well — a release under flick_tap ticks was read as a tap — and that is now the left button,
+			// which is a button of its own rather than a stopwatch on this one.
 			Roll.stop(player);
-			if (level instanceof ServerLevel serverLevel && held < WeaponTuning.get(weapon).intValue(Param.FLICK_TAP)) {
-				flick(serverLevel, player, stack);
-			}
 			return false;
 		}
 		// Letting go of the scope is not a shot: the trigger is the left click, so that the aim and the
@@ -888,10 +928,10 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	@Override
 	public void modifyClientTooltip(List<Component> tooltip, ItemStack stack, PacketContext context) {
 		tooltip.add(Component.literal(switch (weapon) {
-			case SHOOTER -> "Shoots paint in your team's colour";
-			case CHARGER -> "Right click to aim, left click to fire a long line of paint";
-			case SLOSHER -> "Throws a bucketful in a wide fan";
-			case ROLLER -> "Hold right click to roll, tap it to flick";
+			case SHOOTER -> "Hold right click to fire, F for the bomb";
+			case CHARGER -> "Hold right click to aim, left click to fire the line";
+			case SLOSHER -> "Right click to slosh, F for the bomb";
+			case ROLLER -> "Hold right click to roll, left click to flick, F for the bomb";
 		}).withStyle(ChatFormatting.GRAY));
 	}
 }

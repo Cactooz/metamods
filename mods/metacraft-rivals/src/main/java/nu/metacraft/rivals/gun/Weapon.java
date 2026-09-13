@@ -106,12 +106,6 @@ public enum Weapon {
 	public static final float ROLLER_DECAYED_DAMAGE = 7.0f;
 	/** Roller: the flick lands as a bucketful, 5x5 on the face it finds. */
 	public static final int ROLLER_SPLAT_RADIUS = 2;
-	/**
-	 * Roller: how long a right click may be held and still count as a tap rather than a roll. Splatoon
-	 * separates the two by the button's own semantics; a vanilla client only sends a hold, so the release
-	 * has to tell them apart, and six ticks is about as long as a click lasts.
-	 */
-	public static final int ROLLER_FLICK_TAP_TICKS = 6;
 
 	// The roll, from splat_roller.json's rolling half and RollerItem.weaponUseTick (Splatcraft, MIT).
 

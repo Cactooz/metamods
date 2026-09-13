@@ -3909,32 +3909,63 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * Hold to roll, tap to flick. A vanilla client sends a press and a release and nothing in between, so
-	 * the release is the only place the two gestures can be told apart: under {@code flick_tap} ticks is
-	 * a click and throws the bucketful, anything longer was a roll and throws nothing.
+	 * The roller flicks on the left button, and a roll in progress is stopped for the throw. It used to be
+	 * a <em>tap</em> of the right button, told from a roll by how soon the release came after the press;
+	 * the two gestures now have a button each, so a release is only ever the end of a roll and a flick
+	 * costs nothing but the left click.
 	 */
 	@GameTest
-	public void rollerFlicksOnATapAndNotOnAHold(GameTestHelper helper) {
+	public void rollerFlicksOnLeftClickAndStopsTheRoll(GameTestHelper helper) {
+		stoneFloor(helper, 7);
 		Roll.clearAll();
 		Player player = gunner(helper);
 		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
 		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
 		PaintWeapon roller = PaintWeapon.of(Weapon.ROLLER);
-		int tap = WeaponTuning.get(Weapon.ROLLER).intValue(Param.FLICK_TAP);
-		// A long hold: the release is the end of a roll and throws nothing.
-		roller.releaseUsing(gun, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - tap);
-		helper.assertTrue(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0).isEmpty(),
-				"a hold of exactly flick_tap ticks is a roll, not a flick");
-		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "and costs no flick's worth of ink");
-		// A tap: one tick held, the bucketful goes.
+		player.setYRot(0.0f);
+		player.setXRot(0.0f);
+		Vec3 start = helper.absoluteVec(new Vec3(3.5, 2.0, 2.5));
+		player.setPos(start.x, start.y, start.z);
+		// A release is the end of a roll and nothing else, however short the hold was.
 		roller.releaseUsing(gun, helper.getLevel(), player, Weapon.CHARGE_MAX_TICKS - 1);
-		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0);
-		helper.assertValueEqual(balls.size(), Weapon.ROLLER_FLICK_BALLS, "a tap flicks");
-		helper.assertValueEqual(Ink.get(gun), Ink.MAX - WeaponTuning.get(Weapon.ROLLER).intValue(Param.INK),
-				"and pays the flick's ink");
+		helper.assertTrue(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 8.0).isEmpty(),
+				"letting the right button go throws nothing, however briefly it was held");
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX, "and costs no flick's worth of ink");
+		// A roll under way, and the left click in the middle of it: the flick goes and the roll is off.
+		rollStep(helper, player, gun);
+		rollStep(helper, player, gun);
+		helper.assertTrue(Roll.isRolling(player), "rolling");
+		helper.assertTrue(PaintWeapon.leftClick(player), "left click flicks, mid-roll");
+		helper.assertTrue(!Roll.isRolling(player), "and the roll is stopped for the throw");
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 8.0);
+		helper.assertValueEqual(balls.size(), Weapon.ROLLER_FLICK_BALLS, "the bucketful goes");
+		helper.assertTrue(Ink.get(gun) <= Ink.MAX - WeaponTuning.get(Weapon.ROLLER).intValue(Param.INK),
+				"and pays the flick's ink, got " + Ink.get(gun));
 		helper.assertTrue(player.getCooldowns().isOnCooldown(gun), "and takes the flick's recovery");
 		balls.forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/**
+	 * The shooter and the slosher have nothing on the left button: their right click is the whole weapon
+	 * and their bomb is on F. A left click with one in hand spends nothing and throws nothing — which is
+	 * also what keeps a player who is firing from throwing a bomb by accident.
+	 */
+	@GameTest
+	public void leftClickDoesNothingWithTheShooterOrSlosher(GameTestHelper helper) {
+		for (Weapon weapon : List.of(Weapon.SHOOTER, Weapon.SLOSHER)) {
+			Player player = gunner(helper);
+			player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(weapon)));
+			helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+			ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+			helper.assertTrue(!PaintWeapon.leftClick(player), "a left click with the " + weapon.commandId() + " does nothing");
+			helper.assertValueEqual(Ink.get(gun), Ink.MAX, "and spends no ink");
+			helper.assertTrue(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0).isEmpty(),
+					"and throws nothing: the bomb is on F");
+			helper.assertValueEqual(PaintWeapon.specialWait(player, helper.getLevel().getServer().getTickCount()), 0L,
+					"and does not start the special's wait");
+		}
 		helper.succeed();
 	}
 
@@ -4213,15 +4244,19 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * Left click on the other three weapons throws a splat bomb: one slow, fat, no-bounce ball carrying
-	 * the wide splat radius and the blast, for the special's own ink.
+	 * F is the special: a splat bomb on everything but the charger — one slow, fat, no-bounce ball carrying
+	 * the wide splat radius and the blast, for the special's own ink. The swap-hands key reaches the server
+	 * as a player action, the mixin hands it to {@link PaintWeapon#swapHands}, and a paint weapon in the
+	 * main hand answers with the bomb — and only with the bomb: the packet is cancelled, so nothing moves
+	 * between the hands. A player holding anything else is left to vanilla, which is the swap.
 	 */
 	@GameTest
-	public void leftClickThrowsTheSpecial(GameTestHelper helper) {
+	public void theSwapHandsKeyThrowsTheSpecial(GameTestHelper helper) {
 		Player player = gunner(helper);
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		player.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.SHIELD));
 		long now = helper.getLevel().getServer().getTickCount();
-		helper.assertTrue(PaintWeapon.leftClick(player), "left click throws the special");
+		helper.assertTrue(PaintWeapon.swapHands(player), "F with a paint weapon is ours, so the packet is cancelled");
 		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
 		helper.assertValueEqual(balls.size(), 1, "one bomb");
 		PaintBall bomb = balls.getFirst();
@@ -4234,31 +4269,8 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(bomb.blobScale(), Weapon.SPECIAL_SCALE, "and it is a big blob");
 		helper.assertTrue(bomb.getDeltaMovement().y > 0, "lobbed above the crosshair, got " + bomb.getDeltaMovement());
 		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
-		helper.assertValueEqual(Ink.get(gun), Ink.MAX - Weapon.SPECIAL_INK, "the special's ink");
-		helper.assertValueEqual(PaintWeapon.specialWait(player, now), (long) Weapon.SPECIAL_COOLDOWN, "and its own wait");
 		helper.assertTrue(!player.getCooldowns().isOnCooldown(gun),
 				"the special's wait is not the gun's cooldown: the trigger is still free");
-		balls.forEach(Entity::discard);
-		helper.succeed();
-	}
-
-	/**
-	 * F is the special. The swap-hands key reaches the server as a player action, the mixin hands it to
-	 * {@link PaintWeapon#swapHands}, and a paint weapon in the main hand answers with the bomb — and only
-	 * with the bomb: the packet is cancelled, so nothing moves between the hands. A player holding
-	 * anything else is left to vanilla, which is the swap.
-	 */
-	@GameTest
-	public void theSwapHandsKeyThrowsTheSpecial(GameTestHelper helper) {
-		Player player = gunner(helper);
-		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
-		player.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.SHIELD));
-		long now = helper.getLevel().getServer().getTickCount();
-		helper.assertTrue(PaintWeapon.swapHands(player), "F with a paint weapon is ours, so the packet is cancelled");
-		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
-		helper.assertValueEqual(balls.size(), 1, "one bomb");
-		helper.assertTrue(balls.getFirst().isBomb(), "and it is the splat bomb");
-		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
 		helper.assertValueEqual(Ink.get(gun), Ink.MAX - Weapon.SPECIAL_INK, "the special's ink");
 		helper.assertValueEqual(PaintWeapon.specialWait(player, now), (long) Weapon.SPECIAL_COOLDOWN, "and its own wait");
 		// The whole point of cancelling: the hands are where they were.
@@ -4269,6 +4281,47 @@ public final class RivalsGameTests {
 		bare.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.STONE));
 		helper.assertTrue(!PaintWeapon.swapHands(bare), "F with anything else in hand is vanilla's swap");
 		balls.forEach(Entity::discard);
+		helper.succeed();
+	}
+
+	/**
+	 * The charger carries no bomb: its charge is its special, it reads none of the {@code special_*}
+	 * tuning, and F with one in hand says so rather than quietly doing nothing.
+	 */
+	@GameTest
+	public void theChargerHasNoBombOnF(GameTestHelper helper) {
+		Player player = gunner(helper);
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.CHARGER)));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		ItemStack charger = player.getItemInHand(InteractionHand.MAIN_HAND);
+		long now = helper.getLevel().getServer().getTickCount();
+		helper.assertTrue(PaintWeapon.swapHands(player), "F is still ours, so the hands do not swap");
+		helper.assertTrue(helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 6.0).isEmpty(), "but no bomb");
+		helper.assertValueEqual(Ink.get(charger), Ink.MAX, "and nothing spent");
+		helper.assertValueEqual(PaintWeapon.specialWait(player, now), 0L, "and no wait started");
+		helper.succeed();
+	}
+
+	/**
+	 * Every weapon names its own buttons in its tooltip, because the control table is the one thing a
+	 * player cannot work out by trying: right click is obvious, a left click that flicks is not and F is
+	 * not at all.
+	 */
+	@GameTest
+	public void theWeaponsTellTheirControls(GameTestHelper helper) {
+		for (Weapon weapon : Weapon.values()) {
+			List<Component> tooltip = new ArrayList<>();
+			ItemStack stack = new ItemStack(PaintWeapon.of(weapon));
+			PaintWeapon.of(weapon).modifyClientTooltip(tooltip, stack, null);
+			helper.assertValueEqual(tooltip.size(), 1, weapon.commandId() + " says one line");
+			String line = tooltip.getFirst().getString().toLowerCase(java.util.Locale.ROOT);
+			helper.assertTrue(line.contains("right click"), weapon.commandId() + " names its right click: " + line);
+			// The two weapons with a second trigger say which button it is; the two with a bomb say F.
+			boolean second = weapon == Weapon.ROLLER || weapon == Weapon.CHARGER;
+			helper.assertValueEqual(line.contains("left click"), second, weapon.commandId() + " on the left button: " + line);
+			helper.assertValueEqual(line.contains("f for the bomb"), weapon != Weapon.CHARGER,
+					weapon.commandId() + " on F: " + line);
+		}
 		helper.succeed();
 	}
 

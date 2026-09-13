@@ -115,8 +115,6 @@ public final class WeaponTuning {
 		ROLL_INK_EVERY("roll_ink_every", 1.0, 200.0),
 		/** Roller: the movement bonus while rolling, as a fraction. */
 		ROLL_SPEED("roll_speed", 0.0, 1.0),
-		/** Roller: ticks held below which the release is a flick rather than the end of a roll. Rounded. */
-		FLICK_TAP("flick_tap", 1.0, 40.0),
 		/** Charger: ticks held below which the release is a tap, not a shot. Rounded. */
 		CHARGE_MIN("charge_min", 1.0, 200.0),
 		/** Charger: ticks held for a full charge; holding longer adds nothing. Rounded, never 0. */
@@ -198,9 +196,14 @@ public final class WeaponTuning {
 			Param.RANGE_MIN, Param.RANGE_FULL, Param.CHARGE_INK_MIN, Param.CHARGE_INK_FULL,
 			Param.CHARGE_DAMAGE_MIN, Param.CHARGE_DAMAGE_PARTIAL, Param.CHARGE_DAMAGE_FULL);
 
-	/** The roller's own: the roll, and the tap that tells a flick from the end of one. */
+	/**
+	 * The roller's own: the roll. {@code flick_tap} was here too — the ticks a right click could be held
+	 * and still count as a tap rather than a roll — and it went with the tap itself: the flick is the left
+	 * button now, so there is nothing to time. A tuning file that still names it is accepted and the key
+	 * dropped with a line in the log, the same as any other name no weapon reads.
+	 */
 	private static final List<Param> ROLL_ONLY = List.of(Param.ROLL_WIDTH, Param.ROLL_DAMAGE,
-			Param.ROLL_HIT_COOLDOWN, Param.ROLL_INK_EVERY, Param.ROLL_SPEED, Param.FLICK_TAP);
+			Param.ROLL_HIT_COOLDOWN, Param.ROLL_INK_EVERY, Param.ROLL_SPEED);
 
 	/**
 	 * Every parameter that belongs to a weapon simply because it is a weapon, rather than because of what
@@ -299,7 +302,6 @@ public final class WeaponTuning {
 			values.put(Param.ROLL_HIT_COOLDOWN, (double) Weapon.ROLL_HIT_COOLDOWN);
 			values.put(Param.ROLL_INK_EVERY, (double) Weapon.ROLL_INK_EVERY);
 			values.put(Param.ROLL_SPEED, Weapon.ROLL_SPEED_BONUS);
-			values.put(Param.FLICK_TAP, (double) Weapon.ROLLER_FLICK_TAP_TICKS);
 			values.put(Param.CHARGE_MIN, (double) Weapon.MIN_CHARGE_TICKS);
 			values.put(Param.CHARGE_FULL, (double) Weapon.CHARGE_FULL_TICKS);
 			values.put(Param.RANGE_MIN, Weapon.CHARGE_BASE_RANGE);
