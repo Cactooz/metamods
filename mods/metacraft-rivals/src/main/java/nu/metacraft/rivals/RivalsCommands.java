@@ -41,7 +41,7 @@ import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
 /**
- * {@code /rivals setup | gun [weapon] | kit | score | reset | reload | tune} for game masters
+ * {@code /rivals setup | gun [weapon] | kit | score | reset | reload | ready | tune} for game masters
  * (permission {@code metacraft.rivals}), and {@code /rivals weapons} for everybody.
  *
  * <p>The arena half — {@code spawn set|list}, {@code arena set|clear|show} — is the same permission: it
@@ -116,6 +116,8 @@ public final class RivalsCommands {
 																BlockPosArgument.getLoadedBlockPos(ctx, "to"))))))
 								.then(literal("clear").executes(ctx -> arenaClear(ctx.getSource())))
 								.then(literal("show").executes(ctx -> arenaShow(ctx.getSource()))))
+						// Who is here, dressed and armed — and a failure if anybody is not.
+						.then(literal("ready").requires(ADMIN).executes(ctx -> Readiness.report(ctx.getSource())))
 						// No permission: every player picks their own weapon.
 						.then(literal("weapons").executes(ctx -> weapons(ctx.getSource())))));
 	}

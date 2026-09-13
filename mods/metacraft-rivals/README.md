@@ -222,6 +222,13 @@ dedicated Rivals server wants.
   grains hang in the middle of the camera. The shooter gets three small ones at the barrel tip
   instead, offset right and down out of the crosshair. The charger's trail starts its dust 1.5
   blocks along the shot for the same reason; the paint under the line still starts at the eyes.
+- **Readiness.** `/rivals ready` prints one line per online non-spectator player — name, the team their
+  ovve puts them on (or "no ovve"), the weapon they picked (or "none yet") — and **fails**, naming them,
+  if anybody is undressed. A player with no ovve has no team, and a player with no team cannot be given a
+  colour, cannot paint and cannot score, so a match that starts with one has a passenger in it;
+  `/rivals match start` refuses on the same check unless the word `force` is added. Spectators are left
+  out rather than counted as undressed — a spectator is deliberately not playing. Nobody at all is not
+  ready either: there is no match without players.
 - **Spawns and arena bounds.** `Arena` is saved data, one per level (id `rivals_arena`), and holds a
   spawn per team — position, yaw *and* pitch — plus an optional box. It is saved, unlike the tally and
   the display quads, because setting an arena up is work an operator does once.
@@ -562,6 +569,7 @@ dedicated Rivals server wants.
 /rivals weapons          the weapon picker (any player)
 /rivals spawn set data   where a team starts
 /rivals arena set <from> <to>
+/rivals ready            who is here, dressed and armed
 ```
 
 ### Tuning

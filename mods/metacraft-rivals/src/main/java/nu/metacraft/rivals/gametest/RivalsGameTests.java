@@ -75,6 +75,7 @@ import nu.metacraft.rivals.Arena;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.OvveTeams;
 import nu.metacraft.rivals.PlayerTick;
+import nu.metacraft.rivals.Readiness;
 import nu.metacraft.rivals.Rivals;
 import nu.metacraft.rivals.SquidDisplay;
 import nu.metacraft.rivals.SquidState;
@@ -120,6 +121,7 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicInteger;
+import java.util.function.Function;
 import nu.metacraft.rivals.pack.RivalsPack;
 import nu.metacraft.rivals.gun.Ink;
 import nu.metacraft.rivals.gun.InkHud;
@@ -754,6 +756,68 @@ public final class RivalsGameTests {
 		} finally {
 			arena.forget();
 			Arena.clearShows();
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * {@code /rivals ready} lines everybody up: name, the team their ovve puts them on, the weapon they
+	 * picked — and it fails, naming them, if anybody is wearing no ovve, which is what {@code match start}
+	 * leans on. Spectators are left out rather than counted as undressed.
+	 *
+	 * <p>ovvar is a soft integration matched on an item's registry id and is not on this module's
+	 * classpath, so no game test can put a real ovve on a mock player. The ovve lookup is therefore
+	 * handed in: the stand-in runs the real {@link OvveTeams#colourOf(Identifier)} over an
+	 * {@code ovvar:}-namespaced id, so everything but the armour-slot read is the production path — and
+	 * the ids it is given are the ones ovvar registers.
+	 */
+	@GameTest
+	public void readinessNamesWhoeverIsUndressed(GameTestHelper helper) {
+		ServerPlayer dressedData = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		ServerPlayer dressedIt = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		ServerPlayer bare = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		ServerPlayer watching = connected(mockServerPlayer(helper, GameType.SPECTATOR));
+		// The stand-in for "what is this player wearing": an ovvar id per player, run through the real
+		// prefix mapping. ovvar:media_frack is in the namespace and belongs to no chapter, which is the
+		// case that has to read as undressed rather than as a team.
+		Map<UUID, String> worn = new LinkedHashMap<>();
+		worn.put(dressedData.getUUID(), "ovvar:data_ovve");
+		worn.put(dressedIt.getUUID(), "ovvar:it_kisel_ovve");
+		worn.put(bare.getUUID(), "ovvar:media_frack");
+		Function<Player, Optional<PaintColor>> ovve = player -> {
+			String id = worn.get(player.getUUID());
+			return id == null ? Optional.empty() : OvveTeams.colourOf(Identifier.parse(id));
+		};
+		WeaponChoice choices = WeaponChoice.of(helper.getLevel().getServer());
+		try {
+			choices.set(dressedData, Weapon.ROLLER);
+			List<ServerPlayer> everyone = List.of(dressedData, dressedIt, bare, watching);
+			Readiness.Report report = Readiness.of(everyone, ovve);
+			helper.assertValueEqual(report.lines().size(), 3, "the spectator is not playing");
+			helper.assertTrue(!report.ready(), "and one of the three is undressed");
+			helper.assertValueEqual(report.undressed().size(), 1, "exactly one");
+			helper.assertTrue(report.undressedNames().equals(bare.getScoreboardName()),
+					"named: " + report.undressedNames());
+			Readiness.Line first = report.lines().get(0);
+			helper.assertValueEqual(first.team().orElse(null), PaintColor.DATA, "a data ovve is a DATA player");
+			helper.assertValueEqual(first.weapon().orElse(null), Weapon.ROLLER, "and their pick is in the line");
+			helper.assertTrue(first.text().contains("DATA") && first.text().contains("Paint Roller"),
+					"the printed line says both: " + first.text());
+			Readiness.Line second = report.lines().get(1);
+			helper.assertValueEqual(second.team().orElse(null), PaintColor.IT, "a chapter ovve counts too");
+			helper.assertTrue(second.weapon().isEmpty() && second.text().contains("none yet"),
+					"and a player who never picked says so: " + second.text());
+			helper.assertTrue(report.lines().get(2).text().contains("no ovve"),
+					"as does an undressed one: " + report.lines().get(2).text());
+			// Dress the last one and the report goes green.
+			worn.put(bare.getUUID(), "ovvar:it_ovve");
+			Readiness.Report after = Readiness.of(everyone, ovve);
+			helper.assertTrue(after.ready(), "everybody dressed: ready");
+			helper.assertTrue(after.undressed().isEmpty(), "nobody left to name");
+			// And nobody at all is not ready either: there is no match without players.
+			helper.assertTrue(!Readiness.of(List.of(watching), ovve).ready(), "a lone spectator is not a match");
+		} finally {
+			choices.forget(dressedData.getUUID());
 		}
 		helper.succeed();
 	}
