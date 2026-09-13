@@ -72,6 +72,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.Arena;
+import nu.metacraft.rivals.Lobby;
 import nu.metacraft.rivals.Match;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.OvveTeams;
@@ -968,6 +969,72 @@ public final class RivalsGameTests {
 		helper.assertValueEqual(Match.decide(itAhead), PaintColor.IT, "one face is enough");
 		helper.assertTrue(Match.clock(0).equals("⏱ 0:00") && Match.clock(20 * 125).equals("⏱ 2:05"),
 				"the clock reads m:ss: " + Match.clock(20 * 125));
+		helper.succeed();
+	}
+
+	/**
+	 * The lobby takes every paint weapon off a player and hands them exactly one selector — one, however
+	 * many times the round ends, because a player handed a compass per match finishes the evening with a
+	 * hotbar of them. Everything else in the inventory is left where it is.
+	 */
+	@GameTest
+	public void theLobbySweepsGunsAndHandsOutOneSelector(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		PaintWeapon.giveKit(player);
+		player.getInventory().setItem(25, new ItemStack(Items.BREAD, 3));
+		helper.assertValueEqual(paintWeapons(player), 4, "four guns to start with");
+		helper.assertTrue(!WeaponSelector.carried(player), "and no selector");
+		int taken = Lobby.receive(player);
+		helper.assertValueEqual(taken, 4, "the lobby took all four");
+		helper.assertValueEqual(paintWeapons(player), 0, "and left none behind");
+		helper.assertTrue(WeaponSelector.carried(player), "with a selector in exchange");
+		helper.assertValueEqual(player.getInventory().getItem(25).getCount(), 3, "the bread is untouched");
+		// Twice through the lobby is still one selector.
+		Lobby.receive(player);
+		Lobby.receive(player);
+		int selectors = 0;
+		for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+			if (WeaponSelector.is(player.getInventory().getItem(slot))) selectors++;
+		}
+		helper.assertValueEqual(selectors, 1, "still exactly one selector");
+		helper.assertTrue(!Lobby.give(player), "and give() says it handed out nothing");
+		// A player frozen by the end of a match is thawed by the lobby: nobody stands still between rounds.
+		Match.freeze(player);
+		helper.assertTrue(Match.isFrozen(player), "frozen for the result");
+		Lobby.receive(player);
+		helper.assertTrue(!Match.isFrozen(player), "and free again in the lobby");
+		helper.succeed();
+	}
+
+	/**
+	 * Coming back to life outside a match: a dressed player lands on their own team's spawn, and one with
+	 * no team lands at the world spawn instead of wherever they happened to die.
+	 */
+	@GameTest
+	public void theLobbyRespawnsOnTheTeamSpawn(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		Arena arena = Arena.of(level);
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.IT));
+		try {
+			arena.forget();
+			Vec3 itAt = helper.absoluteVec(new Vec3(5.5, 2.0, 5.5));
+			arena.setSpawn(PaintColor.IT, new Arena.Spawn(itAt, 90f, 5f));
+			player.setPos(helper.absoluteVec(new Vec3(1.5, 2.0, 1.5)));
+			Lobby.sendToSpawn(player);
+			helper.assertTrue(player.position().distanceTo(itAt) < 1.0e-3,
+					"a team player lands on their team's spawn, not " + player.position());
+			helper.assertValueEqual(player.getYRot(), 90f, "facing the way the spawn faces");
+			// With no spawn for their colour there is nothing to send them to but the world spawn.
+			arena.forget();
+			BlockPos world = level.getRespawnData().pos();
+			Lobby.sendToSpawn(player);
+			helper.assertTrue(player.position().distanceTo(new Vec3(world.getX() + 0.5, world.getY(), world.getZ() + 0.5)) < 1.0e-3,
+					"and with no team spawn, the world's own, not " + player.position());
+		} finally {
+			arena.forget();
+			helper.getLevel().getScoreboard().removePlayerFromTeam(player.getScoreboardName(), team(helper, PaintColor.IT));
+		}
 		helper.succeed();
 	}
 

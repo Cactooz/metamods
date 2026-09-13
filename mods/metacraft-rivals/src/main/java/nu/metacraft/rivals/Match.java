@@ -455,18 +455,21 @@ public final class Match {
 	}
 
 	/**
-	 * Back to the lobby: nobody frozen, nobody's screen inked, nobody rolling. What being <em>in</em> the
-	 * lobby means for a player — the game mode, the empty hands, the selector — is the lobby's own business.
+	 * Back to the lobby: nobody frozen, nobody's screen inked, nobody rolling — and then {@link Lobby},
+	 * which is what decides what being between matches means for a player (adventure mode, empty hands,
+	 * one selector).
 	 */
 	private static void lobby(MinecraftServer server, long now) {
 		state = State.LOBBY;
 		stateEnds = now;
 		stateBegan = now;
-		for (ServerPlayer player : roster.get()) {
+		List<ServerPlayer> players = roster.get();
+		for (ServerPlayer player : players) {
 			thaw(player);
 			InkOnScreen.clear(player);
 			Roll.stop(player);
 		}
+		Lobby.receiveAll(players);
 	}
 
 	private static void enter(State next, long now, long ticks) {

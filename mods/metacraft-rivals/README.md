@@ -222,6 +222,19 @@ dedicated Rivals server wants.
   grains hang in the middle of the camera. The shooter gets three small ones at the barrel tip
   instead, offset right and down out of the crosshair. The charger's trail starts its dust 1.5
   blocks along the shot for the same reason; the paint under the line still starts at the eyes.
+- **The lobby.** Between matches — in LOBBY and after the whistle in ENDED — `Lobby` is what a player
+  gets: every paint weapon off them, exactly **one** weapon selector (one however many rounds end, since a
+  compass per match is a hotbar of compasses), adventure mode, a clean screen and no roll. Ops keep their
+  own mode: the permission asked is the module's own `metacraft.rivals`, the same one the admin commands
+  use, so a permissions plugin can grant it without granting op, and an operator in the lobby is usually
+  building it. Adventure for everyone else because a lobby is not a place to mine the arena from, and a
+  gun in the lobby is a gun used on the arena before the round starts.
+
+  The same thing happens **on join**, through `ServerPlayConnectionEvents.JOIN` — unless a match is
+  *playing*, in which case the arrival is a mid-match add instead (armed, on their team, with the three
+  seconds of respawn grace), so nobody loads into a firefight. A **lobby death** puts a dressed player on
+  their own team's spawn and everybody else at the level's own respawn point, rather than wherever they
+  happened to die.
 - **The round loop.** `Match` is one machine for the whole server, in memory:
   **LOBBY → COUNTDOWN (5 s) → PLAYING (n minutes) → ENDED (10 s) → LOBBY**.
 
@@ -611,6 +624,32 @@ dedicated Rivals server wants.
 /rivals match status
 ```
 
+### Running a match
+
+In order, once per arena:
+
+```
+/rivals setup                          the two teams
+/rivals spawn set data                 stand where DATA starts, facing the way they should face
+/rivals spawn set it
+/rivals arena set 10 60 10 90 90 90    the bounds; paint outside them is refused
+/rivals arena show                     check them
+```
+
+Then, once per round:
+
+```
+# players get dressed in their chapter's ovve and pick a weapon
+/rivals weapons                        each player, or right-click the weapon selector
+/rivals ready                          fails and names anybody with no ovve
+/rivals match start 3                  ... or  /rivals match start 3 force
+/rivals match status                   the state and the clock
+/rivals match stop                     the whistle, early
+```
+
+`match start` does the rest: teams, a clean arena, everybody's chosen weapon, a teleport to their team's
+spawn, the countdown, the timer bar, the result and the fireworks, and the lobby ten seconds later.
+
 ### Tuning
 
 Every number a shot is made of is adjustable from inside the game, per weapon, and lands on the next
@@ -675,7 +714,7 @@ before; taking the ovve off leaves you on the team you were on.
 ```
 ./gradlew mods:metacraft-rivals:build -x mods:metacraft-lib:test  # lib unit tests fail on dev for unrelated reasons
 ./gradlew mods:metacraft-rivals:runServer      # needs two runs on a fresh clone, see below
-./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (68 of ours, plus vanilla's always_pass: 69 in total)
+./gradlew mods:metacraft-rivals:runGameTest    # server-side game tests (107 of ours, plus vanilla's always_pass: 108 in total)
 ```
 
 `run/` is gitignored, and the `eula = true` in `build.gradle` applies only to the game-test run, so
