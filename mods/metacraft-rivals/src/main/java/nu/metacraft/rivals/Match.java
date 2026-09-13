@@ -37,6 +37,7 @@ import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Roll;
 import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponChoice;
+import nu.metacraft.rivals.gun.WeaponDialog;
 import nu.metacraft.rivals.gun.WeaponPicks;
 import nu.metacraft.rivals.paint.PaintTally;
 import org.jspecify.annotations.Nullable;
@@ -227,10 +228,30 @@ public final class Match {
 		clearArena(level);
 		enter(State.COUNTDOWN, now, COUNTDOWN_TICKS);
 		for (ServerPlayer player : roster.get()) freeze(player);
+		askUnarmed(report);
 		int playing = teamed;
 		return new Result(true, Component.literal("Match starting: " + playing + " player"
 				+ (playing == 1 ? "" : "s") + ", " + minutes + " minute" + (minutes == 1 ? "" : "s")
 				+ ". Counting down…").withStyle(ChatFormatting.GREEN));
+	}
+
+	/**
+	 * Put the weapon picker in front of everybody on a side who has never picked one, and return how many
+	 * were asked.
+	 *
+	 * <p>During the countdown, which is the one moment in a round when a player is frozen with nothing to
+	 * do: five seconds is plenty to click a button, and somebody who does not answer keeps the shooter
+	 * {@link #arm} has already put in their hand. Asking a player who <em>has</em> picked would be taking a
+	 * screen away from someone who is watching the numbers count down.
+	 */
+	public static int askUnarmed(Readiness.Report report) {
+		int asked = 0;
+		for (Readiness.Line line : report.lines()) {
+			if (line.team().isEmpty() || line.weapon().isPresent()) continue;
+			WeaponDialog.open(line.player());
+			asked++;
+		}
+		return asked;
 	}
 
 	/**

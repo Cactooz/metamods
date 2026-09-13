@@ -995,6 +995,42 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
+	/**
+	 * The countdown puts the weapon picker in front of anybody who has never picked one, and only them:
+	 * five frozen seconds is the one moment in a round with nothing else to do, and taking the screen away
+	 * from somebody who is watching the numbers count down would be worse than useless. A player who does
+	 * not answer keeps the shooter they were already handed.
+	 *
+	 * <p>Counted rather than seen: a mock player's connection swallows what is sent to it, so what is
+	 * assertable is who {@code Match.start} asks — which is what {@link Match#askUnarmed} answers.
+	 */
+	@GameTest
+	public void theCountdownAsksWhoeverNeverPickedAWeapon(GameTestHelper helper) {
+		ServerScoreboard board = helper.getLevel().getScoreboard();
+		ServerPlayer picked = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		ServerPlayer never = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		ServerPlayer teamless = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		WeaponChoice choices = WeaponChoice.of(helper.getLevel().getServer());
+		try {
+			board.addPlayerToTeam(picked.getScoreboardName(), team(helper, PaintColor.DATA));
+			board.addPlayerToTeam(never.getScoreboardName(), team(helper, PaintColor.IT));
+			choices.set(picked, Weapon.SLOSHER);
+			List<ServerPlayer> everyone = List.of(picked, never, teamless);
+			helper.assertValueEqual(Match.askUnarmed(Readiness.of(everyone)), 1,
+					"only the player who never picked is asked");
+			// Once they have picked, nobody is asked at all.
+			choices.set(never, Weapon.ROLLER);
+			helper.assertValueEqual(Match.askUnarmed(Readiness.of(everyone)), 0,
+					"and once everybody has a weapon, the countdown is left alone");
+		} finally {
+			choices.forget(picked.getUUID());
+			choices.forget(never.getUUID());
+			board.removePlayerFromTeam(picked.getScoreboardName());
+			board.removePlayerFromTeam(never.getScoreboardName());
+		}
+		helper.succeed();
+	}
+
 	/** {@code /rivals match stop} blows the whistle early: straight from PLAYING to ENDED. */
 	@GameTest
 	public void matchStopEndsItEarly(GameTestHelper helper) {
