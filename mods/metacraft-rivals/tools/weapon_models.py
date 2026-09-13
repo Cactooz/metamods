@@ -171,12 +171,19 @@ def led_element(centre):
 # "on the floor" looks like from inside the head — with the grip above it at y 230..289 and the whole
 # thing ahead of the player rather than off to the side.
 #
-# The third-person pose is lowered and pushed ahead by the same idea, so other players see the head down.
-# It is a translation only: nothing here can be checked against a running client, and guessing at a
-# rotation for a pose nobody has seen is how you get a roller held sideways through someone's chest.
+# The third person had to be worked out rather than nudged. A display translation is in SIXTEENTHS of a
+# block, so the first attempt — 0.6 down, 2.2 ahead — moved the roller half a pixel and was invisible.
+#
+# The frame it lands in: ItemInHandLayer translates to the hand and then rotates XP -90 and YP 180, so in
+# the item's own axes -z runs down the hanging arm, -y points ahead of the player and +y behind. Julle's
+# base pose is [90, 0, 0], which sends the drum — the model's -z end — to +y: over the shoulder, behind
+# the player, which is why lowering it did nothing anyone could see. A -45 rotation puts that end at
+# (0, -0.7, -0.7): ahead and down, which is where a roller being pushed along the floor is. The
+# translation then carries it about 1.3 blocks ahead of the hand and down to the floor, and the scale
+# goes to 1 because a drum on the ground is a drum, not a prop.
 ROLLING_DISPLAY = collections.OrderedDict([
-    ("thirdperson_righthand", {"rotation": [90, 0, 0], "translation": [0, 0.6, 2.2], "scale": [0.8, 0.8, 0.8]}),
-    ("thirdperson_lefthand", {"rotation": [90, 0, 0], "translation": [0, 0.6, 2.2], "scale": [0.8, 0.8, 0.8]}),
+    ("thirdperson_righthand", {"rotation": [-45, 0, 0], "translation": [0, -10, -3], "scale": [1.0, 1.0, 1.0]}),
+    ("thirdperson_lefthand", {"rotation": [-45, 0, 0], "translation": [0, -10, -3], "scale": [1.0, 1.0, 1.0]}),
     ("firstperson_righthand", {"rotation": [-45, -10, -5], "translation": [-5, -3, -9], "scale": [0.58, 0.58, 0.58]}),
     ("firstperson_lefthand", {"rotation": [-45, 10, 5], "translation": [-5, -3, -9], "scale": [0.58, 0.58, 0.58]}),
 ])

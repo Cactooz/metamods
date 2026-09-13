@@ -1661,6 +1661,26 @@ public final class RivalsGameTests {
 						< base.getAsJsonArray("translation").get(2).getAsDouble(), "and further ahead");
 		helper.assertTrue(rolling.getAsJsonArray("scale").get(0).getAsDouble()
 						> base.getAsJsonArray("scale").get(0).getAsDouble(), "and bigger");
+		// Third person, where the first try moved the roller half a pixel: a display translation is in
+		// sixteenths of a block, so a pose that differs by less than a whole unit differs by nothing
+		// anyone can see. And the drum has to be turned to the front at all — the base [90, 0, 0] sends
+		// the model's -z end over the shoulder, so no amount of lowering it would ever have shown a head
+		// on the floor.
+		for (String view : new String[] {"thirdperson_righthand", "thirdperson_lefthand"}) {
+			JsonObject third = pose.getAsJsonObject("display").getAsJsonObject(view);
+			JsonObject were = plain.getAsJsonObject("display").getAsJsonObject(view);
+			helper.assertTrue(third.getAsJsonArray("rotation").get(0).getAsDouble() == -45.0,
+					view + ": the drum is turned down and ahead, not over the shoulder");
+			double moved = 0.0;
+			for (int axis = 0; axis < 3; axis++) {
+				double delta = third.getAsJsonArray("translation").get(axis).getAsDouble()
+						- were.getAsJsonArray("translation").get(axis).getAsDouble();
+				moved += delta * delta;
+			}
+			helper.assertTrue(Math.sqrt(moved) >= 8.0,
+					view + ": and moved by " + String.format(Locale.ROOT, "%.1f", Math.sqrt(moved))
+							+ " of the sixteenths a display translation is in, which has to be a visible distance");
+		}
 		helper.succeed();
 	}
 

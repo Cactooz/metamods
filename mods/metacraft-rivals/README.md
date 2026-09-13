@@ -153,8 +153,9 @@ dedicated Rivals server wants.
   exactly while the client is using the item. `items/roller.json` is a `minecraft:condition` on it, so
   **holding the button swaps the roller's model** for `item/roller_rolling` — the same geometry as a
   child model, with the head pitched nose-down, pushed ahead and scaled up by a third, so it reads as
-  pressed against the floor instead of carried in front of your face; third person is lowered and pushed
-  ahead too, so everyone else sees the head down. The transforms are in `tools/weapon_models.py`'s
+  pressed against the floor instead of carried in front of your face; third person turns the drum down and
+  ahead — Julle's base pose sends it over the shoulder, so merely lowering it showed nothing — and pushes
+  it a block and a bit ahead of the hand, onto the floor, so everyone else sees the head down. The transforms are in `tools/weapon_models.py`'s
   `ROLLING_DISPLAY` and were solved against the same first-person camera chain the LED used to be solved
   against: at 1080p the drum sits on the bottom edge, slightly clipped, with the grip rising above it.
 
