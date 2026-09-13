@@ -4242,6 +4242,36 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
+	/**
+	 * F is the special. The swap-hands key reaches the server as a player action, the mixin hands it to
+	 * {@link PaintWeapon#swapHands}, and a paint weapon in the main hand answers with the bomb — and only
+	 * with the bomb: the packet is cancelled, so nothing moves between the hands. A player holding
+	 * anything else is left to vanilla, which is the swap.
+	 */
+	@GameTest
+	public void theSwapHandsKeyThrowsTheSpecial(GameTestHelper helper) {
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		player.setItemInHand(InteractionHand.OFF_HAND, new ItemStack(Items.SHIELD));
+		long now = helper.getLevel().getServer().getTickCount();
+		helper.assertTrue(PaintWeapon.swapHands(player), "F with a paint weapon is ours, so the packet is cancelled");
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
+		helper.assertValueEqual(balls.size(), 1, "one bomb");
+		helper.assertTrue(balls.getFirst().isBomb(), "and it is the splat bomb");
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX - Weapon.SPECIAL_INK, "the special's ink");
+		helper.assertValueEqual(PaintWeapon.specialWait(player, now), (long) Weapon.SPECIAL_COOLDOWN, "and its own wait");
+		// The whole point of cancelling: the hands are where they were.
+		helper.assertTrue(gun.getItem() instanceof PaintWeapon, "the gun stays in the main hand");
+		helper.assertValueEqual(player.getItemInHand(InteractionHand.OFF_HAND).getItem(), Items.SHIELD,
+				"and the off hand is untouched");
+		Player bare = mockPlayer(helper, GameType.SURVIVAL);
+		bare.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(Items.STONE));
+		helper.assertTrue(!PaintWeapon.swapHands(bare), "F with anything else in hand is vanilla's swap");
+		balls.forEach(Entity::discard);
+		helper.succeed();
+	}
+
 	/** The special has a wait of its own and a price of its own, and refuses when either is not met. */
 	@GameTest
 	public void specialRespectsItsOwnCooldownAndInk(GameTestHelper helper) {

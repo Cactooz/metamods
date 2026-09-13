@@ -63,12 +63,23 @@ import java.util.UUID;
 
 /**
  * Every paint weapon, in one item class parameterised by a {@link Weapon}. Right click fires: it throws
- * paint in the colour of the holder's vanilla team, and no team means no shot. Left click is the
- * special — a splat bomb on three of the four weapons, and the charger's own shot, since the charger's
- * right click is the scope and pressing both buttons at once is how a scoped rifle is fired. Clients
+ * paint in the colour of the holder's vanilla team, and no team means no shot. Left click is the second
+ * trigger — the roller's flick and the charger's shot, the two gestures that belong to a weapon whose
+ * right click is a hold — and <b>F</b>, the swap-hands key, is the special: the splat bomb. Clients
  * see a stand-in vanilla item wearing our 3D model; the model's ink is dye-tinted, and each inventory
  * tick writes the holder's team colour into the server-side stack as that dye, so every viewer sees the
  * weapon in its holder's colour.
+ *
+ * <p>The three buttons, in one table:
+ *
+ * <table border="1">
+ * <caption>controls</caption>
+ * <tr><th>weapon</th><th>right click</th><th>left click</th><th>F</th></tr>
+ * <tr><td>shooter</td><td>hold to fire</td><td>—</td><td>splat bomb</td></tr>
+ * <tr><td>charger</td><td>hold to scope/charge</td><td>fire the charge</td><td>— (no bomb)</td></tr>
+ * <tr><td>slosher</td><td>slosh</td><td>—</td><td>splat bomb</td></tr>
+ * <tr><td>roller</td><td>hold to roll</td><td>flick</td><td>splat bomb</td></tr>
+ * </table>
  *
  * <p>How the trigger is read depends on the weapon. A vanilla client repeats a <em>held</em> right
  * click only every four ticks, which is a ceiling of five shots a second, so the shooter and the roller
@@ -248,6 +259,25 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	private static InteractionResult answerLeftClick(Player player) {
 		leftClick(player);
 		return InteractionResult.FAIL;
+	}
+
+	/**
+	 * The swap-hands key, which is the special. A vanilla client sends a player action of
+	 * {@code SWAP_ITEM_WITH_OFFHAND} for F, and the {@code handlePlayerAction} mixin hands it here before
+	 * vanilla has swapped anything: a paint weapon answers with its {@link #special}, and the answer is
+	 * the whole of it — nothing moves between the hands, whether the bomb went or was refused for its ink
+	 * or its wait. Returns whether this was ours, which is what the mixin cancels the packet on, so F
+	 * with anything else in hand is still vanilla's swap.
+	 *
+	 * <p>F rather than the left button because a left click has to stay the second trigger: the roller's
+	 * flick and the charger's shot are what a player reaches for mid-fight, and a bomb is a decision.
+	 */
+	public static boolean swapHands(Player player) {
+		if (!(player.level() instanceof ServerLevel level)) return false;
+		ItemStack held = player.getItemInHand(InteractionHand.MAIN_HAND);
+		if (!(held.getItem() instanceof PaintWeapon weapon)) return false;
+		weapon.special(level, player, held);
+		return true;
 	}
 
 	/**

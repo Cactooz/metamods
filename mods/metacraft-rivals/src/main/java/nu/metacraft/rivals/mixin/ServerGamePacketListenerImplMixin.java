@@ -1,5 +1,6 @@
 package nu.metacraft.rivals.mixin;
 
+import net.minecraft.network.protocol.game.ServerboundPlayerActionPacket;
 import net.minecraft.network.protocol.game.ServerboundPunchPacket;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.network.ServerGamePacketListenerImpl;
@@ -11,7 +12,7 @@ import org.spongepowered.asm.mixin.injection.Inject;
 import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
 
 /**
- * Left click is the special, and this is where a left click at thin air arrives.
+ * The two buttons no Fabric event covers: a left click at thin air, and F.
  *
  * <p>26.3 splits what used to be the swing packet in two: an attack on the block or the entity under
  * the crosshair (the packets Fabric's {@code AttackBlockCallback} and {@code AttackEntityCallback}
@@ -22,10 +23,17 @@ import org.spongepowered.asm.mixin.injection.callback.CallbackInfo;
  * block breaking continues), and it is sent even while an item is being used, which is what lets the
  * charger be scoped with the right button and fired with the left.
  *
- * <p>Injected after {@code ensureRunningOnSameThread}, the same place the other Metacraft mods hook
- * their packet handlers: before it, this code would be running on the netty thread.
+ * <p>F is the other one. The swap-hands key reaches the server as a
+ * {@link ServerboundPlayerActionPacket} carrying {@code SWAP_ITEM_WITH_OFFHAND}, and there is no event
+ * for it either — so {@code handlePlayerAction} is injected as well, and a paint weapon in the main hand
+ * turns the press into {@link PaintWeapon#swapHands} and cancels the packet. Cancelling is what makes F
+ * the special button rather than a way to put the gun in the off hand: vanilla never runs, so nothing
+ * moves between the hands. Anything else in hand is left to vanilla, swap and all.
+ *
+ * <p>Both are injected after {@code ensureRunningOnSameThread}, the same place the other Metacraft mods
+ * hook their packet handlers: before it, this code would be running on the netty thread.
  * {@link PaintWeapon#leftClick} de-duplicates the tick, so the attack packet and the punch that
- * follows it are one special rather than two.
+ * follows it are one answer rather than two.
  */
 @Mixin(ServerGamePacketListenerImpl.class)
 public class ServerGamePacketListenerImplMixin {
@@ -42,5 +50,21 @@ public class ServerGamePacketListenerImplMixin {
 	)
 	public void rivalsLeftClick(ServerboundPunchPacket packet, CallbackInfo info) {
 		PaintWeapon.leftClick(player);
+	}
+
+	@Inject(
+			method = "handlePlayerAction",
+			at = @At(
+					value = "INVOKE",
+					target = "Lnet/minecraft/network/protocol/PacketUtils;ensureRunningOnSameThread(Lnet/minecraft/network/protocol/Packet;Lnet/minecraft/network/PacketListener;Lnet/minecraft/server/level/ServerLevel;)V",
+					shift = At.Shift.AFTER
+			),
+			cancellable = true
+	)
+	public void rivalsPlayerAction(ServerboundPlayerActionPacket packet, CallbackInfo info) {
+		if (packet.getAction() == ServerboundPlayerActionPacket.Action.SWAP_ITEM_WITH_OFFHAND
+				&& PaintWeapon.swapHands(player)) {
+			info.cancel();
+		}
 	}
 }
