@@ -118,7 +118,9 @@ dedicated Rivals server wants.
 
   Standing in your own ink refills the tank in ten seconds on your feet and three as a squid, and a
   weapon that has just fired waits its own `refill_delay` first (7 for a shooter, 15 for a roller —
-  Splatcraft's `ink_recovery_cooldown`).
+  Splatcraft's `ink_recovery_cooldown`). **Nothing refills while the trigger is held**, as in Splatoon:
+  without that the roller spent one ink every five ticks and took one back every two, so rolling through
+  your own paint filled the tank faster than rolling emptied it.
 
   A roll costs one ink every five ticks of *moving*, so a full tank is about twenty-five seconds of solid
   rolling — near enough Splatoon 1's Splat Roller, which empties in about thirty-three. It was one every

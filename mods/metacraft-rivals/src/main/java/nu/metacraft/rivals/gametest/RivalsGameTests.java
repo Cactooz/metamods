@@ -1844,6 +1844,11 @@ public final class RivalsGameTests {
 	 * with a real floor of paint underneath, over a whole second of ticks, so what is measured is the
 	 * rate rather than one period of it — a rate written as "every N ticks, add M" is only correct if
 	 * N and M divide out to the number Splatoon uses.
+	 *
+	 * <p>And none of it happens while the trigger is held, which is Splatoon's rule too. Without it the
+	 * roller was a perpetual motion machine: rolling spends one ink every five ticks and standing in your
+	 * own paint pays one every two, so rolling through your own ink filled the tank faster than rolling
+	 * emptied it.
 	 */
 	@GameTest
 	public void ownPaintRefillsAtSplatoonsRates(GameTestHelper helper) {
@@ -1875,6 +1880,20 @@ public final class RivalsGameTests {
 		helper.assertTrue(PlayerTick.isSquid(player), "sneaking on own paint is squid form");
 		helper.assertValueEqual(Ink.get(gun), 50, "as a squid: five ink every three ticks, a full tank in three seconds");
 		player.setShiftKeyDown(false);
+		// Trigger down on a paint weapon: nothing at all, however long you stand in your own paint.
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
+		ItemStack roller = player.getItemInHand(InteractionHand.MAIN_HAND);
+		Ink.set(roller, 0);
+		player.startUsingItem(InteractionHand.MAIN_HAND);
+		helper.assertTrue(player.isUsingItem(), "the roller is being held down");
+		for (int i = 0; i < 10; i++) PlayerTick.tick(player, base + 120 + i);
+		helper.assertValueEqual(Ink.get(roller), 0, "a held trigger refills nothing, however wet the floor is");
+		// And letting go is the tank running again, on the very next tick that is due one.
+		player.releaseUsingItem();
+		helper.assertTrue(!player.isUsingItem(), "the button is up");
+		for (int i = 0; i < 10; i++) PlayerTick.tick(player, base + 180 + i);
+		helper.assertValueEqual(Ink.get(roller), 5, "and letting go starts it again: half an ink a tick");
+		Roll.stop(player);
 		helper.succeed();
 	}
 

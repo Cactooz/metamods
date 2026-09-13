@@ -348,7 +348,15 @@ public final class PlayerTick {
 		} else {
 			SquidState.clearEnemyInk(player);
 		}
-		if (inOwn || wallBeside) {
+		// Nothing refills while the trigger is down. Splatoon recovers no ink at all while a weapon is in
+		// use, and without that rule the roller was a perpetual motion machine: rolling spends one ink
+		// every five ticks and standing in your own paint pays one every two, so rolling through your own
+		// ink filled the tank faster than rolling emptied it — "the roller loses less ink than you get
+		// from walking on the ink". Written generally, for every held weapon rather than for the roller:
+		// the shooter firing and the charger scoping are the same bargain. In practice it is only the
+		// standing rate this can reach, since squid form and using an item cannot coexist.
+		boolean firing = player.isUsingItem() && player.getUseItem().getItem() instanceof PaintWeapon;
+		if ((inOwn || wallBeside) && !firing) {
 			int gain = squid
 					? (now % SQUID_TOPUP_EVERY == 0 ? SQUID_TOPUP : 0)
 					: (now % TOPUP_EVERY == 0 ? TOPUP : 0);
