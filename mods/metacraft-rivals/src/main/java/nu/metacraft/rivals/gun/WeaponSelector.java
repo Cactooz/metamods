@@ -29,7 +29,10 @@ import java.util.List;
  *
  * <p>An item rather than only a command, because a player who has just joined a lobby has not read the
  * commands and a thing in the hotbar asks to be clicked. A compass because it already reads as "point
- * me at something" and because its model needs nothing from the pack.
+ * me at something". Polymer sends the item's own id as the client's {@code item_model}, so the pack ships
+ * {@code items/weapon_selector.json}: a still compass face (vanilla's {@code compass_16}), because a
+ * compass that points somewhere spins its needle while it works out where — without that file the
+ * client drew the missing-texture square.
  *
  * <p>The name is on the stack ({@link DataComponents#ITEM_NAME}) rather than left to the lang file: what
  * reaches the client is a compass, and a compass is called Compass unless the stack says otherwise.
