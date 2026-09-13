@@ -80,6 +80,10 @@ public final class WeaponSelector extends Item implements PolymerItem {
 	public InteractionResult use(Level level, Player player, InteractionHand hand) {
 		if (!(player instanceof ServerPlayer serverPlayer)) return InteractionResult.CONSUME;
 		WeaponDialog.open(serverPlayer);
+		// The selector's slot is the one place a locked hotbar may go, and it is a door rather than a room:
+		// the screen is open, so the hand goes back to the weapon and the player is holding a gun again the
+		// moment they have picked one. Nothing to put back for anyone who is not carrying a picked weapon.
+		if (WeaponLock.locked(serverPlayer)) WeaponLock.pin(serverPlayer);
 		return InteractionResult.SUCCESS_SERVER;
 	}
 

@@ -51,7 +51,10 @@ import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.entity.ai.attributes.AttributeInstance;
 import net.minecraft.world.entity.ai.attributes.Attributes;
 import net.minecraft.world.entity.player.Input;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
+import net.minecraft.world.inventory.ContainerInput;
+import net.minecraft.world.inventory.Slot;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.component.Consumable;
@@ -93,6 +96,7 @@ import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponChoice;
 import nu.metacraft.rivals.gun.WeaponDialog;
+import nu.metacraft.rivals.gun.WeaponLock;
 import nu.metacraft.rivals.gun.WeaponPicks;
 import nu.metacraft.rivals.gun.WeaponSelector;
 import nu.metacraft.rivals.gun.WeaponTuning;
@@ -643,6 +647,115 @@ public final class RivalsGameTests {
 		} finally {
 			choices.forget(player.getUUID());
 		}
+		helper.succeed();
+	}
+
+	/**
+	 * A picked weapon is locked to its slot. The hotbar selection may sit on the weapon or on the weapon
+	 * selector — that is the door to the picker — and nowhere else: anything else is refused and the client
+	 * is snapped back. A player carrying no picked weapon is nobody's business but vanilla's.
+	 */
+	@GameTest
+	public void theHotbarIsLockedToTheWeaponsSlot(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		Inventory inventory = player.getInventory();
+		inventory.setItem(4, WeaponSelector.stack());
+		inventory.setItem(3, new ItemStack(Items.BREAD));
+		// Nothing picked yet: every slot is free to visit.
+		helper.assertTrue(!WeaponLock.locked(player), "no weapon, no lock");
+		inventory.setSelectedSlot(3);
+		helper.assertTrue(!WeaponLock.refuseSlot(player, 3), "an unarmed player scrolls where they like");
+		helper.assertValueEqual(inventory.getSelectedSlot(), 3, "and stays where they scrolled");
+		// Armed: the weapon's slot and the selector's, and nothing else.
+		inventory.setItem(WeaponPicks.GIVEN_SLOT, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
+		helper.assertTrue(WeaponLock.locked(player), "a weapon in its slot is the lock");
+		helper.assertTrue(WeaponLock.refuseSlot(player, 3), "slot 3 is refused");
+		helper.assertValueEqual(inventory.getSelectedSlot(), WeaponPicks.GIVEN_SLOT, "and the hand is back on the weapon");
+		helper.assertTrue(!WeaponLock.refuseSlot(player, 4), "the selector's slot is allowed: it opens the picker");
+		helper.assertTrue(!WeaponLock.refuseSlot(player, WeaponPicks.GIVEN_SLOT), "and so is the weapon's own");
+		helper.assertTrue(!WeaponLock.maySelect(player, 8), "an empty slot is not one of the two");
+		// Right-clicking the selector opens the dialog and hands the weapon back.
+		inventory.setSelectedSlot(4);
+		WeaponSelector.get().use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
+		helper.assertValueEqual(inventory.getSelectedSlot(), WeaponPicks.GIVEN_SLOT,
+				"the picker is open and the hand is on the weapon again");
+		helper.succeed();
+	}
+
+	/**
+	 * The weapon cannot be thrown away, and neither can the selector: one is the round and the other is the
+	 * only way to a different one. Both drop actions come through the same question.
+	 */
+	@GameTest
+	public void theLockedWeaponCannotBeDropped(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		Inventory inventory = player.getInventory();
+		helper.assertTrue(!WeaponLock.refuseDrop(player), "an empty-handed player drops what they like");
+		inventory.setItem(WeaponPicks.GIVEN_SLOT, new ItemStack(PaintWeapon.of(Weapon.SHOOTER)));
+		inventory.setItem(4, WeaponSelector.stack());
+		inventory.setItem(5, new ItemStack(Items.BREAD));
+		inventory.setSelectedSlot(WeaponPicks.GIVEN_SLOT);
+		helper.assertTrue(WeaponLock.refuseDrop(player), "the weapon is not droppable");
+		helper.assertTrue(inventory.getItem(WeaponPicks.GIVEN_SLOT).getItem() instanceof PaintWeapon,
+				"and is still in its slot");
+		inventory.setSelectedSlot(4);
+		helper.assertTrue(WeaponLock.refuseDrop(player), "nor is the selector");
+		inventory.setSelectedSlot(5);
+		helper.assertTrue(!WeaponLock.refuseDrop(player), "the bread is theirs to throw");
+		helper.succeed();
+	}
+
+	/**
+	 * Nor can it be dragged out of the inventory screen. Three shapes of click reach the weapon — the slot
+	 * itself, the hotbar-swap key aimed at its slot from anywhere, and a paint weapon already on the cursor
+	 * — and all three are refused and the menu resent; a click that touches nothing of ours is run.
+	 */
+	@GameTest
+	public void theLockedWeaponCannotBeMovedInTheInventory(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		Inventory inventory = player.getInventory();
+		inventory.setItem(WeaponPicks.GIVEN_SLOT, new ItemStack(PaintWeapon.of(Weapon.SLOSHER)));
+		inventory.setItem(20, new ItemStack(Items.BREAD));
+		int weaponSlot = -1;
+		int breadSlot = -1;
+		for (Slot slot : player.containerMenu.slots) {
+			if (slot.container != inventory) continue;
+			if (slot.getContainerSlot() == WeaponPicks.GIVEN_SLOT) weaponSlot = slot.index;
+			if (slot.getContainerSlot() == 20) breadSlot = slot.index;
+		}
+		helper.assertTrue(weaponSlot >= 0 && breadSlot >= 0, "the inventory menu shows both slots");
+		helper.assertTrue(WeaponLock.refuseContainerClick(player, weaponSlot, 0, ContainerInput.PICKUP),
+				"a click on the weapon's slot is refused");
+		helper.assertTrue(inventory.getItem(WeaponPicks.GIVEN_SLOT).getItem() instanceof PaintWeapon,
+				"and the weapon has not moved");
+		helper.assertTrue(WeaponLock.refuseContainerClick(player, breadSlot, WeaponPicks.GIVEN_SLOT, ContainerInput.SWAP),
+				"and so is the hotbar-swap key aimed at it");
+		helper.assertTrue(!WeaponLock.refuseContainerClick(player, breadSlot, 0, ContainerInput.PICKUP),
+				"the bread is the player's own business");
+		player.containerMenu.setCarried(new ItemStack(PaintWeapon.of(Weapon.SLOSHER)));
+		helper.assertTrue(WeaponLock.refuseContainerClick(player, breadSlot, 0, ContainerInput.PICKUP),
+				"a weapon on the cursor may not be put down anywhere");
+		player.containerMenu.setCarried(ItemStack.EMPTY);
+		helper.succeed();
+	}
+
+	/**
+	 * Arming for a match keeps the selector: swapping weapons is only ever through it, in a match as much
+	 * as in a lobby, and the lobby hands it out into the first free slot — which after a sweep is the
+	 * weapon's own, so arming used to write straight over it.
+	 */
+	@GameTest
+	public void armingForAMatchKeepsTheSelector(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		Lobby.receive(player); // adventure, no gun, one selector — in slot 0, as add() puts it
+		helper.assertTrue(WeaponSelector.is(player.getInventory().getItem(WeaponPicks.GIVEN_SLOT)),
+				"the lobby's selector lands in the weapon's own slot");
+		ItemStack gun = Match.arm(player);
+		helper.assertTrue(gun.getItem() instanceof PaintWeapon, "arming hands over a weapon");
+		helper.assertTrue(player.getInventory().getItem(WeaponPicks.GIVEN_SLOT).getItem() instanceof PaintWeapon,
+				"which is in its own slot");
+		helper.assertTrue(WeaponSelector.carried(player), "and the selector is still carried, moved aside");
+		helper.assertValueEqual(player.getInventory().getSelectedSlot(), WeaponPicks.GIVEN_SLOT, "with the gun in hand");
 		helper.succeed();
 	}
 

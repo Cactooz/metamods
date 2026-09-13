@@ -54,17 +54,31 @@ public final class WeaponPicks {
 		WeaponChoice.of(player.level().getServer()).set(player, weapon);
 		sweep(player);
 		ItemStack given = PaintWeapon.withTankColor(new ItemStack(PaintWeapon.of(weapon)), player.getTeam());
-		Inventory inventory = player.getInventory();
-		if (inventory.getItem(GIVEN_SLOT).isEmpty()) {
-			inventory.setItem(GIVEN_SLOT, given);
-		} else if (!inventory.add(given)) {
-			player.drop(given, false, Prediction.SERVER_ONLY);
-		}
+		intoItsSlot(player, given);
+		// Picked from the selector's slot, most of the time: the hand goes back to the gun.
+		WeaponLock.pin(player);
 		player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
 				SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.7f, 1.2f);
 		player.sendSystemMessage(Component.literal("You picked the " + weapon.displayName + ". "
 				+ blurb(weapon)).withStyle(ChatFormatting.AQUA));
 		return given;
+	}
+
+	/**
+	 * The weapon into {@link #GIVEN_SLOT}, and whatever was in that slot somewhere else. The slot is the
+	 * one the hotbar is locked to ({@link WeaponLock}), so a weapon that landed anywhere else would be a
+	 * weapon its owner could never select — which is what {@code inventory.add} did whenever the slot was
+	 * occupied, and after a lobby round it is occupied by the selector, because {@code add} put that in the
+	 * first free slot and the first free slot is this one.
+	 *
+	 * <p>Whatever is moved aside is moved rather than destroyed, and only dropped if there is nowhere at all
+	 * to put it: losing the selector is losing the way to another weapon.
+	 */
+	public static void intoItsSlot(ServerPlayer player, ItemStack given) {
+		Inventory inventory = player.getInventory();
+		ItemStack was = inventory.getItem(GIVEN_SLOT);
+		inventory.setItem(GIVEN_SLOT, given);
+		if (!was.isEmpty() && !inventory.add(was)) player.drop(was, false, Prediction.SERVER_ONLY);
 	}
 
 	/**

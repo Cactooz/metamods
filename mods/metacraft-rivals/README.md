@@ -146,6 +146,25 @@ dedicated Rivals server wants.
   The charger is the one weapon with nothing on F: its charge *is* its special, it reads none of the
   `special_*` tuning, and pressing F with one in hand says so rather than doing nothing.
 
+  **The pick is locked in its slot.** A weapon you have picked is *the* weapon you are carrying, and it
+  stays in the slot it was put in (`WeaponPicks.GIVEN_SLOT`, the first): the hotbar selection is pinned
+  there, the stack cannot be dropped, and it cannot be dragged out of the inventory screen — a player who
+  could scroll off the gun would be standing in a firefight punching, and one who could drop it would have
+  no way of getting it back. The one other slot the selection may visit is whichever holds the **weapon
+  selector**, because that is the door: right-clicking it opens the picker and hands the weapon straight
+  back. Swapping weapons is only ever through the selector, so it stays in the inventory during a match
+  too — arming for a round moves it aside rather than writing over it, and hands out a new one to anybody
+  who has lost theirs — and it cannot be dropped either. Operators are locked like everyone else; `/rivals
+  gun` still hands out a weapon, which is the way round it for testing.
+
+  Server-side the lock is three more packet handlers beside the buttons, all in the same mixin and all
+  asking `WeaponLock`: `handleSetCarriedItem` (refused selections are set back and the client snapped with
+  `ClientboundSetHeldSlotPacket`, because a vanilla client moves its own selection without waiting to be
+  told), the two drop actions of `handlePlayerAction`, and `handleContainerClick` — a clicked slot that is
+  the weapon's, a hotbar-swap key aimed at it from anywhere on the screen, or a paint weapon already on the
+  cursor, any of which is dropped on the floor and the menu resent whole with
+  `containerMenu.sendAllDataToRemote()`.
+
   Right click fires. The shooter and the roller are *held*: a vanilla client repeats a
   held right click only every four ticks, which is not a fire rate a shooter can have, so the press
   starts using the item and `Item#onUseTick` does the work every tick until the button is let go — the

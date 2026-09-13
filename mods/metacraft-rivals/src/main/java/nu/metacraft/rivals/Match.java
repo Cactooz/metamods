@@ -38,6 +38,7 @@ import nu.metacraft.rivals.gun.Roll;
 import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponChoice;
 import nu.metacraft.rivals.gun.WeaponDialog;
+import nu.metacraft.rivals.gun.WeaponLock;
 import nu.metacraft.rivals.gun.WeaponPicks;
 import nu.metacraft.rivals.paint.PaintTally;
 import org.jspecify.annotations.Nullable;
@@ -285,13 +286,21 @@ public final class Match {
 		return true;
 	}
 
-	/** The weapon this player picked, and nothing else in the way of it. */
+	/**
+	 * The weapon this player picked, and nothing else in the way of it — but the weapon selector survives.
+	 * It is the only way to a different weapon, in a match as much as in the lobby (the hotbar is locked to
+	 * the weapon's slot and to the selector's, and nothing else), and the lobby hands one out into the first
+	 * free slot, which after a sweep is the weapon's own; {@link WeaponPicks#intoItsSlot} is what moves it
+	 * aside rather than writing over it. Anybody who has somehow lost theirs is given one back.
+	 */
 	public static ItemStack arm(ServerPlayer player) {
 		WeaponPicks.sweep(player);
 		MinecraftServer server = player.level().getServer();
 		Weapon weapon = server == null ? WeaponChoice.DEFAULT : WeaponChoice.of(server).orDefault(player);
 		ItemStack gun = PaintWeapon.withTankColor(new ItemStack(PaintWeapon.of(weapon)), player.getTeam());
-		player.getInventory().setItem(WeaponPicks.GIVEN_SLOT, gun);
+		WeaponPicks.intoItsSlot(player, gun);
+		Lobby.give(player);
+		WeaponLock.pin(player);
 		return gun;
 	}
 
