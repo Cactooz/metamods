@@ -222,6 +222,29 @@ dedicated Rivals server wants.
   grains hang in the middle of the camera. The shooter gets three small ones at the barrel tip
   instead, offset right and down out of the crosshair. The charger's trail starts its dust 1.5
   blocks along the shot for the same reason; the paint under the line still starts at the eyes.
+- **Spawns and arena bounds.** `Arena` is saved data, one per level (id `rivals_arena`), and holds a
+  spawn per team — position, yaw *and* pitch — plus an optional box. It is saved, unlike the tally and
+  the display quads, because setting an arena up is work an operator does once.
+
+  ```
+  /rivals spawn set data                where DATA starts: your own position and look
+  /rivals spawn set it
+  /rivals spawn list                    both spawns and the bounds, or what is missing
+  /rivals arena set 10 60 10 90 90 90   the two corners
+  /rivals arena clear                   the whole level takes paint again
+  /rivals arena show                    the twelve edges in end rods for 10 s, plus the corners in chat
+  ```
+
+  A spawn is set by standing where the team should appear and facing the way they should face, because
+  that is the only way to pick a look direction that does not involve typing two numbers.
+
+  While bounds are set, **paint outside them is refused** — `Painter.paintFace` and
+  `PaintDisplays.paint`, so a paint block and a display quad are fenced in alike — and `/rivals reset`
+  clears only what is inside them, leaving whatever is painted outside the arena where it is. The test is
+  on the **surface** block rather than on the cell the paint goes in: a wall standing on the box's own
+  edge paints into the cell beyond it, and testing the cell would have left the arena's own boundary wall
+  unpaintable from the inside. `show` is per viewer, the way every paint burst is, and its step grows with
+  the box so a hundred-block arena does not ask a client for ten thousand particles.
 - **Picking a weapon.** `/rivals weapons` (any player, no permission — the rest of the `/rivals` tree is
   game-master only, so the permission sits on each subcommand rather than on the root) opens a one-row
   chest menu with a slot per weapon. Each icon is the *real* weapon stack dyed in the viewer's team
@@ -537,6 +560,8 @@ dedicated Rivals server wants.
 /rivals reset
 /rivals reload           re-read config/metacraft-rivals/unpaintable.json
 /rivals weapons          the weapon picker (any player)
+/rivals spawn set data   where a team starts
+/rivals arena set <from> <to>
 ```
 
 ### Tuning
@@ -654,6 +679,6 @@ anything that ever is inherits those terms.
 
 ## Not yet
 
-Arena bounds and a round loop; persisting display quads and the tally across a restart; damage on
+A round loop; persisting display quads and the tally across a restart; damage on
 enemy paint (beyond the enemy-ink drip); a real squid model; Iris-compatible gloss; respawn/death
 handling for the drip.

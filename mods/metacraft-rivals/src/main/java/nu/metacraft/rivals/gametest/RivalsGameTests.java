@@ -65,11 +65,13 @@ import net.minecraft.world.level.block.MultifaceBlock;
 import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
+import nu.metacraft.rivals.Arena;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.OvveTeams;
 import nu.metacraft.rivals.PlayerTick;
@@ -618,6 +620,141 @@ public final class RivalsGameTests {
 		helper.assertTrue(!WeaponSelector.carried(player), "nobody carries one to start with");
 		player.getInventory().setItem(3, WeaponSelector.stack());
 		helper.assertTrue(WeaponSelector.carried(player), "and one in any slot counts, so the lobby hands out no second");
+		helper.succeed();
+	}
+
+	/**
+	 * A team's spawn is the stance of whoever set it, it is kept per team and per level, and it survives a
+	 * restart — which is the point of it being saved data: setting an arena up is work an operator does
+	 * once. Round-tripped through the codec, since a game test cannot reboot a server.
+	 */
+	@GameTest
+	public void arenaSpawnsAreSavedPerTeam(GameTestHelper helper) {
+		Arena arena = Arena.of(helper.getLevel());
+		try {
+			arena.forget();
+			helper.assertTrue(arena.spawn(PaintColor.DATA).isEmpty(), "no DATA spawn to start with");
+			helper.assertTrue(!arena.spawnsReady(), "so the arena is not ready");
+			ServerPlayer player = connected(mockServerPlayer(helper, GameType.CREATIVE));
+			Vec3 at = helper.absoluteVec(new Vec3(2.5, 2.0, 3.5));
+			player.setPos(at.x, at.y, at.z);
+			player.setYRot(135f);
+			player.setXRot(-10f);
+			arena.setSpawn(PaintColor.DATA, player);
+			Arena.Spawn data = arena.spawn(PaintColor.DATA).orElseThrow();
+			helper.assertTrue(data.pos().distanceTo(at) < 1.0e-6, "the spawn is where the setter stood: " + data);
+			helper.assertValueEqual(data.yaw(), 135f, "and looks where they looked");
+			helper.assertValueEqual(data.pitch(), -10f, "pitch too");
+			helper.assertTrue(!arena.spawnsReady(), "one team is not both");
+			arena.setSpawn(PaintColor.IT, new Arena.Spawn(at.add(8, 0, 0), -45f, 0f));
+			helper.assertTrue(arena.spawnsReady(), "both teams set: the arena is ready");
+			// Written and read back, as the level save and the next boot do it.
+			JsonElement written = Arena.CODEC.encodeStart(JsonOps.INSTANCE, arena)
+					.getOrThrow(error -> new AssertionError("encode: " + error));
+			Arena reloaded = Arena.CODEC.parse(JsonOps.INSTANCE, written)
+					.getOrThrow(error -> new AssertionError("decode: " + error));
+			helper.assertTrue(reloaded.spawnsReady(), "both spawns came back");
+			helper.assertValueEqual(reloaded.spawn(PaintColor.DATA).orElseThrow().yaw(), 135f, "with their looks");
+			helper.assertTrue(reloaded.box().isEmpty(), "and no bounds, since none were set");
+		} finally {
+			arena.forget();
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * With bounds set, paint outside them is refused outright — on a full face (a paint block) and on a
+	 * face that is not full (display quads) alike — and a reset clears only what is inside. The box is one
+	 * table for the level and the tests in a batch tick side by side, so everything here happens inside
+	 * one tick and the bounds are taken off again whatever happens.
+	 */
+	@GameTest
+	public void arenaBoundsFenceThePaintIn(GameTestHelper helper) {
+		Arena arena = Arena.of(helper.getLevel());
+		BlockPos in = new BlockPos(2, 1, 2);
+		BlockPos out = new BlockPos(6, 1, 6);
+		BlockPos slabIn = new BlockPos(3, 1, 2);
+		helper.setBlock(in, Blocks.STONE);
+		helper.setBlock(out, Blocks.STONE);
+		helper.setBlock(slabIn, Blocks.STONE_SLAB);
+		PaintTally tally = PaintTally.of(helper.getLevel());
+		try {
+			arena.forget();
+			helper.assertTrue(arena.inside(helper.absolutePos(out)), "with no bounds everything is inside");
+			// A box around the near corner only, tall enough to hold the cells above the floor.
+			arena.setBox(helper.absolutePos(new BlockPos(0, 0, 0)), helper.absolutePos(new BlockPos(4, 6, 4)));
+			helper.assertTrue(arena.inside(helper.absolutePos(in)), "the near floor is inside");
+			helper.assertTrue(!arena.inside(helper.absolutePos(out)), "and the far one is not");
+			helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(in), Direction.UP, PaintColor.DATA),
+					"paint lands inside the bounds");
+			helper.assertTrue(!Painter.paintFace(helper.getLevel(), helper.absolutePos(out), Direction.UP, PaintColor.DATA),
+					"and is refused outside them");
+			helper.assertTrue(helper.getBlockState(out.above()).isAir(), "nothing was written out there");
+			// The other door into the same room: a slab takes display quads, and those are fenced in too.
+			helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(slabIn), Direction.UP, PaintColor.DATA),
+					"a slab inside takes quads");
+			helper.assertTrue(PaintDisplays.of(helper.getLevel()).faceAt(helper.absolutePos(slabIn.above())) != null,
+					"which are there");
+			helper.setBlock(out, Blocks.STONE_SLAB);
+			helper.assertTrue(!PaintDisplays.of(helper.getLevel()).paint(helper.getLevel(), helper.absolutePos(out),
+					Direction.UP, PaintColor.DATA), "a slab outside takes none");
+			// Take the bounds off and the same shot lands.
+			helper.setBlock(out, Blocks.STONE);
+			helper.assertTrue(arena.clearBox(), "there were bounds to clear");
+			helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(out), Direction.UP, PaintColor.DATA),
+					"and now the far floor takes paint");
+			// A reset with bounds clears the inside and leaves the outside where it is.
+			arena.setBox(helper.absolutePos(new BlockPos(0, 0, 0)), helper.absolutePos(new BlockPos(4, 6, 4)));
+			int removed = tally.reset(helper.getLevel(), arena.box().orElseThrow());
+			helper.assertTrue(removed >= 1, "the inside was cleared: " + removed);
+			helper.assertTrue(helper.getBlockState(in.above()).isAir(), "the near cell is air");
+			helper.assertTrue(isPaint(helper.getBlockState(out.above()), PaintColor.DATA),
+					"and the far one still holds its paint");
+		} finally {
+			arena.forget();
+			// Leave nothing painted behind for the tests that count faces.
+			helper.setBlock(out.above(), Blocks.AIR);
+			tally.reset(helper.getLevel());
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * {@code /rivals arena show} traces the box's twelve edges. The step grows with the box, so a
+	 * hundred-block arena does not ask a client for ten thousand particles in one packet.
+	 */
+	@GameTest
+	public void arenaOutlineTracesEveryEdge(GameTestHelper helper) {
+		BoundingBox small = BoundingBox.fromCorners(new BlockPos(0, 0, 0), new BlockPos(3, 3, 3));
+		List<Vec3> points = Arena.outlinePoints(small);
+		for (double x : new double[] {0.0, 4.0}) {
+			for (double y : new double[] {0.0, 4.0}) {
+				for (double z : new double[] {0.0, 4.0}) {
+					Vec3 corner = new Vec3(x, y, z);
+					helper.assertTrue(points.stream().anyMatch(at -> at.distanceTo(corner) < 1.0e-6),
+							"the outline reaches the corner " + corner);
+				}
+			}
+		}
+		BoundingBox huge = BoundingBox.fromCorners(new BlockPos(0, 0, 0), new BlockPos(400, 200, 400));
+		List<Vec3> many = Arena.outlinePoints(huge);
+		helper.assertTrue(many.size() <= 700, "a big box is still a sane number of particles: " + many.size());
+		helper.assertTrue(many.size() >= 12, "but it is still twelve edges: " + many.size());
+		// Nobody is being shown anything when there is no box to show.
+		Arena.clearShows();
+		Arena arena = Arena.of(helper.getLevel());
+		try {
+			arena.forget();
+			ServerPlayer viewer = connected(mockServerPlayer(helper, GameType.CREATIVE));
+			helper.assertTrue(!Arena.show(helper.getLevel(), viewer), "no box, nothing to show");
+			helper.assertValueEqual(Arena.shows(), 0, "and nobody is watching");
+			arena.setBox(helper.absolutePos(new BlockPos(0, 0, 0)), helper.absolutePos(new BlockPos(4, 4, 4)));
+			helper.assertTrue(Arena.show(helper.getLevel(), viewer), "with a box there is");
+			helper.assertValueEqual(Arena.shows(), 1, "one watcher");
+		} finally {
+			arena.forget();
+			Arena.clearShows();
+		}
 		helper.succeed();
 	}
 

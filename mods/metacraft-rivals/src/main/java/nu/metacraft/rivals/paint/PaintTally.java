@@ -7,6 +7,7 @@ import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.Blocks;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import nu.metacraft.rivals.PaintColor;
 
 import java.util.EnumMap;
@@ -91,6 +92,27 @@ public final class PaintTally {
 		}
 		removed += PaintDisplays.of(level).clear();
 		cells.clear();
+		return removed;
+	}
+
+	/**
+	 * The same, inside {@code box} alone: what {@code /rivals reset} does on a level with arena bounds, so
+	 * that clearing the arena between rounds leaves whatever is painted outside it where it is. Cells
+	 * outside the box stay tracked — they are still paint, and the bars still count them.
+	 */
+	public int reset(ServerLevel level, BoundingBox box) {
+		int removed = 0;
+		Iterator<BlockPos> it = cells.iterator();
+		while (it.hasNext()) {
+			BlockPos pos = it.next();
+			if (!box.isInside(pos)) continue;
+			if (Painter.isPaint(level.getBlockState(pos))) {
+				level.setBlock(pos, Blocks.AIR.defaultBlockState(), Block.UPDATE_ALL);
+				removed++;
+			}
+			it.remove();
+		}
+		removed += PaintDisplays.of(level).clear(box);
 		return removed;
 	}
 }

@@ -11,9 +11,11 @@ import net.minecraft.world.level.BlockGetter;
 import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.Block;
 import net.minecraft.world.level.block.state.BlockState;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.VoxelShape;
+import nu.metacraft.rivals.Arena;
 import nu.metacraft.rivals.PaintColor;
 import org.jspecify.annotations.Nullable;
 import org.joml.Vector3f;
@@ -192,12 +194,33 @@ public final class PaintDisplays {
 	}
 
 	/**
+	 * The same for the cells inside {@code box} alone, which is what {@code /rivals reset} wants when the
+	 * level has arena bounds: paint a player put on their own house outside the arena is not the reset's
+	 * business. Returns how many cells were cleared.
+	 */
+	public int clear(BoundingBox box) {
+		int cleared = 0;
+		Iterator<Map.Entry<BlockPos, Painted>> it = cells.entrySet().iterator();
+		while (it.hasNext()) {
+			Map.Entry<BlockPos, Painted> entry = it.next();
+			if (!box.isInside(entry.getKey())) continue;
+			entry.getValue().holder.destroy();
+			it.remove();
+			cleared++;
+		}
+		return cleared;
+	}
+
+	/**
 	 * Cover the {@code face} side of every outline box of the block at {@code surface} with quads in the
 	 * cell in front. Returns false when the cell already holds this colour, the cell is built up, or the
 	 * shape has no boxes. A cell whose paint has died (unloaded chunk, surface gone) counts as empty and is
 	 * rebuilt, so a team can always repaint its own colour.
 	 */
 	public boolean paint(ServerLevel level, BlockPos surface, Direction face, PaintColor color) {
+		// Same bounds rule as Painter.paintFace, and for the same reason: this is the other door into the
+		// same room, and a quad outside the arena is paint outside the arena.
+		if (!Arena.paintAllowed(level, surface)) return false;
 		BlockPos cell = surface.relative(face).immutable();
 		Painted existing = cells.get(cell);
 		if (existing != null && !alive(level, cell, existing)) {

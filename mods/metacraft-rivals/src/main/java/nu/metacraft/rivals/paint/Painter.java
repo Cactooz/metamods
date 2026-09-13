@@ -20,6 +20,7 @@ import net.minecraft.world.phys.BlockHitResult;
 import net.minecraft.world.phys.HitResult;
 import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.phys.shapes.CollisionContext;
+import nu.metacraft.rivals.Arena;
 import nu.metacraft.rivals.PaintColor;
 import org.jspecify.annotations.Nullable;
 
@@ -97,6 +98,10 @@ public final class Painter {
 	 * changes on their own afterwards. Returns whether anything changed.
 	 */
 	public static boolean paintFace(ServerLevel level, BlockPos surface, Direction face, PaintColor color) {
+		// Outside the arena's bounds nothing is painted at all: a match is won on the arena's own faces, and
+		// a shot over the wall should not score. The test is on the surface rather than on the cell the paint
+		// goes in, so that the inner face of a wall standing on the box's own edge is still paintable.
+		if (!Arena.paintAllowed(level, surface)) return false;
 		BlockState surfaceState = level.getBlockState(surface);
 		if (!paintable(surfaceState)) return false;
 		if (!Block.isFaceFull(surfaceState.getCollisionShape(level, surface), face)) {

@@ -9,6 +9,9 @@ import net.fabricmc.fabric.api.command.v2.CommandRegistrationCallback;
 import net.minecraft.ChatFormatting;
 import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.SharedSuggestionProvider;
+import net.minecraft.commands.arguments.coordinates.BlockPosArgument;
+import net.minecraft.core.BlockPos;
+import net.minecraft.world.level.levelgen.structure.BoundingBox;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.ServerScoreboard;
@@ -40,6 +43,9 @@ import static net.minecraft.commands.Commands.literal;
 /**
  * {@code /rivals setup | gun [weapon] | kit | score | reset | reload | tune} for game masters
  * (permission {@code metacraft.rivals}), and {@code /rivals weapons} for everybody.
+ *
+ * <p>The arena half — {@code spawn set|list}, {@code arena set|clear|show} — is the same permission: it
+ * edits {@link Arena}, the level's saved spawns and bounds.
  *
  * <p>The permission is per subcommand rather than on the {@code rivals} root, because one of them is
  * not an admin act: picking your own weapon out of {@link WeaponMenu} is something every player in the
@@ -93,6 +99,23 @@ public final class RivalsCommands {
 						.then(literal("score").requires(ADMIN).executes(ctx -> score(ctx.getSource())))
 						.then(literal("reset").requires(ADMIN).executes(ctx -> reset(ctx.getSource())))
 						.then(literal("reload").requires(ADMIN).executes(ctx -> reload(ctx.getSource())))
+						// Where each team starts: the sender's own stance, because a look direction is not
+						// something anybody wants to type as two numbers.
+						.then(literal("spawn").requires(ADMIN)
+								.then(literal("list").executes(ctx -> spawnList(ctx.getSource())))
+								.then(literal("set").then(argument("team", StringArgumentType.word()).suggests(TEAMS)
+										.executes(ctx -> spawnSet(ctx.getSource(), StringArgumentType.getString(ctx, "team"))))))
+						// Where the arena ends. While a box is set, paint outside it is refused and a reset
+						// clears only what is inside it.
+						.then(literal("arena").requires(ADMIN)
+								.then(literal("set")
+										.then(argument("from", BlockPosArgument.blockPos())
+												.then(argument("to", BlockPosArgument.blockPos())
+														.executes(ctx -> arenaSet(ctx.getSource(),
+																BlockPosArgument.getLoadedBlockPos(ctx, "from"),
+																BlockPosArgument.getLoadedBlockPos(ctx, "to"))))))
+								.then(literal("clear").executes(ctx -> arenaClear(ctx.getSource())))
+								.then(literal("show").executes(ctx -> arenaShow(ctx.getSource()))))
 						// No permission: every player picks their own weapon.
 						.then(literal("weapons").executes(ctx -> weapons(ctx.getSource())))));
 	}
@@ -148,15 +171,102 @@ public final class RivalsCommands {
 		return total;
 	}
 
+	/**
+	 * Clear the paint. With arena bounds set this clears only what is inside them — between rounds the
+	 * arena is what wants wiping, and paint a player put on their own house outside it is not the reset's
+	 * business. With no bounds it is every cell the painter has touched in this level, as before.
+	 */
 	private static int reset(CommandSourceStack source) {
 		ServerLevel level = source.getLevel();
-		int removed = PaintTally.of(level).reset(level);
+		Optional<BoundingBox> box = Arena.of(level).box();
+		int removed = box.map(bounds -> PaintTally.of(level).reset(level, bounds))
+				.orElseGet(() -> PaintTally.of(level).reset(level));
+		String where = box.isPresent() ? " inside the arena" : "";
 		if (removed == 0) {
-			source.sendSuccess(() -> Component.literal("Nothing painted"), false);
+			source.sendSuccess(() -> Component.literal("Nothing painted" + where), false);
 		} else {
-			source.sendSuccess(() -> Component.literal("Removed " + removed + " paint blocks").withStyle(ChatFormatting.YELLOW), true);
+			source.sendSuccess(() -> Component.literal("Removed " + removed + " paint blocks" + where)
+					.withStyle(ChatFormatting.YELLOW), true);
 		}
 		return removed;
+	}
+
+	/** The team ids, for {@code /rivals spawn set}. */
+	private static final SuggestionProvider<CommandSourceStack> TEAMS = (ctx, builder) ->
+			SharedSuggestionProvider.suggest(Stream.of(PaintColor.values()).map(color -> color.id), builder);
+
+	/** Take the sender's position and look as a team's spawn. */
+	private static int spawnSet(CommandSourceStack source, String teamId) throws CommandSyntaxException {
+		Optional<PaintColor> color = PaintColor.byId(teamId);
+		if (color.isEmpty()) {
+			source.sendFailure(Component.literal("No team called \"" + teamId + "\". Try one of: " + PaintColor.idList())
+					.withStyle(ChatFormatting.RED));
+			return 0;
+		}
+		ServerPlayer player = source.getPlayerOrException();
+		Arena arena = Arena.of(source.getLevel());
+		arena.setSpawn(color.get(), player);
+		Arena.Spawn spawn = arena.spawn(color.get()).orElseThrow();
+		source.sendSuccess(() -> Component.literal(color.get().displayName + " starts here: " + spawn)
+				.withStyle(style -> style.withColor(color.get().teamColor.textColor())), true);
+		return 1;
+	}
+
+	/** Both spawns and the box, or what is still missing. */
+	private static int spawnList(CommandSourceStack source) {
+		ServerLevel level = source.getLevel();
+		Arena arena = Arena.of(level);
+		source.sendSuccess(() -> Component.literal("Arena in " + level.dimension().identifier() + ":"), false);
+		int set = 0;
+		for (PaintColor color : PaintColor.values()) {
+			Optional<Arena.Spawn> spawn = arena.spawn(color);
+			if (spawn.isPresent()) set++;
+			String line = "  " + color.displayName + ": " + spawn.map(Arena.Spawn::toString).orElse("not set");
+			source.sendSuccess(() -> Component.literal(line)
+					.withStyle(style -> style.withColor(color.teamColor.textColor())), false);
+		}
+		source.sendSuccess(() -> Component.literal("  bounds: " + arena.box()
+				.map(box -> box.minX() + " " + box.minY() + " " + box.minZ() + " to "
+						+ box.maxX() + " " + box.maxY() + " " + box.maxZ())
+				.orElse("none (the whole level)")), false);
+		return set;
+	}
+
+	private static int arenaSet(CommandSourceStack source, BlockPos from, BlockPos to) {
+		Arena arena = Arena.of(source.getLevel());
+		arena.setBox(from, to);
+		BoundingBox box = arena.box().orElseThrow();
+		long blocks = (long) (box.maxX() - box.minX() + 1) * (box.maxY() - box.minY() + 1) * (box.maxZ() - box.minZ() + 1);
+		source.sendSuccess(() -> Component.literal("Arena bounds set: " + box.minX() + " " + box.minY() + " " + box.minZ()
+				+ " to " + box.maxX() + " " + box.maxY() + " " + box.maxZ() + " (" + blocks + " blocks). "
+				+ "Paint outside them is refused.").withStyle(ChatFormatting.YELLOW), true);
+		return 1;
+	}
+
+	private static int arenaClear(CommandSourceStack source) {
+		boolean had = Arena.of(source.getLevel()).clearBox();
+		source.sendSuccess(() -> Component.literal(had
+				? "Arena bounds cleared: the whole level takes paint again"
+				: "There were no arena bounds").withStyle(ChatFormatting.YELLOW), true);
+		return had ? 1 : 0;
+	}
+
+	/** The box drawn in end rods for ten seconds, and its corners printed for whoever cannot see them. */
+	private static int arenaShow(CommandSourceStack source) throws CommandSyntaxException {
+		ServerPlayer player = source.getPlayerOrException();
+		ServerLevel level = source.getLevel();
+		Optional<BoundingBox> box = Arena.of(level).box();
+		if (box.isEmpty()) {
+			source.sendFailure(Component.literal("No arena bounds in this level. Set them with /rivals arena set <from> <to>")
+					.withStyle(ChatFormatting.RED));
+			return 0;
+		}
+		Arena.show(level, player);
+		BoundingBox bounds = box.get();
+		source.sendSuccess(() -> Component.literal("Arena outline for " + Arena.SHOW_TICKS / 20 + " s: "
+				+ bounds.minX() + " " + bounds.minY() + " " + bounds.minZ() + " to "
+				+ bounds.maxX() + " " + bounds.maxY() + " " + bounds.maxZ()), false);
+		return 1;
 	}
 
 	/** Open the weapon picker on the sender's own screen. */
