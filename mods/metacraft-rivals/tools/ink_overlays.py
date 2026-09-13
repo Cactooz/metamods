@@ -4,8 +4,8 @@
     python3 mods/metacraft-rivals/tools/ink_overlays.py
 
 Writes `src/main/resources/assets/metacraft-rivals/textures/effect/ink_1.png` … `ink_4.png`, and a
-contact sheet at `/tmp/ink_sheet_new.png` (the four states 2x2 over mid grey, upscaled 2x NEAREST) so
-the drawing can be looked at without starting the game.
+contact sheet at `/tmp/ink_sheet_splatter.png` (the four states 2x2 over mid grey, upscaled 2x NEAREST,
+drawn in DATA's ink the way the shader draws it) so the art can be looked at without starting the game.
 
 That directory is forced: a post chain's texture input names a bare location, and the client resolves
 it as `textures/effect/<path>.png`, so `end_of_frame.json` asks for `metacraft-rivals:ink_1`.
@@ -19,26 +19,31 @@ them. The format they have to keep is in `textures/effect/README.md`, and in sho
     luminance to four tones of the team's own colour, so an overlay is the same drawing in either
     team's ink.
 
-What this script draws: **blobs**, not a frame of ink. Splatoon's screen ink is the reference — fat,
-round, glossy paint thrown at the glass — so each splat here is a union of overlapping discs (a big
-body plus two to four smaller lobes on its rim) with one to three drips hanging off its lowest edge,
-and the union is a metaball threshold on the sum of `r²/d²` falloffs, so the lobes fuse into the body
-with a fillet instead of showing their own outlines. Every body is centred on or beyond the border
-with its lobes reaching inward, because ink arrives from outside the frame; the middle of the screen
-keeps a clear island, because that is where the player is aiming.
+What this script draws is **paint splatter**, from a reference the user sent of a wall twenty minutes
+after a paintball fight: spiky splats, dots thrown everywhere between them, and long droopy drips.
 
-The four states are **cumulative**: one list of seventeen splats, each tagged with the state it first
-appears in (five in state 1, four more in each of 2, 3 and 4), and every splat already on screen grows
-by {@code GROWTH} per later state, so ink both arrives and spreads. State N therefore contains every
-texel of state N-1, which the script asserts texel for texel.
+* A splat's silhouette is a polar radius profile, not a circle:
+  `r(θ) = R · (1 + Σ aᵢ · max(0, cos(kᵢθ + φᵢ))^pᵢ) · (1 − notch)`. Three to five harmonics of different
+  frequency (5..13), with sharp exponents (up to 30) for the thin spikes and gentle ones (2..4) for the
+  broad bumps, plus a slow wobble so the body is not round underneath. The notch term is a harmonic
+  that bites back INTO the body, which is what makes the rim read as torn rather than as a flower.
+* Satellite droplets: every splat throws dots outward, thickest near the body and thinning with
+  distance, plus a few single-texel specks further out. The reference is freckled everywhere.
+* Drips run straight DOWN from the bottom of a splat, long and thin and tapering, each ending in a
+  fatter bead. They are the most recognisable thing in the reference and they are what "droopy" means.
+* Small splats of their own — R 6..14 texels — are sprinkled through the ring outside the clear middle,
+  so the screen is not four big shapes and nothing else.
 
-Shading is the four bands the shader steps on and nothing else: a one-texel dark outline along every
-alpha edge, a base rim inside it, a broad lighter band that is the splat's own silhouette inset and
-pushed up-left, a highlight crescent between two further insets (so it lies along the top-left of the
-drop and runs down the left of its drips), a specular dot on every drip bead that is still on the
-outside of the paint, and shadow under every downward-facing edge, which is what puts a drip's
-underside in its own shade. No speckle: scattered light texels read as grit, not as gloss. The sheen
-follows the splat and not each disc — a pale circle inside every lobe drew a raft of bubbles.
+The four states are **cumulative**: one deterministic list of splats, each tagged with the state it
+first appears in, every splat already on screen growing by {@code GROWTH} per later state, and every
+drip getting {@code DRIP_GROWTH} longer per later state — paint runs as time passes, which is the whole
+of "twenty minutes after". A drip's earlier lengths are drawn under its current one, so a later state
+contains every texel of an earlier one; the script asserts that texel for texel.
+
+Shading is the four bands the shader steps on and nothing else: a one-texel outline along every alpha
+edge, the body in BASE, a lighter island inside it shaped like its own core, and a small highlight glint
+at the top-left of each big body and on each drip bead. No gradients, no speckle: the hard alpha edge
+and the four flat tones are the whole of the pixel-art look.
 
 Stdlib plus Pillow, no anti-aliasing (the 320x180 grid is the pixel art), and deterministic: every
 random-looking number is a hash of a fixed seed, so re-running produces the same files byte for byte.
@@ -49,34 +54,24 @@ from PIL import Image
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 OUT = os.path.join(os.path.dirname(HERE), "src/main/resources/assets/metacraft-rivals/textures/effect")
-SHEET = "/tmp/ink_sheet_new.png"
+SHEET = "/tmp/ink_sheet_splatter.png"
 
 WIDTH = 320
 HEIGHT = 180
 STATES = 4
 
-# How much every splat already on screen grows per later state. Ink spreads as well as arrives, and it
-# is what keeps state 4 from looking like state 1 with more blobs beside it.
-GROWTH = 1.24
+# How much a splat already on screen grows per later state, and how much longer its drips run. Paint
+# spreads a little and runs a lot: the drips lengthening is what reads as time passing.
+GROWTH = 1.22
+DRIP_GROWTH = 1.4
 # The clear island in the middle, as a fraction of the height, per state. It only ever shrinks, which is
 # what lets a later state contain every texel of an earlier one.
-CLEAR = [0.50, 0.45, 0.40, 0.35]
-# Roughly how much of the screen each state covers, as a fraction. Asserted with a wide tolerance: the
-# drawing is what matters and the numbers only catch a state that has stopped building up.
-WANT = [0.15, 0.32, 0.50, 0.70]
+CLEAR = [0.50, 0.44, 0.38, 0.34]
+# Roughly how much of the screen each state covers. Spiky shapes are airier than round ones, so these
+# are lower than a solid-blob drawing's would be. Asserted with a wide tolerance: the numbers only catch
+# a state that has stopped building up.
+WANT = [0.12, 0.26, 0.42, 0.60]
 TOLERANCE = 0.06
-
-# The sheen: how far the silhouette is shrunk for the lighter band, and how far up-left it is pushed,
-# as a fraction of the splat's body radius. The highlight is the sliver between two further insets one
-# push apart.
-SHEEN_INSET = 0.72
-SHEEN_PUSH = 0.13
-CREST_INSET = 0.56
-CREST_PUSH = 0.26
-
-# How far apart the discs down a drip's run may be, in the narrowest of their radii. Below 1 they
-# overlap outright and the run is a solid tapering tongue rather than a string of beads.
-DRIP_STEP = 0.5
 
 # Luminances, which the shader turns into four tones of the team colour. These sit inside its bands:
 # < 0.3 shadow, < 0.6 base, < 0.85 light, else highlight.
@@ -85,28 +80,44 @@ BASE = 0.45
 BAND = 0.72
 HIGHLIGHT = 0.93
 
-# The splats: (first state, x as a fraction of the width, y as a fraction of the height, body radius as
-# a fraction of the height, the inward direction in degrees, seed). Screen coordinates, so y grows
-# downward and the inward angle of a splat on the top edge is +90. Bodies sit on or past the border and
-# the lobes are thrown inward from there; corners come first, because a faceful of ink lands wide.
-ANCHORS = [
-	(1, 0.00, 0.00, 0.149, 45, 11),
-	(1, 1.00, 0.00, 0.143, 135, 12),
-	(1, 0.00, 1.00, 0.143, -45, 13),
-	(1, 1.00, 1.00, 0.149, -135, 14),
-	(1, 0.54, -0.05, 0.099, 90, 15),
-	(2, -0.03, 0.44, 0.118, 0, 21),
-	(2, 1.03, 0.60, 0.118, 180, 22),
-	(2, 0.30, 1.05, 0.112, -90, 23),
-	(2, 0.78, -0.06, 0.112, 90, 24),
-	(3, 0.20, -0.05, 0.118, 90, 31),
-	(3, 1.03, 0.20, 0.124, 180, 32),
-	(3, 0.64, 1.06, 0.124, -90, 33),
-	(3, -0.03, 0.80, 0.118, 0, 34),
-	(4, 0.88, 1.05, 0.130, -90, 41),
-	(4, -0.03, 0.14, 0.124, 0, 42),
-	(4, 1.04, 0.40, 0.124, 180, 43),
-	(4, 0.42, -0.05, 0.124, 90, 44),
+# The splats: (first state, x as a fraction of the width, y as a fraction of the height, radius as a
+# fraction of the height, seed). Screen coordinates, so y grows downward. The big ones sit on or just
+# past the border with their spikes reaching inward, because paint arrives from outside the frame; the
+# small ones are scattered through the ring between the border and the clear middle.
+BIG = [
+	(1, 0.04, 0.06, 0.146, 11),
+	(1, 0.93, 0.05, 0.134, 12),
+	(1, 0.10, 0.95, 0.134, 13),
+	(1, 0.88, 0.96, 0.140, 14),
+	(1, 0.50, -0.04, 0.112, 15),
+	(2, -0.02, 0.48, 0.123, 21),
+	(2, 1.02, 0.55, 0.123, 22),
+	(2, 0.33, 1.03, 0.112, 23),
+	(2, 0.72, -0.05, 0.118, 24),
+	(3, 0.20, -0.03, 0.106, 31),
+	(3, 1.01, 0.18, 0.112, 32),
+	(3, 0.62, 1.04, 0.118, 33),
+	(3, -0.02, 0.82, 0.106, 34),
+	(4, 0.86, 1.02, 0.112, 41),
+	(4, -0.03, 0.16, 0.106, 42),
+	(4, 1.03, 0.86, 0.106, 43),
+	(4, 0.40, -0.04, 0.101, 44),
+]
+# The small ones, in the same shape of list. R is in texels rather than a fraction: these are 6..14
+# texels across whatever the screen, because a small splat is a small splat.
+SMALL = [
+	(1, 0.22, 0.20, 8.5, 51),
+	(1, 0.76, 0.24, 6.6, 52),
+	(2, 0.30, 0.78, 10.4, 53),
+	(2, 0.64, 0.13, 7.6, 54),
+	(2, 0.12, 0.60, 8.5, 55),
+	(3, 0.86, 0.68, 11.4, 56),
+	(3, 0.45, 0.88, 7.6, 57),
+	(3, 0.18, 0.38, 6.6, 58),
+	(4, 0.80, 0.42, 9.5, 59),
+	(4, 0.52, 0.18, 8.5, 60),
+	(4, 0.28, 0.62, 7.6, 61),
+	(4, 0.70, 0.82, 10.4, 62),
 ]
 
 
@@ -121,148 +132,209 @@ def span(seed, i, low, high):
 	return low + (high - low) * noise(seed, i)
 
 
-class Disc:
-	"""A round lobe of paint: a body, a lobe on its rim, a step down a drip, or a drip's bead.
-
-	{@code big} discs get a highlight crescent and beads get a specular dot; everything a splat is made
-	of is one of these, because a round brush is the only brush thrown paint has."""
-
-	def __init__(self, x, y, r, big=False, bead=False, sheen=True):
-		self.x = x
-		self.y = y
-		self.r = r
-		self.big = big
-		self.bead = bead
-		self.sheen = sheen
-
-	def near(self, px, py):
-		"""The squared distance from (px, py) to the shape's skeleton — its centre."""
-		dx = px - self.x
-		dy = py - self.y
-		return dx * dx + dy * dy
-
-	def box(self, reach):
-		return self.x - reach, self.y - reach, self.x + reach, self.y + reach
-
-	def shift(self, dx, dy, scale):
-		return Disc(self.x + dx, self.y + dy, self.r * scale)
-
-
 class Splat:
-	"""One thrown blob: its parts fuse with each other, and nothing else.
+	"""A thrown splat: a spiky silhouette, the dots it threw, and the drips running off the bottom of it.
 
-	Fusing only within a splat is deliberate. A metaball field summed over the whole sheet would let
-	sixteen distant blobs swell each other into one soft mass; summed per splat, each one keeps its own
-	fat round silhouette and two that happen to touch simply overlap.
+	The silhouette is polar. A circle of radius R has lobes added to it — each harmonic contributes
+	`a·max(0, cos(kθ + φ))^p`, which is a row of k bumps around the rim, and the exponent decides what
+	kind: 2..4 spreads the bump into a broad swell, 20..30 pinches it into a thin spike. A few of each,
+	at different frequencies and phases, is what a splat's outline is. The notch harmonic subtracts
+	instead, biting into the body between the lobes, which is what stops the rim reading as a flower.
 	"""
 
-	def __init__(self, parts, cx, cy, r):
-		self.parts = parts
+	def __init__(self, cx, cy, r, seed, drips=True, base=None, soft=False):
 		self.cx = cx
 		self.cy = cy
 		self.r = r
+		# What the splat measured when it first landed. The dots it threw and the drips running off it
+		# are pinned to THIS and not to the grown radius: a dot that moved outward as the splat spread
+		# would uncover the texel it used to be on, and every state has to contain the one before it.
+		self.base = r if base is None else base
+		self.seed = seed
+		self.terms = []
+		if not soft:
+			# The teeth: two or three rows of short sharp points round the rim. Short is the whole
+			# point — an amplitude near one and a body this size is a starburst, which is what the
+			# first attempt at this drew.
+			for i in range(2 + int(2 * noise(seed, 1))):
+				self.terms.append((span(seed, 10 + i, 7.0, 13.0),
+						span(seed, 20 + i, 0.0, math.tau),
+						span(seed, 30 + i, 0.10, 0.26),
+						span(seed, 40 + i, 10.0, 30.0)))
+			# And two or three long thin tongues, which is what a splat has instead of teeth all round:
+			# a low frequency and a sharp exponent is a few narrow spits of paint thrown further.
+			self.terms.append((span(seed, 5, 2.0, 5.0),
+					span(seed, 6, 0.0, math.tau),
+					span(seed, 7, 0.38, 0.70),
+					span(seed, 8, 18.0, 40.0)))
+		for i in range(2):
+			self.terms.append((span(seed, 50 + i, 3.0, 7.0),
+					span(seed, 60 + i, 0.0, math.tau),
+					span(seed, 70 + i, 0.06, 0.15),
+					span(seed, 80 + i, 2.0, 4.0)))
+		# The slow wobble, so the body under the lobes is not a circle either.
+		self.terms.append((2.0, span(seed, 90, 0.0, math.tau), 0.08, 2.0))
+		self.notch = (span(seed, 91, 4.0, 9.0), span(seed, 92, 0.0, math.tau),
+				span(seed, 93, 0.05, 0.12) if not soft else 0.06)
+		self.reach = self.r * (1.0 + sum(term[2] for term in self.terms))
+		self.drips = drips
 
-	def inset(self, scale, push):
-		"""A smaller copy of the whole silhouette, pushed up-left: the splat's own sheen and highlight.
-
-		Insetting the splat rather than each disc is what makes a splat read as one drop of paint. A
-		lighter disc drawn inside every lobe drew a raft of bubbles instead — the eye picks out each
-		pale circle and stops seeing the blob.
-		"""
-		out = []
-		for part in self.parts:
-			out.append(Disc(self.cx + (part.x - self.cx) * scale - push,
-					self.cy + (part.y - self.cy) * scale - push, part.r * scale))
-		return Splat(out, self.cx - push, self.cy - push, self.r * scale)
-
-	def inside(self, px, py):
-		# The metaball threshold: r²/d² is exactly 1 on a lone part's own rim, so a part never shrinks,
-		# and where two overlap the sum crosses 1 outside both — which is the fillet between them.
+	def radius(self, angle):
 		total = 0.0
-		for part in self.parts:
-			d2 = part.near(px, py)
-			total += part.r * part.r / max(d2, 0.35)
-			if total >= 1.0:
-				return True
-		return total >= 1.0
+		for k, phase, amplitude, sharp in self.terms:
+			lobe = math.cos(k * angle + phase)
+			if lobe > 0.0:
+				total += amplitude * lobe ** sharp
+		k, phase, amplitude = self.notch
+		bite = math.cos(k * angle + phase)
+		return self.r * (1.0 + total) * (1.0 - (amplitude * bite ** 4 if bite > 0.0 else 0.0))
 
-	def box(self):
-		x0 = y0 = 1e9
-		x1 = y1 = -1e9
-		for part in self.parts:
-			# A part can be pulled outward by the others, but never by more than sqrt(n) of its radius.
-			reach = part.r * math.sqrt(len(self.parts)) + 2.0
-			bx0, by0, bx1, by1 = part.box(reach)
-			x0 = min(x0, bx0)
-			y0 = min(y0, by0)
-			x1 = max(x1, bx1)
-			y1 = max(y1, by1)
-		return x0, y0, x1, y1
+	def contains(self, px, py):
+		dx = px - self.cx
+		dy = py - self.cy
+		d2 = dx * dx + dy * dy
+		if d2 > self.reach * self.reach:
+			return False
+		if d2 <= self.r * self.r * 0.64:
+			return True
+		at = self.radius(math.atan2(dy, dx))
+		return d2 <= at * at
 
-
-def splat(anchor, state):
-	"""One splat as it stands in {@code state}, or None if it has not been thrown yet."""
-	first, fx, fy, fr, angle, seed = anchor
-	if state < first:
-		return None
-	grow = GROWTH ** (state - first)
-	cx = fx * WIDTH
-	cy = fy * HEIGHT
-	r = fr * HEIGHT * grow
-	inward = math.radians(angle)
-	parts = [Disc(cx, cy, r, big=True)]
-	lobes = 2 + int(3 * noise(seed, 1))
-	for i in range(lobes):
-		# On the body's rim and biased inward, so a splat reads as paint spreading in off the border
-		# rather than as a flower.
-		away = inward + math.radians(span(seed, 10 + i, -78.0, 78.0))
-		at = r * span(seed, 20 + i, 0.72, 1.06)
-		lobe = r * span(seed, 30 + i, 0.40, 0.70)
-		parts.append(Disc(cx + math.cos(away) * at, cy + math.sin(away) * at, lobe,
-				big=lobe > 0.52 * r, sheen=lobe > 0.52 * r))
-	# The drips hang off the lowest paint there is, so they leave the silhouette downward and never out
-	# of its middle.
-	bodies = list(parts)
-	bottom = max(part.y + part.r for part in bodies)
-	for i in range(1 + int(3 * noise(seed, 2))):
-		host = bodies[int(noise(seed, 40 + i) * len(bodies))]
-		width = r * span(seed, 50 + i, 0.15, 0.23)
-		length = r * span(seed, 60 + i, 0.45, 1.05)
-		x = host.x + r * span(seed, 70 + i, -0.35, 0.35)
-		top = min(bottom - width, host.y + host.r - width)
-		# Paint sags sideways as it runs, and it thins as it goes: a run of discs from fat at the lip to
-		# narrow at the neck, then the bead it is all running into. A capsule of one width and a ball on
-		# the end drew a lollipop.
-		sag = r * span(seed, 80 + i, -0.18, 0.18)
-		steps = max(3, int(length / (DRIP_STEP * width)) + 1)
-		for k in range(steps):
-			t = k / float(steps - 1)
-			parts.append(Disc(x + sag * t, top + length * t, width * (1.25 - 0.55 * t), sheen=False))
-		parts.append(Disc(x + sag, top + length, width * span(seed, 90 + i, 1.2, 1.5), bead=True, sheen=False))
-	return Splat(parts, cx, cy, r)
+	def bottom(self, x):
+		"""The lowest covered y in the column {@code x}, or None if the splat does not reach it."""
+		low = None
+		y = int(self.cy)
+		while y <= int(self.cy + self.reach) + 1:
+			if self.contains(x + 0.5, y + 0.5):
+				low = y
+			y += 1
+		return low
 
 
-def scene(state):
-	"""Every splat on screen in {@code state}, largest first."""
+def dots(splat, state):
+	"""The satellite droplets: (x, y, radius) thrown outward, thickest near the body.
+
+	Fixed to the splat's FIRST size, never the grown one — a dot that moved outward as the splat grew
+	would uncover the texel it used to be on, and every state has to contain the one before it.
+	"""
 	out = []
-	for anchor in ANCHORS:
-		one = splat(anchor, state)
-		if one is not None:
-			out.append(one)
+	count = 22 + int(22 * noise(splat.seed, 2))
+	for i in range(count):
+		angle = span(splat.seed, 100 + i, 0.0, math.tau)
+		# Distance biased inward: the square of a 0..1 hash piles the dots up near the rim and thins
+		# them out with distance, which is how paint lands.
+		t = noise(splat.seed, 200 + i) ** 0.6
+		away = splat.base * (0.85 + 1.05 * t)
+		size = 1.0 + 3.0 * (1.0 - t) * noise(splat.seed, 300 + i)
+		out.append((splat.cx + math.cos(angle) * away, splat.cy + math.sin(angle) * away, size))
+	# And a few specks further out still, one texel each: the freckles between the splats.
+	for i in range(8 + int(8 * noise(splat.seed, 3))):
+		angle = span(splat.seed, 400 + i, 0.0, math.tau)
+		away = splat.base * span(splat.seed, 500 + i, 1.3, 2.6)
+		out.append((splat.cx + math.cos(angle) * away, splat.cy + math.sin(angle) * away, 1.0))
 	return out
 
 
-def coverage(state, blobs):
-	"""The alpha mask: True where there is ink. Rasterised per splat inside its own box."""
+class Drip:
+	"""A run of paint straight down from the bottom of a splat, tapering into a fatter bead."""
+
+	def __init__(self, x, top, width, length):
+		self.x = x
+		self.top = top
+		self.width = width
+		self.length = length
+
+	def half(self, y):
+		"""Half the run's width at a height down it, tapering to a little over half what it started."""
+		t = (y - self.top) / self.length
+		return self.width * (1.0 - 0.42 * t)
+
+	def bead(self):
+		return self.x, self.top + self.length, self.width * 1.15
+
+
+def drips(splat, state, first):
+	"""A splat's drips at {@code state}, longest last, with every earlier length drawn under them.
+
+	The earlier lengths are what keeps the states nested: a drip that simply got longer would leave its
+	old bead sticking out past the taper of the new run, and the subset assertion would catch it. Drawn
+	as a run of them, the extra beads read as swellings in the run, which is what a real drip does.
+	"""
+	if not splat.drips:
+		return []
+	out = []
+	# Measured off the splat as it first landed, never off the grown one. A drip whose top followed the
+	# spreading rim would leave the rows above its new top to the splat — and a splat is spiky, so a
+	# column can be covered at a spike tip and bare just above it. Pinning the top keeps every state a
+	# superset of the one before, and the grown rim covers the drip's shoulders anyway.
+	first_size = Splat(splat.cx, splat.cy, splat.base, splat.seed)
+	count = 1 + int(2.9 * noise(splat.seed, 4))
+	for i in range(count):
+		x = splat.cx + splat.base * span(splat.seed, 600 + i, -0.55, 0.55)
+		top = first_size.bottom(int(x))
+		if top is None:
+			continue
+		width = max(1.2, splat.base * span(splat.seed, 700 + i, 0.07, 0.13))
+		base = splat.base * span(splat.seed, 800 + i, 1.2, 3.4)
+		for grown in range(first, state + 1):
+			out.append(Drip(x, top - 1, width, base * DRIP_GROWTH ** (grown - first)))
+	return out
+
+
+def scene(state):
+	"""Every splat on screen in {@code state}, with the dots and drips that go with each."""
+	out = []
+	for first, fx, fy, fr, seed in BIG:
+		if state < first:
+			continue
+		grow = GROWTH ** (state - first)
+		splat = Splat(fx * WIDTH, fy * HEIGHT, fr * HEIGHT * grow, seed, base=fr * HEIGHT)
+		out.append((splat, first, True))
+	for first, fx, fy, r, seed in SMALL:
+		if state < first:
+			continue
+		grow = GROWTH ** (state - first)
+		# The little ones drip too, but only the bigger half of them: a six-texel splat with a drip on it
+		# is a tadpole.
+		splat = Splat(fx * WIDTH, fy * HEIGHT, r * grow, seed, drips=r >= 8.0, base=r)
+		out.append((splat, first, False))
+	return out
+
+
+def disc(mask, cx, cy, r):
+	for y in range(max(0, int(cy - r)), min(HEIGHT, int(cy + r) + 2)):
+		for x in range(max(0, int(cx - r)), min(WIDTH, int(cx + r) + 2)):
+			dx = x + 0.5 - cx
+			dy = y + 0.5 - cy
+			if dx * dx + dy * dy <= r * r:
+				mask[y][x] = True
+
+
+def coverage(state, scene_):
+	"""The alpha mask: True where there is ink."""
 	mask = [[False] * WIDTH for _ in range(HEIGHT)]
-	for blob in blobs:
-		x0, y0, x1, y1 = blob.box()
-		for y in range(max(0, int(math.floor(y0))), min(HEIGHT, int(math.ceil(y1)) + 1)):
+	for splat, first, big in scene_:
+		reach = splat.reach
+		for y in range(max(0, int(splat.cy - reach)), min(HEIGHT, int(splat.cy + reach) + 2)):
 			row = mask[y]
-			for x in range(max(0, int(math.floor(x0))), min(WIDTH, int(math.ceil(x1)) + 1)):
-				if not row[x] and blob.inside(x + 0.5, y + 0.5):
+			for x in range(max(0, int(splat.cx - reach)), min(WIDTH, int(splat.cx + reach) + 2)):
+				if not row[x] and splat.contains(x + 0.5, y + 0.5):
 					row[x] = True
-	# The island the player aims through. Carved after the blobs, and only ever smaller in a later
+		for x, y, r in dots(splat, state):
+			if r <= 1.0:
+				if 0 <= int(x) < WIDTH and 0 <= int(y) < HEIGHT:
+					mask[int(y)][int(x)] = True
+			else:
+				disc(mask, x, y, r)
+		for drip in drips(splat, state, first):
+			for y in range(max(0, int(drip.top)), min(HEIGHT, int(drip.top + drip.length) + 1)):
+				half = drip.half(y + 0.5)
+				for x in range(max(0, int(drip.x - half)), min(WIDTH, int(drip.x + half) + 2)):
+					if abs(x + 0.5 - drip.x) <= half:
+						mask[y][x] = True
+			bx, by, br = drip.bead()
+			disc(mask, bx, by, br)
+	# The island the player aims through. Carved after everything, and only ever smaller in a later
 	# state, so carving it cannot break the rule that state N contains state N-1.
 	clear = CLEAR[state - 1] * HEIGHT
 	for y in range(HEIGHT):
@@ -308,63 +380,43 @@ def depths(mask):
 	return out
 
 
-def stamp(into, mask, shape, value, minimum_depth, depth):
-	"""Paint {@code value} where {@code shape} covers ink that is at least {@code minimum_depth} in."""
-	x0, y0, x1, y1 = shape.box(shape.r + 1.0)
-	for y in range(max(0, int(math.floor(y0))), min(HEIGHT, int(math.ceil(y1)) + 1)):
-		for x in range(max(0, int(math.floor(x0))), min(WIDTH, int(math.ceil(x1)) + 1)):
-			if not mask[y][x] or depth[y][x] < minimum_depth:
-				continue
-			if shape.near(x + 0.5, y + 0.5) < shape.r * shape.r:
-				into[y][x] = value
-
-
-def shade(mask, depth, blobs):
+def shade(mask, depth, scene_, state):
 	"""The greyscale map: the four bands the shader steps on, and nothing between them."""
 	lum = [[BASE if mask[y][x] else None for x in range(WIDTH)] for y in range(HEIGHT)]
-	for blob in blobs:
-		# One sheen and one crescent per splat, both following its own outline: the broad lighter band
-		# is the silhouette inset and pushed up-left, and the highlight is the lune between two further
-		# insets, which lies along the top-left of the drop and runs down the left of its drips.
-		sheen = blob.inset(SHEEN_INSET, blob.r * SHEEN_PUSH)
-		lit = blob.inset(CREST_INSET, blob.r * CREST_PUSH)
-		dark = blob.inset(CREST_INSET, blob.r * CREST_PUSH * 0.35)
-		x0, y0, x1, y1 = blob.box()
-		for y in range(max(0, int(math.floor(y0))), min(HEIGHT, int(math.ceil(y1)) + 1)):
-			for x in range(max(0, int(math.floor(x0))), min(WIDTH, int(math.ceil(x1)) + 1)):
-				# Off the rim, so the base band stays a wall of thickness all the way round.
-				if not mask[y][x] or depth[y][x] < 4:
-					continue
-				px, py = x + 0.5, y + 0.5
-				if not sheen.inside(px, py):
-					continue
-				lum[y][x] = BAND
-				if depth[y][x] >= 5 and lit.inside(px, py) and not dark.inside(px, py):
-					lum[y][x] = HIGHLIGHT
-	for blob in blobs:
-		for part in blob.parts:
-			if not part.bead or part.r < 3.0:
-				continue
-			# A bead a later state has swallowed is not a bead any more: a dot on it would be a speck of
-			# grit in the middle of a sheet of paint.
-			at = depth[max(0, min(HEIGHT - 1, int(part.y)))][max(0, min(WIDTH - 1, int(part.x)))]
-			if at > 2.0 * part.r + 2:
-				continue
-			# One specular dot on every drip bead, which is what makes a drip read as wet rather than
-			# as a tail. Never smaller than a texel: this is a 320x180 grid.
-			dot = part.shift(-part.r * 0.30, -part.r * 0.30, 0.0)
-			dot.r = max(1.0, part.r * 0.32)
-			stamp(lum, mask, dot, HIGHLIGHT, 2, depth)
+	for splat, first, big in scene_:
+		# The lighter island: the splat's own core, shrunk and nudged up-left. Shaped like the splat
+		# rather than round, because the reference's inner mark is the same torn shape as the outside.
+		core = Splat(splat.cx - splat.r * 0.13, splat.cy - splat.r * 0.13, splat.r * 0.36, splat.seed + 7,
+				soft=True)
+		reach = core.reach
+		for y in range(max(0, int(core.cy - reach)), min(HEIGHT, int(core.cy + reach) + 2)):
+			for x in range(max(0, int(core.cx - reach)), min(WIDTH, int(core.cx + reach) + 2)):
+				# Off the rim, so the outline and a band of base survive all the way round.
+				if mask[y][x] and depth[y][x] >= 4 and core.contains(x + 0.5, y + 0.5):
+					lum[y][x] = BAND
+		if big:
+			# One glint, top-left, where the light is.
+			glint = max(1.0, splat.r * 0.07)
+			gx = splat.cx - splat.r * 0.40
+			gy = splat.cy - splat.r * 0.40
+			for y in range(max(0, int(gy - glint)), min(HEIGHT, int(gy + glint) + 2)):
+				for x in range(max(0, int(gx - glint)), min(WIDTH, int(gx + glint) + 2)):
+					dx, dy = x + 0.5 - gx, y + 0.5 - gy
+					if dx * dx + dy * dy <= glint * glint and mask[y][x] and depth[y][x] >= 2:
+						lum[y][x] = HIGHLIGHT
+		for drip in drips(splat, state, first):
+			bx, by, br = drip.bead()
+			r = max(1.0, br * 0.38)
+			cx, cy = bx - br * 0.25, by - br * 0.25
+			for y in range(max(0, int(cy - r)), min(HEIGHT, int(cy + r) + 2)):
+				for x in range(max(0, int(cx - r)), min(WIDTH, int(cx + r) + 2)):
+					dx, dy = x + 0.5 - cx, y + 0.5 - cy
+					if dx * dx + dy * dy <= r * r and mask[y][x] and depth[y][x] >= 2:
+						lum[y][x] = HIGHLIGHT
+	# The outline last, so it survives every band above: one dark texel along every alpha edge.
 	for y in range(HEIGHT):
 		for x in range(WIDTH):
-			if lum[y][x] is None:
-				continue
-			# Every downward-facing edge is in the paint's own shadow, which is what puts a drip's
-			# underside and the bottom of every lobe in shade.
-			if depth[y][x] >= 2 and not mask[min(HEIGHT - 1, y + 2)][x] and mask[max(0, y - 2)][x]:
-				lum[y][x] = SHADOW
-			# The outline last, so it survives every band above: one dark texel along every alpha edge.
-			if depth[y][x] == 1:
+			if lum[y][x] is not None and depth[y][x] == 1:
 				lum[y][x] = SHADOW
 	image = Image.new("RGBA", (WIDTH, HEIGHT), (0, 0, 0, 0))
 	pixels = image.load()
@@ -378,11 +430,10 @@ def shade(mask, depth, blobs):
 
 
 def contact(images):
-	"""The four states 2x2, drawn the way the shader draws them, upscaled 2x with no filtering.
+	"""The four states 2x2 over mid grey, upscaled 2x with no filtering.
 
-	The point of the sheet is to be looked at, so it does the shader's own work: the four luminance
-	bands become four tones of DATA's ink over a dark checker standing in for the world. A grey sheet
-	composited over grey showed nothing — the base band and the background were the same value.
+	Drawn the way the shader draws it — the four luminance bands become four tones of DATA's ink — so
+	the sheet shows what a player sees rather than a grey map that has to be imagined in colour.
 	"""
 	ink = (0.7412, 0.2157, 0.3294)
 	tones = []
@@ -397,8 +448,7 @@ def contact(images):
 			for x in range(WIDTH):
 				grey, _, _, alpha = source[x, y]
 				if alpha < 128:
-					shade = 58 if (x // 8 + y // 8) % 2 == 0 else 74
-					pixels[ox + x, oy + y] = (shade, shade, shade)
+					pixels[ox + x, oy + y] = (110, 110, 110)
 					continue
 				lum = grey / 255.0
 				pixels[ox + x, oy + y] = tones[0] if lum < 0.3 else tones[1] if lum < 0.6 \
@@ -412,15 +462,15 @@ def main():
 	images = []
 	masks = []
 	for state in range(1, STATES + 1):
-		blobs = scene(state)
-		mask = coverage(state, blobs)
-		image = shade(mask, depths(mask), blobs)
+		scene_ = scene(state)
+		mask = coverage(state, scene_)
+		image = shade(mask, depths(mask), scene_, state)
 		image.save(os.path.join(OUT, "ink_%d.png" % state))
 		images.append(image)
 		masks.append(mask)
 		covered = sum(1 for row in mask for wet in row if wet) / float(WIDTH * HEIGHT)
 		print("ink_%d.png  %d x %d, %d splats, %.1f%% covered (want %.0f%%)"
-				% (state, WIDTH, HEIGHT, len(blobs), 100.0 * covered, 100.0 * WANT[state - 1]))
+				% (state, WIDTH, HEIGHT, len(scene_), 100.0 * covered, 100.0 * WANT[state - 1]))
 		assert abs(covered - WANT[state - 1]) <= TOLERANCE, \
 			"state %d covers %.1f%%, wanted about %.0f%%" % (state, 100.0 * covered, 100.0 * WANT[state - 1])
 		assert not mask[HEIGHT // 2][WIDTH // 2], "state %d has ink in the middle of the screen" % state

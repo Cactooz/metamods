@@ -417,14 +417,18 @@ dedicated Rivals server wants.
   state 1 fades up from a clean screen. Only that opacity is continuous: the four tones stay quantised
   and the alpha edges stay hard, because that is the pixel-art look.
 
-  The drawing is **blobs, not a frame**: seventeen round splats, each a body disc with lobes thrown onto
-  its rim and drips hanging off its lowest edge, fused with a metaball threshold so a splat reads as one
-  fat drop rather than a cluster of circles, and every body centred on or past the border so the ink
-  reads as thrown at the glass. The states are **cumulative** — five splats in state 1, four more in each
-  of 2, 3 and 4, and every splat already on screen grows by a quarter per later state — so state N
-  contains every texel of state N−1 and ink never flickers off a corner while the player is being hurt.
-  A game test asserts that, and it is a requirement for a hand-drawn replacement too. Coverage runs about
-  16% / 35% / 52% / 69%.
+  The drawing is **paint splatter**, drawn from a reference of a wall twenty minutes after a paintball
+  fight. A splat is a polar radius profile rather than a circle — short sharp teeth round the rim from
+  high-frequency harmonics with high exponents, two or three long thin tongues from low-frequency ones,
+  broad bumps, a slow wobble, and a notch harmonic biting back into the rim so it reads as torn rather
+  than as a flower. Each throws a couple of dozen **satellite droplets** that thin out with distance, and
+  long tapering **drips** straight down from its underside ending in a fatter bead; small independent
+  splats of six to fourteen texels are scattered through the ring outside the clear middle. The states
+  are **cumulative** — five big splats and two small ones in state 1, seven more arriving in each later
+  state, every splat already on screen spreading by 22%, and every drip running 40% longer, which is what
+  "twenty minutes after" looks like — so state N contains every texel of state N−1 and ink never flickers
+  off a corner while the player is being hurt. A game test asserts that, and it is a requirement for a
+  hand-drawn replacement too. Coverage runs about 15% / 27% / 41% / 56%.
 
   Known limits: no weapon in hand means no LED on the frame and so no ink, however much health is missing
   (the ink comes back with the weapon). Third person is no longer one of them — the held weapon is still

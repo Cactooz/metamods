@@ -84,18 +84,25 @@ python3 mods/metacraft-rivals/tools/ink_overlays.py
 
 It is a stand-in, not a pipeline — an artist's files are meant to replace these outright, and the
 script does not have to be kept working once they do. It also writes a contact sheet to
-`/tmp/ink_sheet_new.png`: the four states 2×2, drawn in DATA's ink the way the shader draws them, which
-is the quickest way to look at a change.
+`/tmp/ink_sheet_splatter.png`: the four states 2×2 over mid grey, drawn in DATA's ink the way the shader
+draws them, which is the quickest way to look at a change.
 
-**How they are built up.** The ink is a set of separate round splats rather than a frame: each one is a
-big body disc with two to four smaller lobes thrown onto its rim and one to three drips hanging off its
-lowest edge, all fused with a metaball threshold so the lobes melt into the body instead of showing
-their own outlines, and each drip is a tapering run of discs ending in a fatter bead. Every body is
-centred on or just beyond the border with its lobes reaching inward, because ink arrives from outside
-the frame. There is one list of seventeen splats: five appear in state 1 (the corners and the top
-edge), four more in each of states 2, 3 and 4, and every splat already on screen grows by 24% per later
-state — which is how a later state comes to contain an earlier one while still looking like more ink
-rather than the same ink. Coverage runs about 16% / 35% / 52% / 69%. The shading is the four bands and
-nothing else: the outline, a base rim, the silhouette inset and pushed up-left for the lighter band, a
-crescent between two further insets for the highlight, a specular dot on each drip bead, and shadow
-under every downward-facing edge.
+**How they are built up.** The drawing is paint splatter, from a reference of a wall twenty minutes
+after a paintball fight. A splat's silhouette is a polar radius profile rather than a circle —
+`r(θ) = R · (1 + Σ aᵢ · max(0, cos(kᵢθ + φᵢ))^pᵢ) · (1 − notch)` — with two or three rows of short sharp
+teeth (high frequency, high exponent), two or three long thin tongues (low frequency, very high
+exponent), a couple of broad bumps, a slow wobble so the body is not round underneath, and a notch
+harmonic that bites back *into* the rim so it reads as torn rather than as a flower. Every splat throws
+satellite droplets — a couple of dozen dots of one to four texels, thickest near the rim and thinning
+with distance, plus single-texel specks further out — and long tapering drips straight down from its
+underside, each ending in a fatter bead. Besides the big edge and corner splats there are small
+independent ones, six to fourteen texels, scattered through the ring outside the clear middle.
+
+Five big splats and two small ones land in state 1; seven more arrive in each later state, every splat
+already on screen spreads by 22%, and every drip runs 40% longer — paint moves while you are being shot
+at, which is what the four states are for. A drip's earlier lengths are drawn underneath its current
+one, which is what keeps the states nested. Coverage runs about 15% / 27% / 41% / 56%.
+
+The shading is the four bands and nothing else: a one-texel outline along every alpha edge, the body in
+the base tone, a lighter island inside it shaped like a blob of its own, and a small highlight glint at
+the top-left of each big body and on each drip bead. No gradients and no speckle.
