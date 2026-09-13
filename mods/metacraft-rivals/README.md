@@ -340,9 +340,17 @@ dedicated Rivals server wants.
   is emitted onto a fixed 8×8-pixel quad at the bottom centre of the frame, one pixel up from the bottom
   edge — under the hotbar, which the GUI draws after the post effect has read the frame, so the probe
   reads it out of the frame and the player never sees it. Under an orthographic projection
-  (`ProjMat[2][3] == 0`) — the hotbar's own icons, the inventory — the quad is sent behind the far plane
-  and clipped instead, since there is no hotbar to hide behind there. All six faces of the LED box map
-  onto the same quad; half are culled by their winding and at least one survives.
+  (`ProjMat[2][3] == 0`) — the hotbar's own icons, the inventory — the quad is sent to a z outside the
+  clip volume and thrown away instead, since there is no hotbar to hide behind there. All six faces of
+  the LED box map onto the same quad; half are culled by their winding and at least one survives.
+
+  The quad's **depth** is the part that cost a round. 26.3 does not clip to OpenGL's classic `[-1, 1]`:
+  `Projection.setupPerspective` builds the matrix with JOML's `setPerspective(…, zZeroToOne = true)`, so
+  the volume is `[0, 1]`, and the depth is *reversed* — `GameRenderer` clears the depth texture to `0.0`
+  before `renderItemInHand` and tests GREATER, so 0 is the far plane and **1 is the near one**. The first
+  version of this put the quad at `z = -0.999`, which is outside the volume: every LED vertex was
+  clipped, the probe found nothing, the ink pass handed the frame through, and the screen stayed clean
+  however much health was missing. It is `0.9999` now.
 
   It used to be solved into the model instead: each weapon's element placed so that its own
   `firstperson_righthand` transform landed it under the hotbar, by walking the client's chain in

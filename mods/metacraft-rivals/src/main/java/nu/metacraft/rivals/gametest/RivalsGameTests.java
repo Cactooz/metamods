@@ -1441,7 +1441,14 @@ public final class RivalsGameTests {
 		// Under an orthographic matrix — the GUI's hotbar icons and the inventory, drawn through this same
 		// pipeline — the pinned quad would sit over the hotbar in plain view, so there the LED is clipped.
 		helper.assertTrue(itemVsh.contains("ProjMat[2][3] == 0.0") && itemVsh.contains("vec4(0.0, 0.0, 2.0, 1.0)"),
-				"and sends it behind the far plane under an orthographic projection");
+				"and sends it outside the clip volume under an orthographic projection");
+		// 26.3 clips to [0, 1] with the depth reversed — GameRenderer clears the depth texture to 0.0 and
+		// tests GREATER, and Projection.setupPerspective asks JOML for zZeroToOne — so the near plane is
+		// 1, not -1. A quad at -0.999 is outside the volume and every vertex of it was clipped, which is
+		// exactly as invisible as having no LED at all.
+		helper.assertTrue(!itemVsh.contains("-0.999"),
+				"the pinned quad is not at OpenGL's classic near plane: 26.3's clip volume is [0, 1], reversed");
+		helper.assertTrue(itemVsh.contains("0.9999, 1.0)"), "it sits just inside the near plane, which is 1");
 		helper.assertTrue(itemFsh.contains("in vec4 rawColor") && itemFsh.contains("RIVALS_LED"),
 				"and the fragment shader draws the LED from it");
 		helper.assertTrue(itemFsh.contains(String.format(Locale.ROOT, "%.4f", InkArt.LED_ALPHA / 255.0)),

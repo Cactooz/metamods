@@ -60,7 +60,10 @@ layout(location = 8) out vec4 rawColor;
 // dropped off the bottom edge every other step, the probe found nothing, and the overlay blinked in
 // walking rhythm. Moving it up would put it on screen; widening the probe's search would be a bandage.
 // Pinning it here is none of those: the quad is the same eight by eight pixels on every frame, at every
-// resolution, at every GUI scale, whatever the hand is doing.
+// resolution, at every GUI scale, whatever the hand is doing. The one thing it has to get right is the
+// depth: 26.3 clips to [0, 1] and runs depth REVERSED, so the near plane is 1 and the far plane is 0 —
+// verified in GameRenderer, which clears the depth texture to 0.0 before renderItemInHand and tests
+// GREATER, and in Projection.setupPerspective, which asks JOML for zZeroToOne.
 //
 // The element in the model is now just somewhere to hang the sprite; its coordinates no longer matter.
 
@@ -105,8 +108,9 @@ void main() {
     if (ledCorner(ledAt)) {
         // Only in the world. The GUI draws hotbar icons and the inventory through this same pipeline
         // under an orthographic matrix, whose [2][3] is zero where a perspective one's is -1; there the
-        // LED must vanish outright rather than be pinned over the hotbar, so it is sent behind the far
-        // plane and clipped.
+        // LED must vanish outright rather than be pinned over the hotbar, so it is sent to a z outside
+        // the clip volume — 2.0 with w 1.0 is outside [0, 1] at either end of the convention — and
+        // clipped away.
         if (ProjMat[2][3] == 0.0) {
             gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
         } else {
@@ -118,7 +122,18 @@ void main() {
                     ScreenSize.x * 0.5 + (ledAt.x - 0.5) * LED_QUAD,
                     LED_LIFT + (1.0 - ledAt.y) * LED_QUAD);
             // In front of everything, and unprojected: w is 1, so this is straight NDC.
-            gl_Position = vec4(pixel / ScreenSize * 2.0 - 1.0, -0.999, 1.0);
+            //
+            // The depth is the part that has to be right, and the first attempt at it drew nothing at
+            // all. 26.3's clip space is not OpenGL's classic [-1, 1]: Projection.setupPerspective builds
+            // the matrix with JOML's setPerspective(..., zZeroToOne = true), so the volume is [0, 1] —
+            // and the depth is REVERSED, which GameRenderer shows by calling clearDepthTexture(depth,
+            // 0.0) before renderItemInHand and testing GREATER. Zero is the far plane and one is the
+            // near one. A z just inside OpenGL's classic near plane — a whisker above minus one, which
+            // is what this was — is simply outside this volume, and every LED vertex was clipped:
+            // the probe found nothing, the ink pass handed the frame through, and the screen stayed
+            // clean however much health was missing. 0.9999 is as near as makes no difference to the
+            // near plane, which is what "in front of everything" means here.
+            gl_Position = vec4(pixel / ScreenSize * 2.0 - 1.0, 0.9999, 1.0);
         }
     }
 
