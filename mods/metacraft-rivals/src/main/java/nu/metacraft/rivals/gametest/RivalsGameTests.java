@@ -1434,10 +1434,18 @@ public final class RivalsGameTests {
 		// bottom edge every other step and the ink blinked in walking rhythm.
 		helper.assertTrue(itemVsh.contains("RIVALS_LED_PIN") && itemVsh.contains("ScreenSize"),
 				"the vertex shader pins the LED to a quad in screen pixels");
-		helper.assertTrue(itemVsh.contains(String.format(Locale.ROOT, "%.4f", InkArt.LED_ALPHA / 255.0)),
-				"recognising it by the same marker alpha " + InkArt.LED_ALPHA + " the fragment stage keys on");
-		helper.assertTrue(itemVsh.contains("textureLod(Sampler0"),
-				"by a vertex texture fetch of the atlas, at an explicit level: a vertex has no derivatives");
+		// It recognises an LED vertex by the tint the server wrote — the same signature the probe reads
+		// back out of the frame — and not by reading the atlas: a vertex texture fetch for the sprite's
+		// marker alpha never produced a quad on a real client.
+		helper.assertTrue(itemVsh.contains("0.0627"),
+				"recognising it by the tint signature's green window, the same 16 the probe tests");
+		helper.assertTrue(itemVsh.contains("gl_VertexIndex"),
+				"and taking the quad's corner from the vertex index");
+		// 26.3's renderpearl backend parses Vulkan-flavoured GLSL. gl_VertexID does not compile there,
+		// and a shader that does not compile takes the whole pack with it — which it did once.
+		helper.assertTrue(!itemVsh.contains("gl_VertexID"),
+				"spelled gl_VertexIndex: the GL spelling does not compile on renderpearl, and a pack with a "
+						+ "shader that does not compile is a pack the client refuses");
 		// Under an orthographic matrix — the GUI's hotbar icons and the inventory, drawn through this same
 		// pipeline — the pinned quad would sit over the hotbar in plain view, so there the LED is clipped.
 		helper.assertTrue(itemVsh.contains("ProjMat[2][3] == 0.0") && itemVsh.contains("vec4(0.0, 0.0, 2.0, 1.0)"),

@@ -21,10 +21,6 @@ layout(location = 5) in vec2 UV3;
 #endif
 layout(location = 6) in vec3 Normal;
 
-// RIVALS: the atlas, in the vertex stage as well. The pipeline binds samplers by name, and this one is
-// read here with a vertex texture fetch to recognise the data LED's own sprite — see RIVALS_LED_PIN.
-uniform sampler2D Sampler0;
-
 #ifndef OIT_ALPHA_ONLY
 uniform sampler2D Sampler1;
 uniform sampler2D Sampler2;
@@ -66,46 +62,42 @@ layout(location = 8) out vec4 rawColor;
 // GREATER, and in Projection.setupPerspective, which asks JOML for zZeroToOne.
 //
 // The element in the model is now just somewhere to hang the sprite; its coordinates no longer matter.
+//
+// How an LED vertex is recognised is the other thing that had to be found out the hard way. The first
+// version read the atlas here — a vertex texture fetch for the sprite's marker alpha, the same 246 the
+// fragment stage keys on — and on the real client it never produced a quad at all. What works is the
+// vertex TINT: the LED's colour is the signature the server wrote and the probe hunts for, red at full
+// with green under 16, and nothing else in the frame is that. The corner comes from gl_VertexIndex,
+// which must be spelled exactly that way: 26.3's renderpearl backend parses Vulkan-flavoured GLSL, and
+// the plain GL spelling of it (the one ending in ID) does not compile there — a shader that fails to
+// compile takes the whole pack down with it, and this one took a client with it on the way to finding
+// that out. A game test asserts the spelling, and asserts the other one is nowhere in the file.
 
-/** The LED sprite's alpha, 246/255, and the window item.fsh keys on: 245..247 and nothing else. */
-const float LED_ALPHA = 0.9647;
-const float LED_WINDOW = 0.006;
 /** The quad, in screen pixels: eight across, eight tall, centred, one pixel up from the bottom edge. */
 const float LED_QUAD = 8.0;
 const float LED_LIFT = 1.0;
-
-/**
- * Is this vertex a corner of the LED's sprite, and which corner of it?
- *
- * A vertex sits on the corner of its sprite, so sampling exactly at UV0 is a coin toss between the
- * sprite and whatever the atlas packed next to it. Sampling half a texel to each of the four diagonals
- * is not: the LED sprite is on one side of the corner and a neighbour on the others, so exactly one of
- * the four probes lands inside it — and which one says which corner of the sprite this vertex is.
- * {@code corner} comes back as (0,0) for the min-u min-v corner, (1,1) for max-u max-v.
- *
- * The LED's sprite is the only texture in either item atlas at this alpha, at every mip level, which is
- * the whole reason the fragment stage can recognise it too. The fetch is textureLod at level 0 because
- * a vertex shader has no derivatives to pick a level from.
- */
-bool ledCorner(out vec2 corner) {
-    vec2 d = 0.5 / vec2(textureSize(Sampler0, 0));
-    for (int i = 0; i < 4; i++) {
-        // (+d,+d), (-d,+d), (+d,-d), (-d,-d): the sprite lies away from the corner the vertex is on.
-        vec2 away = vec2(i == 1 || i == 3 ? -d.x : d.x, i >= 2 ? -d.y : d.y);
-        if (abs(textureLod(Sampler0, UV0 + away, 0.0).a - LED_ALPHA) < LED_WINDOW) {
-            corner = vec2(away.x > 0.0 ? 0.0 : 1.0, away.y > 0.0 ? 0.0 : 1.0);
-            return true;
-        }
-    }
-    corner = vec2(0.0);
-    return false;
-}
+/** The signature the LED's tint carries, and the probe reads back: red at full, green under 16. */
+const float LED_RED = 0.99;
+const float LED_GREEN = 0.0627;
 
 void main() {
     gl_Position = ProjMat * ModelViewMat * vec4(Position, 1.0);
 
-    vec2 ledAt;
-    if (ledCorner(ledAt)) {
+    // An LED vertex is one whose tint carries the signature: red at full with green under 16, which is
+    // the very value the server wrote and the probe reads back out of the frame. An idle LED fails it,
+    // and so does every other player's weapon, which is handed the idle value — neither is pinned, and
+    // the fragment stage discards them anyway.
+    bool isLed = Color.r > LED_RED && Color.g < LED_GREEN;
+    if (isLed) {
+        // Which corner of the quad this vertex is. Items are drawn as quads, four consecutive vertices
+        // per face, so the vertex's index in the draw says which corner it is without asking the atlas
+        // anything. The x is mirrored on the faces pointing the other way, so that whichever winding the
+        // pipeline culls, one face of the LED box survives to cover the quad.
+        int corner = gl_VertexIndex & 3;
+        vec2 ledAt = corner == 0 ? vec2(0.0, 0.0)
+                : corner == 1 ? vec2(1.0, 0.0)
+                : corner == 2 ? vec2(1.0, 1.0) : vec2(0.0, 1.0);
+        if (Normal.x + Normal.y + Normal.z < 0.0) ledAt.x = 1.0 - ledAt.x;
         // Only in the world. The GUI draws hotbar icons and the inventory through this same pipeline
         // under an orthographic matrix, whose [2][3] is zero where a perspective one's is -1; there the
         // LED must vanish outright rather than be pinned over the hotbar, so it is sent to a z outside
@@ -114,10 +106,10 @@ void main() {
         if (ProjMat[2][3] == 0.0) {
             gl_Position = vec4(0.0, 0.0, 2.0, 1.0);
         } else {
-            // Position is ignored: the quad is built from ScreenSize alone. v runs down the atlas and y
-            // runs up the screen, so the v side is flipped. All six faces of the LED box map onto this
-            // same quad — half of them wind the other way and are culled, but at least one survives,
-            // and they are all the same eight by eight pixels of the same flat colour anyway.
+            // Position is ignored: the quad is built from ScreenSize alone. The corner's y is flipped
+            // because a quad's corners run round it the way a texture's rows run down. All six faces of
+            // the LED box land on this same quad, and they are all the same eight by eight pixels of the
+            // same flat colour, so it does not matter which of them survives the culling.
             vec2 pixel = vec2(
                     ScreenSize.x * 0.5 + (ledAt.x - 0.5) * LED_QUAD,
                     LED_LIFT + (1.0 - ledAt.y) * LED_QUAD);

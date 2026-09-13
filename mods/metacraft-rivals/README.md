@@ -337,12 +337,23 @@ dedicated Rivals server wants.
   cannot come back out still carrying a live number. With no ink the value is `InkOnScreen.IDLE`, a dark
   grey, and the item shader **discards** it outright: an LED with nothing to say draws nothing at all.
 
-  And the LED is not drawn where the model puts it. **`item.vsh` pins it in screen space**: a vertex
-  whose sprite carries the marker alpha (found by four vertex texture fetches half a texel off the
-  vertex's own corner, which also say *which* corner of the sprite it is) ignores `Position` outright and
-  is emitted onto a fixed 8×8-pixel quad at the bottom centre of the frame, one pixel up from the bottom
-  edge — under the hotbar, which the GUI draws after the post effect has read the frame, so the probe
-  reads it out of the frame and the player never sees it. Under an orthographic projection
+  And the LED is not drawn where the model puts it. **`item.vsh` pins it in screen space**: a vertex whose
+  *tint* carries the signature (red at full, green under 16 — the same bytes the probe reads back out of
+  the frame, and nothing else in a frame is that) ignores `Position` outright and is emitted onto a fixed
+  8×8-pixel quad at the bottom centre, one pixel up from the bottom edge — under the hotbar, which the
+  GUI draws after the post effect has read the frame, so the probe reads it out of the frame and the
+  player never sees it. The corner of the quad comes from `gl_VertexIndex & 3` (items are drawn as quads,
+  four consecutive vertices a face) with the x mirrored on the faces pointing the other way, so one
+  winding always survives the culling. An idle LED fails the signature and is not pinned at all, which is
+  also every other player's weapon — they are all handed the idle value, and the fragment stage discards
+  it.
+
+  Two things about that were found the hard way, on a real client (macOS, the renderpearl backend). The
+  first version recognised an LED vertex by reading the *atlas* — a vertex texture fetch for the sprite's
+  246 marker alpha, the value the fragment stage keys on — and it never produced a quad at all; the tint
+  is what works. And it must be spelled **`gl_VertexIndex`**: renderpearl parses Vulkan-flavoured GLSL,
+  `gl_VertexID` does not compile there, and a pack with a shader that does not compile is a pack the
+  client refuses outright — which took a client down on the way to finding that out. Under an orthographic projection
   (`ProjMat[2][3] == 0`) — the hotbar's own icons, the inventory — the quad is sent to a z outside the
   clip volume and thrown away instead, since there is no hotbar to hide behind there. All six faces of
   the LED box map onto the same quad; half are culled by their winding and at least one survives.
