@@ -72,6 +72,7 @@ import net.minecraft.world.phys.Vec3;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.Arena;
+import nu.metacraft.rivals.Match;
 import nu.metacraft.rivals.PaintColor;
 import nu.metacraft.rivals.OvveTeams;
 import nu.metacraft.rivals.PlayerTick;
@@ -819,6 +820,154 @@ public final class RivalsGameTests {
 		} finally {
 			choices.forget(dressedData.getUUID());
 		}
+		helper.succeed();
+	}
+
+	/**
+	 * Two dressed players, a one-minute match, and the whole machine walked through on a clock of the
+	 * test's own: LOBBY → COUNTDOWN → PLAYING → ENDED → LOBBY.
+	 *
+	 * <p>Everything here happens inside one server tick. {@link Match} is one machine for the server and
+	 * its own {@code END_SERVER_TICK} hook drives it off the real tick count, so a test that spanned ticks
+	 * would have the real clock and this fake one fighting over the same state; and the fake ticks start a
+	 * long way past any real tick count so the two can never be confused. The state is put back whatever
+	 * happens, since every other test in the batch shares it.
+	 */
+	@GameTest
+	public void matchWalksFromCountdownToLobby(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		Arena arena = Arena.of(level);
+		WeaponChoice choices = WeaponChoice.of(level.getServer());
+		ServerPlayer one = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		ServerPlayer two = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		List<ServerPlayer> players = List.of(one, two);
+		Map<UUID, String> worn = new LinkedHashMap<>();
+		worn.put(one.getUUID(), "ovvar:data_ovve");
+		worn.put(two.getUUID(), "ovvar:it_ovve");
+		Function<Player, Optional<PaintColor>> ovve = player -> {
+			String id = worn.get(player.getUUID());
+			return id == null ? Optional.empty() : OvveTeams.colourOf(Identifier.parse(id));
+		};
+		long t = 1_000_000L;
+		try {
+			arena.forget();
+			// No spawns, no match: there is nowhere to put anybody.
+			helper.assertTrue(!Match.start(level.getServer(), level, () -> players, ovve, 1, false, t).started(),
+					"a match with no spawns is refused");
+			Vec3 dataAt = helper.absoluteVec(new Vec3(1.5, 2.0, 1.5));
+			Vec3 itAt = helper.absoluteVec(new Vec3(6.5, 2.0, 6.5));
+			arena.setSpawn(PaintColor.DATA, new Arena.Spawn(dataAt, 0f, 0f));
+			arena.setSpawn(PaintColor.IT, new Arena.Spawn(itAt, 180f, 0f));
+			choices.set(two, Weapon.CHARGER);
+			// An undressed player is refused without force, and let in with it.
+			worn.remove(two.getUUID());
+			Match.Result refused = Match.start(level.getServer(), level, () -> players, ovve, 1, false, t);
+			helper.assertTrue(!refused.started(), "an undressed player stops the start");
+			helper.assertTrue(refused.message().getString().contains(two.getScoreboardName()),
+					"and is named: " + refused.message().getString());
+			worn.put(two.getUUID(), "ovvar:it_ovve");
+
+			Match.Result started = Match.start(level.getServer(), level, () -> players, ovve, 1, false, t);
+			helper.assertTrue(started.started(), "both dressed: " + started.message().getString());
+			helper.assertValueEqual(Match.state(), Match.State.COUNTDOWN, "counting down");
+			helper.assertValueEqual(Match.ticksLeft(t), (long) Match.COUNTDOWN_TICKS, "five seconds of it");
+			helper.assertTrue(Match.isFrozen(one) && Match.isFrozen(two), "and nobody can move");
+			// The teams are the ovves', made by the same code /rivals setup runs.
+			helper.assertValueEqual(PaintColor.byTeam(one.getTeam()).orElse(null), PaintColor.DATA, "one is DATA");
+			helper.assertValueEqual(PaintColor.byTeam(two.getTeam()).orElse(null), PaintColor.IT, "two is IT");
+			// Each is holding the weapon they picked — the shooter for the one who never picked.
+			helper.assertTrue(one.getInventory().getItem(0).getItem() == PaintWeapon.of(Weapon.SHOOTER),
+					"no pick means a shooter");
+			helper.assertTrue(two.getInventory().getItem(0).getItem() == PaintWeapon.of(Weapon.CHARGER),
+					"and a pick means the pick");
+
+			Match.tick(level.getServer(), t + 1);
+			helper.assertValueEqual(Match.state(), Match.State.COUNTDOWN, "a tick in, still counting");
+			Match.tick(level.getServer(), t + Match.COUNTDOWN_TICKS);
+			helper.assertValueEqual(Match.state(), Match.State.PLAYING, "GO");
+			helper.assertTrue(!Match.isFrozen(one) && !Match.isFrozen(two), "and the freeze is off");
+			long playing = t + Match.COUNTDOWN_TICKS;
+			helper.assertValueEqual(Match.ticksLeft(playing), 60L * 20L, "a minute on the clock");
+			helper.assertTrue(Match.clock(Match.ticksLeft(playing)).equals("⏱ 1:00"),
+					"which reads " + Match.clock(Match.ticksLeft(playing)));
+
+			// A player who turns up mid-match is dressed, armed and given the respawn grace rather than
+			// dropped straight into a firefight.
+			ServerPlayer late = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+			worn.put(late.getUUID(), "ovvar:data_ovve");
+			helper.assertTrue(Match.addMidMatch(late, playing), "the latecomer is let in");
+			helper.assertTrue(late.getInventory().getItem(0).getItem() instanceof PaintWeapon, "with a weapon");
+			helper.assertTrue(Match.isFrozen(late) && Match.isRespawning(late, playing), "and a moment to look around");
+
+			Match.tick(level.getServer(), playing + 60L * 20L);
+			helper.assertValueEqual(Match.state(), Match.State.ENDED, "time is up");
+			helper.assertTrue(Match.isFrozen(one), "everybody is frozen for the result");
+			helper.assertTrue(!Match.finalCounts().isEmpty(), "and the paint was counted");
+			Match.tick(level.getServer(), playing + 60L * 20L + Match.ENDED_TICKS);
+			helper.assertValueEqual(Match.state(), Match.State.LOBBY, "and ten seconds later it is the lobby again");
+			helper.assertTrue(!Match.isFrozen(one) && !Match.isFrozen(two), "with nobody frozen");
+		} finally {
+			Match.clearAll();
+			arena.forget();
+			choices.forget(one.getUUID());
+			choices.forget(two.getUUID());
+		}
+		helper.succeed();
+	}
+
+	/** {@code /rivals match stop} blows the whistle early: straight from PLAYING to ENDED. */
+	@GameTest
+	public void matchStopEndsItEarly(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		Arena arena = Arena.of(level);
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		List<ServerPlayer> players = List.of(player);
+		Function<Player, Optional<PaintColor>> ovve = who -> Optional.of(PaintColor.DATA);
+		long t = 2_000_000L;
+		try {
+			arena.forget();
+			arena.setSpawn(PaintColor.DATA, new Arena.Spawn(helper.absoluteVec(new Vec3(1.5, 2.0, 1.5)), 0f, 0f));
+			arena.setSpawn(PaintColor.IT, new Arena.Spawn(helper.absoluteVec(new Vec3(6.5, 2.0, 6.5)), 0f, 0f));
+			helper.assertTrue(!Match.stop(t), "nothing to stop in the lobby");
+			helper.assertTrue(Match.start(level.getServer(), level, () -> players, ovve, 5, false, t).started(), "started");
+			Match.tick(level.getServer(), t + Match.COUNTDOWN_TICKS);
+			helper.assertValueEqual(Match.state(), Match.State.PLAYING, "playing");
+			// A second start while one is running is refused rather than restarting it.
+			helper.assertTrue(!Match.start(level.getServer(), level, () -> players, ovve, 5, false, t).started(),
+					"one match at a time");
+			helper.assertTrue(Match.stop(t + 400), "stopped early");
+			helper.assertValueEqual(Match.state(), Match.State.ENDED, "which is the same ending");
+			helper.assertTrue(Match.isFrozen(player), "and the same freeze");
+		} finally {
+			Match.clearAll();
+			arena.forget();
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * The result is read off the tally: most faces wins, equal shares are a draw, and a match nobody
+	 * painted in is a draw too rather than a win for whichever team the enum lists first.
+	 */
+	@GameTest
+	public void matchWinnerComesFromTheTally(GameTestHelper helper) {
+		Map<PaintColor, Integer> dataAhead = new EnumMap<>(PaintColor.class);
+		dataAhead.put(PaintColor.DATA, 61);
+		dataAhead.put(PaintColor.IT, 39);
+		helper.assertValueEqual(Match.decide(dataAhead), PaintColor.DATA, "more faces wins");
+		helper.assertTrue(Match.percentages(dataAhead).equals("DATA 61 % · IT 39 %"),
+				"both percentages are printed: " + Match.percentages(dataAhead));
+		Map<PaintColor, Integer> tied = new EnumMap<>(PaintColor.class);
+		tied.put(PaintColor.DATA, 7);
+		tied.put(PaintColor.IT, 7);
+		helper.assertTrue(Match.decide(tied) == null, "equal is a draw");
+		helper.assertTrue(Match.decide(Map.of()) == null, "and so is a match nobody painted in");
+		Map<PaintColor, Integer> itAhead = new EnumMap<>(PaintColor.class);
+		itAhead.put(PaintColor.DATA, 0);
+		itAhead.put(PaintColor.IT, 1);
+		helper.assertValueEqual(Match.decide(itAhead), PaintColor.IT, "one face is enough");
+		helper.assertTrue(Match.clock(0).equals("⏱ 0:00") && Match.clock(20 * 125).equals("⏱ 2:05"),
+				"the clock reads m:ss: " + Match.clock(20 * 125));
 		helper.succeed();
 	}
 

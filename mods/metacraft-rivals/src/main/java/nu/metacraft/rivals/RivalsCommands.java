@@ -1,6 +1,7 @@
 package nu.metacraft.rivals;
 
 import com.mojang.brigadier.arguments.DoubleArgumentType;
+import com.mojang.brigadier.arguments.IntegerArgumentType;
 import com.mojang.brigadier.arguments.StringArgumentType;
 import com.mojang.brigadier.exceptions.CommandSyntaxException;
 import com.mojang.brigadier.suggestion.SuggestionProvider;
@@ -41,7 +42,7 @@ import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
 /**
- * {@code /rivals setup | gun [weapon] | kit | score | reset | reload | ready | tune} for game masters
+ * {@code /rivals setup | gun [weapon] | kit | score | reset | reload | ready | match | tune} for game masters
  * (permission {@code metacraft.rivals}), and {@code /rivals weapons} for everybody.
  *
  * <p>The arena half — {@code spawn set|list}, {@code arena set|clear|show} — is the same permission: it
@@ -116,6 +117,18 @@ public final class RivalsCommands {
 																BlockPosArgument.getLoadedBlockPos(ctx, "to"))))))
 								.then(literal("clear").executes(ctx -> arenaClear(ctx.getSource())))
 								.then(literal("show").executes(ctx -> arenaShow(ctx.getSource()))))
+						// The round loop.
+						.then(literal("match").requires(ADMIN)
+								.then(literal("start")
+										.then(argument("minutes", IntegerArgumentType.integer(Match.MIN_MINUTES, Match.MAX_MINUTES))
+												.executes(ctx -> matchStart(ctx.getSource(),
+														IntegerArgumentType.getInteger(ctx, "minutes"), false))
+												// A plain word rather than a boolean: "force" is what an operator
+												// types, and "true" says nothing about what is being forced.
+												.then(literal("force").executes(ctx -> matchStart(ctx.getSource(),
+														IntegerArgumentType.getInteger(ctx, "minutes"), true)))))
+								.then(literal("stop").executes(ctx -> matchStop(ctx.getSource())))
+								.then(literal("status").executes(ctx -> matchStatus(ctx.getSource()))))
 						// Who is here, dressed and armed — and a failure if anybody is not.
 						.then(literal("ready").requires(ADMIN).executes(ctx -> Readiness.report(ctx.getSource())))
 						// No permission: every player picks their own weapon.
@@ -191,6 +204,42 @@ public final class RivalsCommands {
 					.withStyle(ChatFormatting.YELLOW), true);
 		}
 		return removed;
+	}
+
+	/**
+	 * Start a match in the sender's level. The readiness check is the same one {@code /rivals ready} runs,
+	 * and {@code force} is the word that skips it.
+	 */
+	private static int matchStart(CommandSourceStack source, int minutes, boolean force) {
+		Match.Result result = Match.start(source.getServer(), source.getLevel(), minutes, force);
+		if (!result.started()) {
+			source.sendFailure(result.message());
+			return 0;
+		}
+		source.sendSuccess(result::message, true);
+		return minutes;
+	}
+
+	private static int matchStop(CommandSourceStack source) {
+		if (!Match.stop(source.getServer().getTickCount())) {
+			source.sendFailure(Component.literal("No match is running").withStyle(ChatFormatting.RED));
+			return 0;
+		}
+		source.sendSuccess(() -> Component.literal("Match stopped").withStyle(ChatFormatting.YELLOW), true);
+		return 1;
+	}
+
+	private static int matchStatus(CommandSourceStack source) {
+		long now = source.getServer().getTickCount();
+		Match.State state = Match.state();
+		String left = state == Match.State.LOBBY ? "" : ", " + Match.clock(Match.ticksLeft(now)) + " left";
+		source.sendSuccess(() -> Component.literal("Match: " + state + left), false);
+		if (!Match.finalCounts().isEmpty()) {
+			source.sendSuccess(() -> Component.literal("Last result: "
+					+ Match.winner().map(color -> color.displayName + " won").orElse("a draw")
+					+ " — " + Match.percentages(Match.finalCounts())), false);
+		}
+		return state == Match.State.LOBBY ? 0 : 1;
 	}
 
 	/** The team ids, for {@code /rivals spawn set}. */

@@ -222,6 +222,42 @@ dedicated Rivals server wants.
   grains hang in the middle of the camera. The shooter gets three small ones at the barrel tip
   instead, offset right and down out of the crosshair. The charger's trail starts its dust 1.5
   blocks along the shot for the same reason; the paint under the line still starts at the eyes.
+- **The round loop.** `Match` is one machine for the whole server, in memory:
+  **LOBBY → COUNTDOWN (5 s) → PLAYING (n minutes) → ENDED (10 s) → LOBBY**.
+
+  ```
+  /rivals match start 3         three minutes, after the readiness check
+  /rivals match start 3 force   start anyway, undressed players and all
+  /rivals match stop            the whistle, early
+  /rivals match status          the state and the time left
+  ```
+
+  `start` checks readiness (unless forced), makes the teams `/rivals setup` makes, puts every dressed
+  player on their ovve's team, clears the paint inside the arena, hands each player the weapon they
+  picked (the shooter if they never picked), teleports them to their team's spawn in survival, and
+  freezes them for the countdown: titles 5…1, a note under each, then **GO!**. Frozen is a −100 %
+  `MOVEMENT_SPEED` modifier plus a −100 % `JUMP_STRENGTH` one — transient attribute modifiers by id,
+  exactly as the roller's speed bonus is, so they are exact, they do not appear in the client's effect
+  list, and they come off by id. Playing adds a timer bossbar, `⏱ m:ss`, beside the score bars.
+
+  At zero (or on `stop`) everybody freezes again, the paint is counted, and the winner is titled in their
+  own colour — "DATA wins!", "IT wins!" or "Draw", with both percentages under it and in chat — while ten
+  team-coloured rockets go up over three seconds at the winner's spawn. Ten seconds later it is the lobby
+  again. Every transition clears `InkOnScreen` and stops any `Roll` for everybody: ink on the glass is
+  health lost in a round that is over, and a roll that survived a teleport is a player rolling on a spawn
+  platform.
+
+  **Dying** during PLAYING puts a player back on their own team's spawn (Fabric's `AFTER_RESPAWN`, which
+  hands over the new entity — overriding the respawn position itself would also have to answer for the
+  bed, the anchor and the end portal), frozen and invulnerable for three seconds with a "Respawning"
+  title and a clean screen, and re-armed. A player who **joins mid-match** gets the same treatment as a
+  respawn, so nobody loads into a firefight.
+
+  The clock and the roster are both handed in: `Match.tick` takes the tick count and `start` takes a
+  supplier of the players plus the ovve lookup, defaulting to the online list and `OvveTeams.worn`.
+  Nothing in `Match` reads `getTickCount()` on its own, which is what lets the game tests walk the whole
+  machine through inside a single tick — and they must, because the real `END_SERVER_TICK` hook drives the
+  same singleton.
 - **Readiness.** `/rivals ready` prints one line per online non-spectator player — name, the team their
   ovve puts them on (or "no ovve"), the weapon they picked (or "none yet") — and **fails**, naming them,
   if anybody is undressed. A player with no ovve has no team, and a player with no team cannot be given a
@@ -570,6 +606,9 @@ dedicated Rivals server wants.
 /rivals spawn set data   where a team starts
 /rivals arena set <from> <to>
 /rivals ready            who is here, dressed and armed
+/rivals match start 3    three minutes
+/rivals match stop
+/rivals match status
 ```
 
 ### Tuning
@@ -687,6 +726,6 @@ anything that ever is inherits those terms.
 
 ## Not yet
 
-A round loop; persisting display quads and the tally across a restart; damage on
+Persisting display quads and the tally across a restart; damage on
 enemy paint (beyond the enemy-ink drip); a real squid model; Iris-compatible gloss; respawn/death
 handling for the drip.
