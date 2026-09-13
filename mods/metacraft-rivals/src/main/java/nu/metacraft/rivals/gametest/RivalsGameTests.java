@@ -1418,6 +1418,11 @@ public final class RivalsGameTests {
 		helper.assertTrue(ink.contains("smoothstep") && ink.contains("mix(frame, tone, opacity)"),
 				"the arriving layer fades in over the frame instead");
 		helper.assertTrue(!ink.contains("GRID"), "with no grid snapping of its own: the texture is the grid");
+		// The overlays are drawn top row first, the way every paint program writes a PNG, and the post
+		// chain's texCoord has y = 0 at the BOTTOM of the frame — so an unflipped sample showed the
+		// drawings upside down and the drips ran up. An artist has to be able to paint them upright.
+		helper.assertTrue(ink.contains("vec2(uv.x, 1.0 - uv.y)"),
+				"the overlays are sampled flipped, so a PNG drawn the right way up is shown the right way up");
 		helper.assertTrue(ink.contains("ProbeSampler"), "the ink reads the data pixel");
 		for (PaintColor team : PaintColor.values()) {
 			// Both team inks are hard-coded in the shader, so they have to be the colours the teams wear.

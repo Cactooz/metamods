@@ -407,7 +407,10 @@ dedicated Rivals server wants.
   little ink around the edges, state 4 is nearly covered with the middle still clear, and ink always
   creeps in from the sides. They are ordinary resources: an artist paints over them and nothing else
   changes. The format is written out in `textures/effect/README.md`, and `tools/ink_overlays.py` (Pillow)
-  drew the placeholders that are checked in.
+  drew the placeholders that are checked in. The overlays are **drawn the right way up**: row 0 of the
+  PNG is the top of the screen, as every paint program writes it. The pass therefore samples them at
+  `vec2(uv.x, 1.0 - uv.y)`, because a post effect's own `texCoord` has y = 0 at the *bottom* of the
+  frame — v7 sampled it straight, and the ink was upside down with the drips running up.
 
   **The states crossfade.** The amount is continuous, not four steps: `s = amount × 4`, layer
   `n = floor(s)` is fully on the glass, and the texels the next state *adds* on top of it — the overlays

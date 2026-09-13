@@ -41,11 +41,16 @@ const float TONE_LIGHT = 0.85;
 
 /** The overlay for a state, sampled at the centre of the texel under {@code uv}. */
 vec4 overlay(int state, vec2 uv) {
+    // The overlays are drawn top row first, the way an image file and every paint program are: row 0 of
+    // the PNG is the top of the screen. This pass's texCoord is the post chain's, and there y = 0 is the
+    // BOTTOM of the frame — so sampling it straight showed every drawing upside down, drips running up.
+    // Flip the v: an artist paints the overlays the right way up and gets them the right way up.
+    vec2 flipped = vec2(uv.x, 1.0 - uv.y);
     // Snap to texel centres: NEAREST is asked for in the chain too (bilinear false), and this makes the
     // pass correct whatever the sampler is set to. The overlay is stretched across the whole screen, so
     // on a window that is not 16:9 the texels come out as rectangles rather than squares — which is the
     // right trade for ink that has to reach every edge.
-    vec2 at = (floor(uv * SHEET) + 0.5) / SHEET;
+    vec2 at = (floor(flipped * SHEET) + 0.5) / SHEET;
     if (state <= 1) return texture(Ink1Sampler, at);
     if (state == 2) return texture(Ink2Sampler, at);
     if (state == 3) return texture(Ink3Sampler, at);
