@@ -29,7 +29,7 @@ import java.util.Map;
 
 /**
  * Where a hit puts paint. The struck block is the surface; a full face takes a paint block in the cell
- * in front, whose face flag points back at the surface. Any other shape (stairs, slabs, fences, panes)
+ * in front, whose face flag points back at the surface. Any other shape (stairs, slabs, fences, walls)
  * takes {@link PaintDisplays} quads instead, wrapped around the block's own collision boxes. A splat
  * covers the 3×3 of surface blocks around the hit in the plane of the face, corners dropped at random.
  */
@@ -79,11 +79,13 @@ public final class Painter {
 	}
 
 	/**
-	 * Anything solid: not air, not replaceable (grass, snow), not a liquid, not paint. Waterlogged blocks
-	 * hold paint like any other — the test is the block, not the fluid state it carries.
+	 * Anything solid: not air, not replaceable (grass, snow), not a liquid, not paint, and not one of the
+	 * shapes ink falls straight through ({@link Unpaintable} — the grates, bars and panes). Waterlogged
+	 * blocks hold paint like any other — the test is the block, not the fluid state it carries.
 	 */
 	public static boolean paintable(BlockState surface) {
-		return !surface.isAir() && !surface.canBeReplaced() && !(surface.getBlock() instanceof LiquidBlock) && !isPaint(surface);
+		return !surface.isAir() && !surface.canBeReplaced() && !(surface.getBlock() instanceof LiquidBlock)
+				&& !isPaint(surface) && !Unpaintable.test(surface);
 	}
 
 	/**

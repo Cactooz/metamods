@@ -89,6 +89,7 @@ import nu.metacraft.rivals.paint.PaintBlocks;
 import nu.metacraft.rivals.paint.PaintDisplays;
 import nu.metacraft.rivals.paint.Painter;
 import nu.metacraft.rivals.paint.PaintTally;
+import nu.metacraft.rivals.paint.Unpaintable;
 import nu.metacraft.rivals.pack.InkArt;
 import nu.metacraft.rivals.pack.PaintArt;
 
@@ -391,6 +392,99 @@ public final class RivalsGameTests {
 		helper.assertTrue(helper.getBlockState(dataCell).isAir() && helper.getBlockState(itCell).isAir(), "cells are air after reset");
 		helper.assertValueEqual(tally.count(helper.getLevel()).get(PaintColor.DATA), 0, "nothing left to count");
 		helper.assertValueEqual(tally.cells(), 0, "and no cells left to count it from");
+		helper.succeed();
+	}
+
+	/** A vanilla block by its bare registry path, so a test can name one the Blocks fields only collect. */
+	private static Block vanilla(String path) {
+		Block block = BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace(path));
+		if (block == Blocks.AIR) throw new AssertionError("no block called minecraft:" + path);
+		return block;
+	}
+
+	/**
+	 * The shapes ink falls through take none of it: a copper grate, a set of iron bars and a glass pane
+	 * are all in {@code #metacraft-rivals:unpaintable}, and a splat on top of one leaves the cell above
+	 * empty — no paint block, and no display quad either, which is the branch a face that is not full
+	 * would otherwise have taken.
+	 */
+	@GameTest
+	public void unpaintableShapesTakeNoPaint(GameTestHelper helper) {
+		Map<BlockPos, Block> shapes = new LinkedHashMap<>();
+		shapes.put(new BlockPos(1, 1, 1), vanilla("copper_grate"));
+		shapes.put(new BlockPos(2, 1, 1), Blocks.IRON_BARS);
+		shapes.put(new BlockPos(3, 1, 1), Blocks.GLASS_PANE);
+		shapes.forEach((pos, block) -> helper.setBlock(pos, block));
+		shapes.forEach((pos, block) -> {
+			BlockState surface = helper.getBlockState(pos);
+			helper.assertTrue(surface.is(Unpaintable.TAG), block + " is in the unpaintable tag");
+			helper.assertTrue(!Painter.paintable(surface), block + " is not paintable");
+			boolean painted = Painter.paintFace(helper.getLevel(), helper.absolutePos(pos), Direction.UP, PaintColor.DATA);
+			helper.assertTrue(!painted, "nothing was painted on " + block);
+			helper.assertTrue(helper.getBlockState(pos.above()).isAir(), "the cell above " + block + " stays air");
+			helper.assertTrue(PaintDisplays.of(helper.getLevel()).faceAt(helper.absolutePos(pos.above())) == null,
+					"and takes no display quads either: " + block);
+		});
+		// A whole splat over the three of them paints nothing at all — the shot simply skips them.
+		helper.assertValueEqual(Painter.splat(helper.getLevel(), helper.absolutePos(new BlockPos(2, 1, 1)),
+				Direction.UP, PaintColor.DATA, helper.getLevel().getRandom(), 0), 0, "a splat on bars paints nothing");
+		// The families the tag pulls in through vanilla's own tags, and the loose ids beside them: every
+		// one of these has to be a block that exists in 26.3, or the tag entry is silently dropped.
+		for (String id : new String[] {"rail", "powered_rail", "oak_trapdoor", "iron_trapdoor", "copper_trapdoor",
+				"ladder", "scaffolding", "iron_chain", "waxed_oxidized_copper_chain", "waxed_oxidized_copper_grate",
+				"exposed_copper_grate", "pink_stained_glass_pane", "copper_bars"}) {
+			// vanilla() throws on an id no block answers to, so this is also the check that every entry in
+			// the shipped tag file is a real 26.3 block: chain became iron_chain, and the copper families
+			// are eight blocks each.
+			helper.assertTrue(vanilla(id).defaultBlockState().is(Unpaintable.TAG), id + " is unpaintable");
+		}
+		// And a plain floor block still is paintable, so the tag has not swallowed the arena.
+		helper.assertTrue(Painter.paintable(Blocks.STONE.defaultBlockState()), "stone still takes paint");
+		helper.succeed();
+	}
+
+	/**
+	 * The config list is the other half: an id in {@code config/metacraft-rivals/unpaintable.json} takes a
+	 * block out of the game without a data pack, and {@code Unpaintable.load} is what {@code /rivals reload}
+	 * runs. The list is one table for the whole server and the tests in a batch tick side by side, so this
+	 * puts it back itself — and it uses a block nothing else here paints on.
+	 */
+	@GameTest
+	public void configListAddsAnUnpaintableBlock(GameTestHelper helper) throws IOException {
+		BlockPos floor = new BlockPos(5, 1, 5);
+		helper.setBlock(floor, Blocks.GOLD_BLOCK);
+		Identifier gold = BuiltInRegistries.BLOCK.getKey(Blocks.GOLD_BLOCK);
+		helper.assertTrue(Painter.paintable(helper.getBlockState(floor)), "a gold block takes paint to start with");
+		Path config = Files.createTempFile("rivals-unpaintable", ".json");
+		try {
+			Files.writeString(config, "{\"_help\": \"test\", \"blocks\": [\"" + gold + "\", \"minecraft:nonesuch\","
+					+ " \"not a block id at all\"]}", StandardCharsets.UTF_8);
+			// An id no block answers to, and one that is not an id at all, are warned about and skipped
+			// rather than taking the read down with them.
+			helper.assertValueEqual(Unpaintable.load(config), 1, "one usable id out of three");
+			helper.assertTrue(Unpaintable.listed().contains(gold), "and it is the gold block");
+			helper.assertTrue(!Painter.paintable(helper.getBlockState(floor)), "which now takes no paint");
+			helper.assertTrue(!Painter.paintFace(helper.getLevel(), helper.absolutePos(floor), Direction.UP,
+					PaintColor.DATA), "so the splat skips it");
+			helper.assertTrue(helper.getBlockState(floor.above()).isAir(), "the cell above stays air");
+		} finally {
+			Unpaintable.clearListed();
+			Files.deleteIfExists(config);
+		}
+		helper.assertTrue(Painter.paintable(helper.getBlockState(floor)), "and the list is back to the tag alone");
+		// A missing file is written with its own _help, since json has no comments and this is a file an
+		// arena builder is meant to edit.
+		Path fresh = Files.createTempDirectory("rivals-unpaintable-fresh").resolve("unpaintable.json");
+		try {
+			helper.assertValueEqual(Unpaintable.load(fresh), 0, "a fresh file lists nothing");
+			helper.assertTrue(Files.isRegularFile(fresh), "but it was written");
+			String written = Files.readString(fresh, StandardCharsets.UTF_8);
+			helper.assertTrue(written.contains("_help"), "with its help note: " + written);
+			helper.assertTrue(written.contains("\"blocks\""), "and an empty list to fill in");
+		} finally {
+			Unpaintable.clearListed();
+			Files.deleteIfExists(fresh);
+		}
 		helper.succeed();
 	}
 
@@ -2250,31 +2344,35 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * The same climb up a wall that is not a full cube. A pane's paint is display quads in the player's
+	 * The same climb up a wall that is not a full cube. A fence post's paint is display quads in the player's
 	 * own cell rather than a paint block face, so this is the other half of {@code paintedWallBeside}:
-	 * the quads must carry the face pointing back from the pane at the player.
+	 * the quads must carry the face pointing back from the fence at the player.
+	 *
+	 * <p>It used to be a glass pane, which is the thinner shape and was the obvious one; panes are in
+	 * {@code #metacraft-rivals:unpaintable} now, so the wall is a fence post instead — still a face that is
+	 * not full, which is all this test needs it to be.
 	 */
 	@GameTest
-	public void squidWallSwimUpAPane(GameTestHelper helper) {
+	public void squidWallSwimUpAFence(GameTestHelper helper) {
 		stoneFloor(helper, 5);
-		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.GLASS_PANE);
+		for (int y = 2; y <= 4; y++) helper.setBlock(new BlockPos(4, y, 2), Blocks.OAK_FENCE);
 		ServerPlayer player = wallSquid(helper, PaintColor.DATA);
-		Vec3 at = helper.absoluteVec(new Vec3(3.7, 2.0, 2.5)); // hugging the pane's cell
+		Vec3 at = helper.absoluteVec(new Vec3(3.7, 2.0, 2.5)); // hugging the fence's cell
 		player.setPos(at.x, at.y, at.z);
 		BlockPos feet = helper.absolutePos(new BlockPos(3, 2, 2));
 		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(3, 1, 2)), Direction.UP, PaintColor.DATA); // floor under
 		helper.assertTrue(Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 2, 2)), Direction.WEST, PaintColor.DATA),
-				"the pane took paint");
+				"the fence took paint");
 		PaintDisplays displays = PaintDisplays.of(helper.getLevel());
 		helper.assertTrue(displays.colorAt(feet) == PaintColor.DATA && displays.faceAt(feet) == Direction.WEST,
-				"a pane's paint is quads in the player's own cell, facing back at the pane");
-		// A wall cell's paint attaches the other way: the quads carry the EAST state, pointing at the pane.
+				"a fence's paint is quads in the player's own cell, facing back at the fence");
+		// A wall cell's paint attaches the other way: the quads carry the EAST state, pointing at the fence.
 		for (BlockState quad : displays.statesAt(feet)) {
 			helper.assertValueEqual(quad, PaintStates.connected(PaintColor.DATA, Direction.EAST, 0),
 					"the DATA wall state, with nothing painted in the plane beside it to border against");
 		}
 		player.setShiftKeyDown(true);
-		player.setYRot(-90f); // forward is +X, into the pane
+		player.setYRot(-90f); // forward is +X, into the fence
 		player.setLastClientInput(PUSHING);
 		player.setDeltaMovement(0.1, 0, 0);
 		// The tick squid form is entered is the dive: the surge is that tick's one velocity packet, and a
@@ -2283,14 +2381,14 @@ public final class RivalsGameTests {
 		helper.assertTrue(SquidState.isSquid(player), "squid");
 		player.setDeltaMovement(0.1, 0, 0);
 		PlayerTick.tick(player, 1);
-		helper.assertTrue(player.getDeltaMovement().y > 0.2, "lifted up the inked pane, dy=" + player.getDeltaMovement().y);
-		// The quads are the only thing holding the climb up: take the pane away and the cell's quads die
+		helper.assertTrue(player.getDeltaMovement().y > 0.2, "lifted up the inked fence, dy=" + player.getDeltaMovement().y);
+		// The quads are the only thing holding the climb up: take the fence away and the cell's quads die
 		// with it, so the same push must go nowhere.
 		helper.setBlock(new BlockPos(4, 2, 2), Blocks.AIR);
 		displays.count(helper.getLevel()); // the sweep that drops cells whose surface is gone
 		player.setDeltaMovement(0.1, 0, 0);
 		PlayerTick.tick(player, 2);
-		helper.assertTrue(player.getDeltaMovement().y < 0.2, "not lifted once the pane is gone, dy=" + player.getDeltaMovement().y);
+		helper.assertTrue(player.getDeltaMovement().y < 0.2, "not lifted once the fence is gone, dy=" + player.getDeltaMovement().y);
 		helper.succeed();
 	}
 

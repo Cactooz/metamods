@@ -10,6 +10,7 @@ import nu.metacraft.rivals.gun.Recoil;
 import nu.metacraft.rivals.gun.Roll;
 import nu.metacraft.rivals.gun.WeaponTuning;
 import nu.metacraft.rivals.paint.PaintBlocks;
+import nu.metacraft.rivals.paint.Unpaintable;
 import nu.metacraft.rivals.pack.RivalsPack;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,6 +33,7 @@ public class Rivals implements ModInitializer {
 	@Override
 	public void onInitialize() {
 		PaintBlocks.register();
+		Unpaintable.init();
 		PaintBall.register();
 		PaintWeapon.register();
 		PaintWeapon.init();

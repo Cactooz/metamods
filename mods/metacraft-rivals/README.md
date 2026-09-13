@@ -222,9 +222,30 @@ dedicated Rivals server wants.
   grains hang in the middle of the camera. The shooter gets three small ones at the barrel tip
   instead, offset right and down out of the crosshair. The charger's trail starts its dust 1.5
   blocks along the shot for the same reason; the paint under the line still starts at the eyes.
+- **Unpaintable blocks.** Ink falls through a grate rather than covering it, so some blocks never take
+  paint at all — no paint block, no display quad, the shot and the splash simply skip them, and so do a
+  roll and the charger's line, because all of it goes through one `Painter.paintable`. Two sources, and a
+  block in either is out:
+
+  - the block tag **`#metacraft-rivals:unpaintable`**, shipped at
+    `data/metacraft-rivals/tags/block/unpaintable.json` and overridable by a data pack like any other
+    tag. The defaults are `#minecraft:bars` (iron bars and the eight copper bars), `#minecraft:rails`,
+    `#minecraft:trapdoors` (wooden, iron and copper — *doors* stay paintable), all eight copper grates,
+    every glass pane including the sixteen stained ones, all nine chains, `ladder` and `scaffolding`.
+    Note 26.3's names: plain `minecraft:chain` is gone — it is `iron_chain` plus the copper chain
+    family — and there is no `#minecraft:copper_grates` or `#minecraft:glass_panes` tag to lean on, so
+    those two families are listed block by block.
+  - the list in **`config/metacraft-rivals/unpaintable.json`**, `{"_help": "…", "blocks":
+    ["minecraft:copper_grate", …]}`, read on server start and again on `/rivals reload`. The file is
+    written with its own `_help` (json has no comments) and an empty list the first time the server
+    starts. An id no block answers to is a warning in the log and is ignored, so a typo does not take a
+    start down.
+
+  A tag for what the mod ships and a map maker overrides; a config file for what an arena builder
+  changes between rounds without writing a data pack.
 - **Paint on other shapes.** Paint blocks only ever sit on a full face — the same attach rule
   vanilla's own multiface blocks use, and exactly the rule paint wants. A face that isn't full
-  (stairs, slabs, fences, panes, walls, glass panes) instead gets a set of flat quads that wrap the
+  (stairs, slabs, fences, walls) instead gets a set of flat quads that wrap the
   block's own outline shape (not its collision box, so paint on a fence sits on top of the post, not
   floating at collision height). Each quad is a Polymer **block display carrying the paint state
   itself** — `PaintStates.connected(colour, attach, bits)`, the very client state a painted cell
@@ -496,6 +517,7 @@ dedicated Rivals server wants.
 /rivals kit              one of every weapon
 /rivals score
 /rivals reset
+/rivals reload           re-read config/metacraft-rivals/unpaintable.json
 ```
 
 ### Tuning

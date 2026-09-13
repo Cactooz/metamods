@@ -24,6 +24,7 @@ import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponTuning;
 import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.paint.PaintTally;
+import nu.metacraft.rivals.paint.Unpaintable;
 
 import java.util.List;
 import java.util.Map;
@@ -35,8 +36,8 @@ import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
 /**
- * {@code /rivals setup | gun [weapon] | kit | score | reset | tune}, for game masters (permission
- * {@code metacraft.rivals}).
+ * {@code /rivals setup | gun [weapon] | kit | score | reset | reload | tune}, for game masters
+ * (permission {@code metacraft.rivals}).
  */
 public final class RivalsCommands {
 	private RivalsCommands() {}
@@ -81,7 +82,8 @@ public final class RivalsCommands {
 																DoubleArgumentType.getDouble(ctx, "value")))))))
 						.then(literal("kit").executes(ctx -> kit(ctx.getSource())))
 						.then(literal("score").executes(ctx -> score(ctx.getSource())))
-						.then(literal("reset").executes(ctx -> reset(ctx.getSource())))));
+						.then(literal("reset").executes(ctx -> reset(ctx.getSource())))
+						.then(literal("reload").executes(ctx -> reload(ctx.getSource())))));
 	}
 
 	/** Create or update one vanilla team per colour. Returns the number of teams touched. */
@@ -144,6 +146,18 @@ public final class RivalsCommands {
 			source.sendSuccess(() -> Component.literal("Removed " + removed + " paint blocks").withStyle(ChatFormatting.YELLOW), true);
 		}
 		return removed;
+	}
+
+	/**
+	 * Re-read the config files an arena builder edits between rounds. Only the unpaintable list for now:
+	 * the weapon tuning is edited from inside the game and written after every change, so re-reading it
+	 * would throw away what {@code /rivals tune} just set.
+	 */
+	public static int reload(CommandSourceStack source) {
+		int listed = Unpaintable.reload();
+		source.sendSuccess(() -> Component.literal("Unpaintable: the #" + Rivals.MOD_ID + ":unpaintable tag plus "
+				+ listed + " block" + (listed == 1 ? "" : "s") + " from " + Unpaintable.configPath()), true);
+		return listed;
 	}
 
 	/** Weapon ids, plus the {@code reset} that takes the whole lot back to the defaults. */

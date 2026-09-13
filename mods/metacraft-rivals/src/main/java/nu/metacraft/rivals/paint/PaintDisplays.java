@@ -208,6 +208,10 @@ public final class PaintDisplays {
 		if (existing != null && existing.color == color) return false;
 		if (!free(level.getBlockState(cell))) return false;
 		BlockState state = level.getBlockState(surface);
+		// A grate, a pane, a set of bars: the shapes ink falls through rather than covers. Painter.paintable
+		// already refuses them on the way in, and this is the other door into the same room — a caller with a
+		// surface in hand, and the branch a face that is not full takes, which is exactly what a grate is.
+		if (Unpaintable.test(state)) return false;
 		// The outline shape, not the collision shape: a fence's collision box is 1.5 blocks tall, and paint
 		// on top of it would float half a block over the post.
 		VoxelShape shape = state.getShape(level, surface);
