@@ -21,6 +21,7 @@ import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Weapon;
+import nu.metacraft.rivals.gun.WeaponMenu;
 import nu.metacraft.rivals.gun.WeaponTuning;
 import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.paint.PaintTally;
@@ -29,6 +30,7 @@ import nu.metacraft.rivals.paint.Unpaintable;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.function.Predicate;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -36,17 +38,24 @@ import static net.minecraft.commands.Commands.argument;
 import static net.minecraft.commands.Commands.literal;
 
 /**
- * {@code /rivals setup | gun [weapon] | kit | score | reset | reload | tune}, for game masters
- * (permission {@code metacraft.rivals}).
+ * {@code /rivals setup | gun [weapon] | kit | score | reset | reload | tune} for game masters
+ * (permission {@code metacraft.rivals}), and {@code /rivals weapons} for everybody.
+ *
+ * <p>The permission is per subcommand rather than on the {@code rivals} root, because one of them is
+ * not an admin act: picking your own weapon out of {@link WeaponMenu} is something every player in the
+ * lobby does, and a root-level {@code requires} would have hidden the whole tree from them.
  */
 public final class RivalsCommands {
 	private RivalsCommands() {}
 
+	/** Who may run the admin half of the tree. */
+	private static final Predicate<CommandSourceStack> ADMIN =
+			source -> Permissions.check(source, "metacraft.rivals", PermissionLevel.GAMEMASTERS);
+
 	public static void register() {
 		CommandRegistrationCallback.EVENT.register((dispatcher, registryAccess, environment) -> dispatcher.register(
 				literal("rivals")
-						.requires(source -> Permissions.check(source, "metacraft.rivals", PermissionLevel.GAMEMASTERS))
-						.then(literal("setup").executes(ctx -> {
+						.then(literal("setup").requires(ADMIN).executes(ctx -> {
 							int touched = setupTeams(ctx.getSource().getServer());
 							ctx.getSource().sendSuccess(() -> Component.literal("Teams ready: " + PaintColor.idList()
 									+ ". Join with /team join <colour> @s"), true);
@@ -54,7 +63,7 @@ public final class RivalsCommands {
 						}))
 						// A plain word rather than a registry or enum argument: the ids are the weapon's own, and an
 						// unknown one should say what is on offer instead of failing to parse.
-						.then(literal("gun")
+						.then(literal("gun").requires(ADMIN)
 								.executes(ctx -> gun(ctx.getSource(), Weapon.SHOOTER))
 								.then(argument("weapon", StringArgumentType.word()).executes(ctx -> {
 									String id = StringArgumentType.getString(ctx, "weapon");
@@ -69,7 +78,7 @@ public final class RivalsCommands {
 						// Everything a shot is made of, live. Weapons and parameters are plain words rather than
 						// enum arguments for the same reason /rivals gun is: an unknown one should answer with
 						// what is on offer instead of failing to parse, and "reset" sits in the same slot.
-						.then(literal("tune")
+						.then(literal("tune").requires(ADMIN)
 								.executes(ctx -> tuneAll(ctx.getSource()))
 								.then(argument("weapon", StringArgumentType.word()).suggests(WEAPONS)
 										.executes(ctx -> tuneWeapon(ctx.getSource(), StringArgumentType.getString(ctx, "weapon")))
@@ -80,10 +89,12 @@ public final class RivalsCommands {
 														.executes(ctx -> tuneSet(ctx.getSource(), StringArgumentType.getString(ctx, "weapon"),
 																StringArgumentType.getString(ctx, "param"),
 																DoubleArgumentType.getDouble(ctx, "value")))))))
-						.then(literal("kit").executes(ctx -> kit(ctx.getSource())))
-						.then(literal("score").executes(ctx -> score(ctx.getSource())))
-						.then(literal("reset").executes(ctx -> reset(ctx.getSource())))
-						.then(literal("reload").executes(ctx -> reload(ctx.getSource())))));
+						.then(literal("kit").requires(ADMIN).executes(ctx -> kit(ctx.getSource())))
+						.then(literal("score").requires(ADMIN).executes(ctx -> score(ctx.getSource())))
+						.then(literal("reset").requires(ADMIN).executes(ctx -> reset(ctx.getSource())))
+						.then(literal("reload").requires(ADMIN).executes(ctx -> reload(ctx.getSource())))
+						// No permission: every player picks their own weapon.
+						.then(literal("weapons").executes(ctx -> weapons(ctx.getSource())))));
 	}
 
 	/** Create or update one vanilla team per colour. Returns the number of teams touched. */
@@ -146,6 +157,12 @@ public final class RivalsCommands {
 			source.sendSuccess(() -> Component.literal("Removed " + removed + " paint blocks").withStyle(ChatFormatting.YELLOW), true);
 		}
 		return removed;
+	}
+
+	/** Open the weapon picker on the sender's own screen. */
+	private static int weapons(CommandSourceStack source) throws CommandSyntaxException {
+		WeaponMenu.open(source.getPlayerOrException());
+		return 1;
 	}
 
 	/**

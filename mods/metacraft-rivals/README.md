@@ -222,6 +222,24 @@ dedicated Rivals server wants.
   grains hang in the middle of the camera. The shooter gets three small ones at the barrel tip
   instead, offset right and down out of the crosshair. The charger's trail starts its dust 1.5
   blocks along the shot for the same reason; the paint under the line still starts at the eyes.
+- **Picking a weapon.** `/rivals weapons` (any player, no permission — the rest of the `/rivals` tree is
+  game-master only, so the permission sits on each subcommand rather than on the root) opens a one-row
+  chest menu with a slot per weapon. Each icon is the *real* weapon stack dyed in the viewer's team
+  colour, so the row is four paint guns drawn by their own models rather than four stand-in vanilla
+  items, with the weapon's name and one line saying what it is for, how far it reaches and what it
+  costs — read off the live tuning, so a retuned server describes the weapon its players are holding.
+  Clicking takes every paint weapon out of the inventory and puts the chosen one in the first slot;
+  anything that is not a paint weapon is left alone.
+
+  The pick is remembered in `WeaponChoice`, saved data on the server (not the level — a player carries
+  their weapon between dimensions), keyed by UUID and stored as the weapon's *id* rather than its
+  ordinal, so reordering the enum cannot hand anyone somebody else's gun. That is what a match start
+  hands out, and it survives a relog and a restart; a player who never picked gets the shooter.
+
+  The menu also opens by right-clicking the **weapon selector**, a Polymer item the client is shown as
+  a compass (with the lodestone tracker stripped, so the needle does not spin) named "Weapon selector".
+  The lobby hands out exactly one. It is [sgui](https://github.com/Patbox/sgui) 2.2.0+26.3, the same
+  version ovvar's wardrobe uses. `/rivals gun` and `/rivals kit` stay, for admins.
 - **Unpaintable blocks.** Ink falls through a grate rather than covering it, so some blocks never take
   paint at all — no paint block, no display quad, the shot and the splash simply skip them, and so do a
   roll and the charger's line, because all of it goes through one `Painter.paintable`. Two sources, and a
@@ -518,6 +536,7 @@ dedicated Rivals server wants.
 /rivals score
 /rivals reset
 /rivals reload           re-read config/metacraft-rivals/unpaintable.json
+/rivals weapons          the weapon picker (any player)
 ```
 
 ### Tuning
@@ -637,4 +656,4 @@ anything that ever is inherits those terms.
 
 Arena bounds and a round loop; persisting display quads and the tally across a restart; damage on
 enemy paint (beyond the enemy-ink drip); a real squid model; Iris-compatible gloss; respawn/death
-handling for the drip; weapon-switching UI.
+handling for the drip.

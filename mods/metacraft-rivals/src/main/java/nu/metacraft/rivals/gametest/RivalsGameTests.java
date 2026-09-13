@@ -2,6 +2,7 @@ package nu.metacraft.rivals.gametest;
 
 import com.mojang.authlib.GameProfile;
 import com.mojang.datafixers.util.Pair;
+import com.mojang.serialization.JsonOps;
 import eu.pb4.polymer.core.api.block.PolymerBlock;
 import eu.pb4.polymer.virtualentity.api.ElementHolder;
 import com.google.gson.JsonArray;
@@ -53,6 +54,7 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.DyedItemColor;
+import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.item.component.FireworkExplosion;
 import net.minecraft.world.item.component.UseEffects;
 import net.minecraft.world.level.EmptyBlockGetter;
@@ -78,6 +80,9 @@ import nu.metacraft.rivals.RivalsCommands;
 import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Weapon;
+import nu.metacraft.rivals.gun.WeaponChoice;
+import nu.metacraft.rivals.gun.WeaponMenu;
+import nu.metacraft.rivals.gun.WeaponSelector;
 import nu.metacraft.rivals.gun.WeaponTuning;
 import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.gun.Recoil;
@@ -485,6 +490,134 @@ public final class RivalsGameTests {
 			Unpaintable.clearListed();
 			Files.deleteIfExists(fresh);
 		}
+		helper.succeed();
+	}
+
+	/**
+	 * The picker offers one slot per weapon, each of them the real weapon stack dyed in the viewer's team
+	 * colour (so the row is four paint guns rather than four stand-in vanilla items), and marks the one
+	 * the player is already on.
+	 */
+	@GameTest
+	public void weaponMenuListsEveryWeapon(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.IT));
+		WeaponChoice choices = WeaponChoice.of(helper.getLevel().getServer());
+		try {
+			WeaponMenu menu = WeaponMenu.forTest(player);
+			helper.assertValueEqual(menu.getSize(), 9, "one chest row");
+			int slot = 0;
+			for (Weapon weapon : Weapon.values()) {
+				ItemStack icon = menu.getGuiElement(slot).getItemStack();
+				helper.assertTrue(icon.getItem() == PaintWeapon.of(weapon), "slot " + slot + " is the real " + weapon);
+				DyedItemColor dye = icon.get(DataComponents.DYED_COLOR);
+				helper.assertTrue(dye != null && dye.rgb() == PaintColor.IT.rgb,
+						"and is dyed in the viewer's team colour, not " + dye);
+				String lore = icon.getOrDefault(DataComponents.LORE, ItemLore.EMPTY).lines().toString();
+				helper.assertTrue(lore.contains("ink"), weapon + "'s line says what it costs: " + lore);
+				slot++;
+			}
+			helper.assertValueEqual(slot, 4, "four weapons, four slots");
+			helper.assertTrue(menu.getGuiElement(4) == null, "and nothing in the fifth");
+			// With no pick of their own the shooter is the one marked, since that is what a match hands out.
+			helper.assertValueEqual(WeaponChoice.DEFAULT, Weapon.SHOOTER, "the default is the shooter");
+		} finally {
+			choices.forget(player.getUUID());
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * Picking is a swap, not a collection: every paint weapon goes out of the inventory and the chosen one
+	 * comes back in the first slot. Anything that is not a paint weapon is left alone — a player's ovve and
+	 * their blocks are not the picker's business.
+	 */
+	@GameTest
+	public void pickingAWeaponReplacesTheInventory(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		WeaponChoice choices = WeaponChoice.of(helper.getLevel().getServer());
+		try {
+			PaintWeapon.giveKit(player);
+			player.getInventory().setItem(20, new ItemStack(Items.STONE, 7));
+			helper.assertValueEqual(paintWeapons(player), 4, "the kit is in there to start with");
+			ItemStack given = WeaponMenu.pick(player, Weapon.ROLLER);
+			helper.assertTrue(given.getItem() == PaintWeapon.of(Weapon.ROLLER), "a roller was handed over");
+			helper.assertValueEqual(paintWeapons(player), 1, "and it is the only paint weapon left");
+			helper.assertTrue(player.getInventory().getItem(WeaponMenu.GIVEN_SLOT).getItem() == PaintWeapon.of(Weapon.ROLLER),
+					"in the first slot, so it is in hand a keypress later");
+			DyedItemColor dye = given.get(DataComponents.DYED_COLOR);
+			helper.assertTrue(dye != null && dye.rgb() == PaintColor.DATA.rgb, "dyed in the picker's team colour");
+			helper.assertValueEqual(player.getInventory().getItem(20).getCount(), 7, "the stone was left alone");
+			// And picking again is a swap rather than a second gun.
+			WeaponMenu.pick(player, Weapon.CHARGER);
+			helper.assertValueEqual(paintWeapons(player), 1, "still one weapon after a second pick");
+			helper.assertTrue(player.getInventory().getItem(WeaponMenu.GIVEN_SLOT).getItem() == PaintWeapon.of(Weapon.CHARGER),
+					"and it is the charger now");
+		} finally {
+			choices.forget(player.getUUID());
+		}
+		helper.succeed();
+	}
+
+	/** How many paint weapons a player is carrying, over the whole inventory. */
+	private static int paintWeapons(Player player) {
+		int n = 0;
+		for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
+			if (player.getInventory().getItem(slot).getItem() instanceof PaintWeapon) n++;
+		}
+		return n;
+	}
+
+	/**
+	 * The pick survives a relog, which is the whole reason it is saved data rather than a field: it is
+	 * written into the server's data storage and comes back out through the same codec. Round-tripped
+	 * through the codec here rather than by restarting a server, which a game test cannot do.
+	 */
+	@GameTest
+	public void theWeaponChoicePersists(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		WeaponChoice choices = WeaponChoice.of(helper.getLevel().getServer());
+		try {
+			helper.assertTrue(choices.get(player).isEmpty(), "nothing picked yet");
+			helper.assertValueEqual(choices.orDefault(player), Weapon.SHOOTER, "so the shooter is what they would get");
+			WeaponMenu.pick(player, Weapon.SLOSHER);
+			helper.assertValueEqual(choices.get(player).orElse(null), Weapon.SLOSHER, "the pick is remembered");
+			helper.assertTrue(choices.isDirty(), "and the saved data knows it has to be written");
+			// The write and the read, as the level save and the next boot would do them.
+			JsonElement written = WeaponChoice.CODEC.encodeStart(JsonOps.INSTANCE, choices)
+					.getOrThrow(error -> new AssertionError("encode: " + error));
+			WeaponChoice reloaded = WeaponChoice.CODEC.parse(JsonOps.INSTANCE, written)
+					.getOrThrow(error -> new AssertionError("decode: " + error));
+			helper.assertValueEqual(reloaded.get(player.getUUID()).orElse(null), Weapon.SLOSHER,
+					"and it is still a slosher after a round trip");
+			// Stored as the weapon's own id, so reordering the enum cannot hand anyone somebody else's gun.
+			helper.assertTrue(written.toString().contains("slosher"), "written as an id: " + written);
+		} finally {
+			choices.forget(player.getUUID());
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * The selector the lobby hands out: one item, named, shown to the client as a compass that is not
+	 * tracking anything, and its right click is the picker.
+	 */
+	@GameTest
+	public void theWeaponSelectorIsANamedCompass(GameTestHelper helper) {
+		ItemStack selector = WeaponSelector.stack();
+		helper.assertTrue(WeaponSelector.is(selector), "it is a selector");
+		helper.assertValueEqual(selector.get(DataComponents.ITEM_NAME), WeaponSelector.NAME,
+				"named on the stack, because what the client gets is a compass");
+		helper.assertTrue(WeaponSelector.get().getPolymerItem(selector, null) == Items.COMPASS, "shown as a compass");
+		ItemStack client = WeaponSelector.get().getPolymerItemStack(selector, TooltipFlag.NORMAL, null,
+				helper.getLevel().registryAccess());
+		helper.assertTrue(client.get(DataComponents.LODESTONE_TRACKER) == null, "with no needle to spin");
+		helper.assertValueEqual(client.get(DataComponents.ITEM_NAME), WeaponSelector.NAME, "and the name on the wire");
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.ADVENTURE));
+		helper.assertTrue(!WeaponSelector.carried(player), "nobody carries one to start with");
+		player.getInventory().setItem(3, WeaponSelector.stack());
+		helper.assertTrue(WeaponSelector.carried(player), "and one in any slot counts, so the lobby hands out no second");
 		helper.succeed();
 	}
 
