@@ -37,7 +37,7 @@ import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Roll;
 import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponChoice;
-import nu.metacraft.rivals.gun.WeaponMenu;
+import nu.metacraft.rivals.gun.WeaponPicks;
 import nu.metacraft.rivals.paint.PaintTally;
 import org.jspecify.annotations.Nullable;
 
@@ -266,11 +266,11 @@ public final class Match {
 
 	/** The weapon this player picked, and nothing else in the way of it. */
 	public static ItemStack arm(ServerPlayer player) {
-		WeaponMenu.sweep(player);
+		WeaponPicks.sweep(player);
 		MinecraftServer server = player.level().getServer();
 		Weapon weapon = server == null ? WeaponChoice.DEFAULT : WeaponChoice.of(server).orDefault(player);
 		ItemStack gun = PaintWeapon.withTankColor(new ItemStack(PaintWeapon.of(weapon)), player.getTeam());
-		player.getInventory().setItem(WeaponMenu.GIVEN_SLOT, gun);
+		player.getInventory().setItem(WeaponPicks.GIVEN_SLOT, gun);
 		return gun;
 	}
 

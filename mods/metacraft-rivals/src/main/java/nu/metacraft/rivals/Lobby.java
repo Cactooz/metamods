@@ -17,7 +17,7 @@ import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.storage.LevelData;
 import nu.metacraft.rivals.gun.InkOnScreen;
 import nu.metacraft.rivals.gun.Roll;
-import nu.metacraft.rivals.gun.WeaponMenu;
+import nu.metacraft.rivals.gun.WeaponPicks;
 import nu.metacraft.rivals.gun.WeaponSelector;
 
 import java.util.List;
@@ -72,7 +72,7 @@ public final class Lobby {
 	 * screen and no roll. Returns how many paint weapons were taken off them, which is what the tests read.
 	 */
 	public static int receive(ServerPlayer player) {
-		int taken = WeaponMenu.sweep(player);
+		int taken = WeaponPicks.sweep(player);
 		give(player);
 		if (!isAdmin(player)) player.setGameMode(GameType.ADVENTURE);
 		InkOnScreen.clear(player);

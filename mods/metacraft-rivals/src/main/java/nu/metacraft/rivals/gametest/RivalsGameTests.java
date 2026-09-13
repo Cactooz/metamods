@@ -26,10 +26,15 @@ import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.network.Connection;
 import net.minecraft.network.protocol.Packet;
 import net.minecraft.network.protocol.PacketFlow;
+import net.minecraft.network.chat.ClickEvent;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.TextColor;
 import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
+import net.minecraft.server.dialog.ActionButton;
+import net.minecraft.server.dialog.MultiActionDialog;
+import net.minecraft.server.dialog.action.StaticAction;
+import net.minecraft.server.dialog.body.ItemBody;
 import net.minecraft.server.level.ClientInformation;
 import net.minecraft.server.ServerScoreboard;
 import net.minecraft.server.level.ServerLevel;
@@ -54,7 +59,6 @@ import net.minecraft.world.item.Items;
 import net.minecraft.world.item.TooltipFlag;
 import net.minecraft.world.item.component.CustomData;
 import net.minecraft.world.item.component.DyedItemColor;
-import net.minecraft.world.item.component.ItemLore;
 import net.minecraft.world.item.component.FireworkExplosion;
 import net.minecraft.world.item.component.UseEffects;
 import net.minecraft.world.level.EmptyBlockGetter;
@@ -86,7 +90,8 @@ import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponChoice;
-import nu.metacraft.rivals.gun.WeaponMenu;
+import nu.metacraft.rivals.gun.WeaponDialog;
+import nu.metacraft.rivals.gun.WeaponPicks;
 import nu.metacraft.rivals.gun.WeaponSelector;
 import nu.metacraft.rivals.gun.WeaponTuning;
 import nu.metacraft.rivals.gun.WeaponTuning.Param;
@@ -500,37 +505,111 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * The picker offers one slot per weapon, each of them the real weapon stack dyed in the viewer's team
-	 * colour (so the row is four paint guns rather than four stand-in vanilla items), and marks the one
-	 * the player is already on.
+	 * The picker is a 26.3 dialog: one picture per weapon — the real weapon stack dyed in the viewer's
+	 * team colour, with what it is for written under it rather than hidden in a tooltip — one button per
+	 * weapon that runs the pick as the player, and a way out that keeps what they already have.
 	 */
 	@GameTest
-	public void weaponMenuListsEveryWeapon(GameTestHelper helper) {
+	public void theWeaponDialogListsEveryWeapon(GameTestHelper helper) {
 		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.IT));
 		WeaponChoice choices = WeaponChoice.of(helper.getLevel().getServer());
 		try {
-			WeaponMenu menu = WeaponMenu.forTest(player);
-			helper.assertValueEqual(menu.getSize(), 9, "one chest row");
-			int slot = 0;
+			MultiActionDialog dialog = WeaponDialog.build(player);
+			helper.assertValueEqual(dialog.common().body().size(), 4, "one picture per weapon");
+			helper.assertValueEqual(dialog.actions().size(), 4, "and one button per weapon");
+			helper.assertValueEqual(dialog.columns(), 2, "two buttons to a row");
+			int index = 0;
 			for (Weapon weapon : Weapon.values()) {
-				ItemStack icon = menu.getGuiElement(slot).getItemStack();
-				helper.assertTrue(icon.getItem() == PaintWeapon.of(weapon), "slot " + slot + " is the real " + weapon);
+				ItemBody picture = (ItemBody) dialog.common().body().get(index);
+				ItemStack icon = picture.item().create();
+				helper.assertTrue(icon.getItem() == PaintWeapon.of(weapon),
+						"picture " + index + " is the real " + weapon + ", not a stand-in");
 				DyedItemColor dye = icon.get(DataComponents.DYED_COLOR);
 				helper.assertTrue(dye != null && dye.rgb() == PaintColor.IT.rgb,
 						"and is dyed in the viewer's team colour, not " + dye);
-				String lore = icon.getOrDefault(DataComponents.LORE, ItemLore.EMPTY).lines().toString();
-				helper.assertTrue(lore.contains("ink"), weapon + "'s line says what it costs: " + lore);
-				slot++;
+				String said = picture.description().orElseThrow().contents().getString();
+				helper.assertTrue(said.contains("ink"), weapon + "'s line says what it costs: " + said);
+				String command = buttonCommand(dialog.actions().get(index));
+				helper.assertValueEqual(command, "rivals weapons pick " + weapon.commandId(),
+						"button " + index + " takes the " + weapon);
+				helper.assertFalse(command.startsWith("/"), "with no leading slash: the client parses it itself");
+				index++;
 			}
-			helper.assertValueEqual(slot, 4, "four weapons, four slots");
-			helper.assertTrue(menu.getGuiElement(4) == null, "and nothing in the fifth");
 			// With no pick of their own the shooter is the one marked, since that is what a match hands out.
 			helper.assertValueEqual(WeaponChoice.DEFAULT, Weapon.SHOOTER, "the default is the shooter");
+			helper.assertTrue(((ItemBody) dialog.common().body().getFirst()).description().orElseThrow()
+					.contents().getString().contains("(current)"), "and it is the one marked current");
+			ActionButton exit = dialog.exitAction().orElseThrow();
+			helper.assertTrue(exit.action().isEmpty(), "the way out runs no command");
+			helper.assertTrue(exit.button().label().getString().contains(Weapon.SHOOTER.displayName),
+					"and says what it keeps: " + exit.button().label().getString());
+			helper.assertTrue(dialog.common().canCloseWithEscape(), "a weapon pick may be escaped out of");
 		} finally {
 			choices.forget(player.getUUID());
 		}
 		helper.succeed();
+	}
+
+	/** The command behind a dialog button, which is all a button is. */
+	private static String buttonCommand(ActionButton button) {
+		StaticAction action = (StaticAction) button.action().orElseThrow();
+		return ((ClickEvent.RunCommand) action.value()).command();
+	}
+
+	/**
+	 * And the button's command is a real command: {@code /rivals weapons pick <id>}, runnable by a player
+	 * with no permission at all, because that is what a dialog button is — the client sending the string
+	 * the server put on it. An id nothing answers to is a failure that lists the ones that work.
+	 */
+	@GameTest
+	public void theWeaponPickCommandTakesTheWeapon(GameTestHelper helper) {
+		MinecraftServer server = helper.getLevel().getServer();
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		WeaponChoice choices = WeaponChoice.of(server);
+		List<String> said = new ArrayList<>();
+		CommandSourceStack source = server.createCommandSourceStack().withSource(sink(said)).withEntity(player);
+		try {
+			server.getCommands().performPrefixedCommand(source, WeaponDialog.command(Weapon.SLOSHER));
+			helper.assertValueEqual(choices.get(player).orElse(null), Weapon.SLOSHER, "the pick is remembered");
+			helper.assertTrue(player.getInventory().getItem(WeaponPicks.GIVEN_SLOT).getItem() == PaintWeapon.of(Weapon.SLOSHER),
+					"and the slosher is in the first slot");
+			said.clear();
+			server.getCommands().performPrefixedCommand(source, "rivals weapons pick trombone");
+			String refused = String.join(" | ", said);
+			helper.assertTrue(refused.contains("trombone") && refused.contains("slosher"),
+					"an unknown id names itself and lists the real ones: " + refused);
+			helper.assertValueEqual(choices.get(player).orElse(null), Weapon.SLOSHER, "and changed nothing");
+		} finally {
+			choices.forget(player.getUUID());
+		}
+		helper.succeed();
+	}
+
+	/** A command source that keeps what it was told, for the tests that read a command's own words. */
+	private static CommandSource sink(List<String> said) {
+		return new CommandSource() {
+			@Override
+			public void sendSystemMessage(Component message) {
+				said.add(message.getString());
+			}
+
+			@Override
+			public boolean acceptsSuccess() {
+				return true;
+			}
+
+			@Override
+			public boolean acceptsFailure() {
+				return true;
+			}
+
+			@Override
+			public boolean shouldInformAdmins() {
+				return false; // nothing here is worth telling the whole server about
+			}
+		};
 	}
 
 	/**
@@ -547,18 +626,18 @@ public final class RivalsGameTests {
 			PaintWeapon.giveKit(player);
 			player.getInventory().setItem(20, new ItemStack(Items.STONE, 7));
 			helper.assertValueEqual(paintWeapons(player), 4, "the kit is in there to start with");
-			ItemStack given = WeaponMenu.pick(player, Weapon.ROLLER);
+			ItemStack given = WeaponPicks.pick(player, Weapon.ROLLER);
 			helper.assertTrue(given.getItem() == PaintWeapon.of(Weapon.ROLLER), "a roller was handed over");
 			helper.assertValueEqual(paintWeapons(player), 1, "and it is the only paint weapon left");
-			helper.assertTrue(player.getInventory().getItem(WeaponMenu.GIVEN_SLOT).getItem() == PaintWeapon.of(Weapon.ROLLER),
+			helper.assertTrue(player.getInventory().getItem(WeaponPicks.GIVEN_SLOT).getItem() == PaintWeapon.of(Weapon.ROLLER),
 					"in the first slot, so it is in hand a keypress later");
 			DyedItemColor dye = given.get(DataComponents.DYED_COLOR);
 			helper.assertTrue(dye != null && dye.rgb() == PaintColor.DATA.rgb, "dyed in the picker's team colour");
 			helper.assertValueEqual(player.getInventory().getItem(20).getCount(), 7, "the stone was left alone");
 			// And picking again is a swap rather than a second gun.
-			WeaponMenu.pick(player, Weapon.CHARGER);
+			WeaponPicks.pick(player, Weapon.CHARGER);
 			helper.assertValueEqual(paintWeapons(player), 1, "still one weapon after a second pick");
-			helper.assertTrue(player.getInventory().getItem(WeaponMenu.GIVEN_SLOT).getItem() == PaintWeapon.of(Weapon.CHARGER),
+			helper.assertTrue(player.getInventory().getItem(WeaponPicks.GIVEN_SLOT).getItem() == PaintWeapon.of(Weapon.CHARGER),
 					"and it is the charger now");
 		} finally {
 			choices.forget(player.getUUID());
@@ -587,7 +666,7 @@ public final class RivalsGameTests {
 		try {
 			helper.assertTrue(choices.get(player).isEmpty(), "nothing picked yet");
 			helper.assertValueEqual(choices.orDefault(player), Weapon.SHOOTER, "so the shooter is what they would get");
-			WeaponMenu.pick(player, Weapon.SLOSHER);
+			WeaponPicks.pick(player, Weapon.SLOSHER);
 			helper.assertValueEqual(choices.get(player).orElse(null), Weapon.SLOSHER, "the pick is remembered");
 			helper.assertTrue(choices.isDirty(), "and the saved data knows it has to be written");
 			// The write and the read, as the level save and the next boot would do them.
@@ -4619,29 +4698,8 @@ public final class RivalsGameTests {
 	@GameTest
 	public void tuneCommandRejectsUnknownParameters(GameTestHelper helper) {
 		List<String> said = new ArrayList<>();
-		CommandSource sink = new CommandSource() {
-			@Override
-			public void sendSystemMessage(Component message) {
-				said.add(message.getString());
-			}
-
-			@Override
-			public boolean acceptsSuccess() {
-				return true;
-			}
-
-			@Override
-			public boolean acceptsFailure() {
-				return true;
-			}
-
-			@Override
-			public boolean shouldInformAdmins() {
-				return false; // nothing here is worth telling the whole server about
-			}
-		};
 		MinecraftServer server = helper.getLevel().getServer();
-		CommandSourceStack source = server.createCommandSourceStack().withSource(sink);
+		CommandSourceStack source = server.createCommandSourceStack().withSource(sink(said));
 		withTuning(() -> {
 			WeaponTuning.resetAll();
 			server.getCommands().performPrefixedCommand(source, "rivals tune shooter nope 1");

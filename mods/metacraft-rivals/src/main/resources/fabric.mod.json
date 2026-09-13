@@ -33,7 +33,6 @@
 		"polymer-core": "*",
 		"polymer-virtual-entity": "*",
 		"polymer-resource-pack": "*",
-		"polymer-autohost": "*",
-		"sgui": "*"
+		"polymer-autohost": "*"
 	}
 }

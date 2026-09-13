@@ -15,7 +15,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 /**
- * Which weapon each player picked in {@link WeaponMenu}, by UUID.
+ * Which weapon each player picked in {@link WeaponDialog}, by UUID.
  *
  * <p>Saved data rather than a field in memory, because a choice a player has to make again after every
  * relog is not a choice they made: the match start hands out what they picked, and picking is a thing

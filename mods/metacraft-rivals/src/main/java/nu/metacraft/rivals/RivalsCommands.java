@@ -25,7 +25,8 @@ import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Weapon;
-import nu.metacraft.rivals.gun.WeaponMenu;
+import nu.metacraft.rivals.gun.WeaponDialog;
+import nu.metacraft.rivals.gun.WeaponPicks;
 import nu.metacraft.rivals.gun.WeaponTuning;
 import nu.metacraft.rivals.gun.WeaponTuning.Param;
 import nu.metacraft.rivals.paint.PaintTally;
@@ -49,7 +50,7 @@ import static net.minecraft.commands.Commands.literal;
  * edits {@link Arena}, the level's saved spawns and bounds.
  *
  * <p>The permission is per subcommand rather than on the {@code rivals} root, because one of them is
- * not an admin act: picking your own weapon out of {@link WeaponMenu} is something every player in the
+ * not an admin act: picking your own weapon out of {@link WeaponDialog} is something every player in the
  * lobby does, and a root-level {@code requires} would have hidden the whole tree from them.
  */
 public final class RivalsCommands {
@@ -131,8 +132,12 @@ public final class RivalsCommands {
 								.then(literal("status").executes(ctx -> matchStatus(ctx.getSource()))))
 						// Who is here, dressed and armed — and a failure if anybody is not.
 						.then(literal("ready").requires(ADMIN).executes(ctx -> Readiness.report(ctx.getSource())))
-						// No permission: every player picks their own weapon.
-						.then(literal("weapons").executes(ctx -> weapons(ctx.getSource())))));
+						// No permission: every player picks their own weapon. The dialog's buttons run the
+						// pick as the player who clicked them, so it has to be theirs to run.
+						.then(literal("weapons").executes(ctx -> weapons(ctx.getSource()))
+								.then(literal("pick").then(argument("weapon", StringArgumentType.word()).suggests(WEAPON_IDS)
+										.executes(ctx -> weaponPick(ctx.getSource(),
+												StringArgumentType.getString(ctx, "weapon"))))))));
 	}
 
 	/** Create or update one vanilla team per colour. Returns the number of teams touched. */
@@ -322,7 +327,27 @@ public final class RivalsCommands {
 
 	/** Open the weapon picker on the sender's own screen. */
 	private static int weapons(CommandSourceStack source) throws CommandSyntaxException {
-		WeaponMenu.open(source.getPlayerOrException());
+		WeaponDialog.open(source.getPlayerOrException());
+		return 1;
+	}
+
+	/** Weapon ids only — the picker's own buttons, without {@code /rivals tune}'s {@code reset}. */
+	private static final SuggestionProvider<CommandSourceStack> WEAPON_IDS = (ctx, builder) ->
+			SharedSuggestionProvider.suggest(Stream.of(Weapon.values()).map(Weapon::commandId), builder);
+
+	/**
+	 * Take a weapon: what the picker's buttons run, as the player who clicked one. Also typeable, which is
+	 * how it is tested — a dialog button is a command the client sends, and there is nothing else to it.
+	 */
+	private static int weaponPick(CommandSourceStack source, String id) throws CommandSyntaxException {
+		ServerPlayer player = source.getPlayerOrException();
+		Optional<Weapon> weapon = Weapon.byId(id);
+		if (weapon.isEmpty()) {
+			source.sendFailure(Component.literal("No weapon called \"" + id + "\". Try one of: " + Weapon.idList())
+					.withStyle(ChatFormatting.RED));
+			return 0;
+		}
+		WeaponPicks.pick(player, weapon.get());
 		return 1;
 	}
 

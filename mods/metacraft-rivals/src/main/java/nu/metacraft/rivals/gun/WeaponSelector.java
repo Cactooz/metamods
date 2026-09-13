@@ -25,7 +25,7 @@ import java.util.List;
 
 /**
  * The lobby's weapon selector: a Polymer item the client is shown as a compass, which opens
- * {@link WeaponMenu} when it is right-clicked.
+ * {@link WeaponDialog} when it is right-clicked.
  *
  * <p>An item rather than only a command, because a player who has just joined a lobby has not read the
  * commands and a thing in the hotbar asks to be clicked. A compass because it already reads as "point
@@ -76,7 +76,7 @@ public final class WeaponSelector extends Item implements PolymerItem {
 	@Override
 	public InteractionResult use(Level level, Player player, InteractionHand hand) {
 		if (!(player instanceof ServerPlayer serverPlayer)) return InteractionResult.CONSUME;
-		WeaponMenu.open(serverPlayer);
+		WeaponDialog.open(serverPlayer);
 		return InteractionResult.SUCCESS_SERVER;
 	}
 

@@ -11,8 +11,6 @@ fabricApi {
 	}
 }
 
-// The weapon picker is an sgui SimpleGui (the same version ovvar uses).
-addSGUIDependency()
 addPolymerDependency()
 dependencies {
 	implementation("eu.pb4:polymer-virtual-entity:${project.polymer_version}")

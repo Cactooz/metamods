@@ -302,23 +302,41 @@ dedicated Rivals server wants.
   unpaintable from the inside. `show` is per viewer, the way every paint burst is, and its step grows with
   the box so a hundred-block arena does not ask a client for ten thousand particles.
 - **Picking a weapon.** `/rivals weapons` (any player, no permission — the rest of the `/rivals` tree is
-  game-master only, so the permission sits on each subcommand rather than on the root) opens a one-row
-  chest menu with a slot per weapon. Each icon is the *real* weapon stack dyed in the viewer's team
-  colour, so the row is four paint guns drawn by their own models rather than four stand-in vanilla
-  items, with the weapon's name and one line saying what it is for, how far it reaches and what it
-  costs — read off the live tuning, so a retuned server describes the weapon its players are holding.
-  Clicking takes every paint weapon out of the inventory and puts the chosen one in the first slot;
-  anything that is not a paint weapon is left alone.
+  game-master only, so the permission sits on each subcommand rather than on the root) opens a **26.3
+  server-sent dialog**: a picture of each weapon, two to a row, with what it is for written *under* it,
+  and a button per weapon. Each picture is the *real* weapon stack dyed in the viewer's team colour, so
+  the screen is four paint guns drawn by their own models rather than four stand-in vanilla items, and
+  each line says how far the weapon reaches and what it costs — read off the live tuning, so a retuned
+  server describes the weapon its players are holding. The one they are already on is marked
+  "(current)", and the way out is a "Keep the …" button that changes nothing.
+
+  It was a one-row chest menu ([sgui](https://github.com/Patbox/sgui)) until v9. A chest row can only
+  ever be nine icons and a hover; what a weapon is for is a sentence. The module no longer depends on
+  sgui at all.
+
+  A button carries a `run_command` click event, so clicking it is the player running
+  `/rivals weapons pick <id>` themselves — the dialog, the compass and the command line are one path
+  through `WeaponPicks.pick`. That needs no confirmation screen and no custom packet: a client only
+  stops to ask when the command fails to parse against the command tree it was sent, needs a permission
+  it was not given, or carries signable chat arguments, and this one is literals and an id. The command
+  goes on the button **without** a leading slash, because the client parses the string straight with its
+  own dispatcher. Picking takes every paint weapon out of the inventory and puts the chosen one in the
+  first slot; anything that is not a paint weapon is left alone.
+
+  A picture is an `ItemBody`, which holds an `ItemStackTemplate` rather than an `ItemStack` — and
+  Polymer 0.18 patches that type's packet codec (`ItemStackTemplateMixin`), so a paint gun in a dialog
+  reaches a vanilla client already translated into the stick or spyglass it is disguised as, exactly as
+  one in an inventory slot does. Nothing here needs a resource pack the players do not already have.
 
   The pick is remembered in `WeaponChoice`, saved data on the server (not the level — a player carries
   their weapon between dimensions), keyed by UUID and stored as the weapon's *id* rather than its
   ordinal, so reordering the enum cannot hand anyone somebody else's gun. That is what a match start
-  hands out, and it survives a relog and a restart; a player who never picked gets the shooter.
+  hands out, and it survives a relog and a restart; a player who never picked gets the shooter, and a
+  match start puts the picker in front of them during the countdown so that they do not have to.
 
-  The menu also opens by right-clicking the **weapon selector**, a Polymer item the client is shown as
+  The dialog also opens by right-clicking the **weapon selector**, a Polymer item the client is shown as
   a compass (with the lodestone tracker stripped, so the needle does not spin) named "Weapon selector".
-  The lobby hands out exactly one. It is [sgui](https://github.com/Patbox/sgui) 2.2.0+26.3, the same
-  version ovvar's wardrobe uses. `/rivals gun` and `/rivals kit` stay, for admins.
+  The lobby hands out exactly one. `/rivals gun` and `/rivals kit` stay, for admins.
 - **Unpaintable blocks.** Ink falls through a grate rather than covering it, so some blocks never take
   paint at all — no paint block, no display quad, the shot and the splash simply skip them, and so do a
   roll and the charger's line, because all of it goes through one `Painter.paintable`. Two sources, and a
@@ -615,7 +633,8 @@ dedicated Rivals server wants.
 /rivals score
 /rivals reset
 /rivals reload           re-read config/metacraft-rivals/unpaintable.json
-/rivals weapons          the weapon picker (any player)
+/rivals weapons          the weapon picker dialog (any player)
+/rivals weapons pick roller   what its buttons run
 /rivals spawn set data   where a team starts
 /rivals arena set <from> <to>
 /rivals ready            who is here, dressed and armed
