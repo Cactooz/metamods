@@ -1669,8 +1669,8 @@ public final class RivalsGameTests {
 		for (String view : new String[] {"thirdperson_righthand", "thirdperson_lefthand"}) {
 			JsonObject third = pose.getAsJsonObject("display").getAsJsonObject(view);
 			JsonObject were = plain.getAsJsonObject("display").getAsJsonObject(view);
-			helper.assertTrue(third.getAsJsonArray("rotation").get(0).getAsDouble() == -45.0,
-					view + ": the drum is turned down and ahead, not over the shoulder");
+			helper.assertTrue(third.getAsJsonArray("rotation").get(0).getAsDouble() == 45.0,
+					view + ": the drum is turned down and ahead (+y is ahead in the third-person hand frame; -45 put it in the ground behind)");
 			double moved = 0.0;
 			for (int axis = 0; axis < 3; axis++) {
 				double delta = third.getAsJsonArray("translation").get(axis).getAsDouble()
