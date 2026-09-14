@@ -43,6 +43,10 @@ public final class WardrobeSheet {
 		Path out = Path.of(args.length > 0 ? args[0] : "/tmp/wardrobe_v3_sheet.png");
 		Chapter chapter = args.length > 1 ? Chapter.byId(args[1]) : Chapter.DATA;
 		boolean empty = args.length > 2 && args[2].equals("empty");
+		if (args.length > 2 && args[2].equals("audit")) {
+			audit();
+			return;
+		}
 		// The catalogue's two patches, spread over cells the four angles show between them.
 		Patches.Patch itk = Patches.get("itk"), nyckeln = Patches.get("nyckeln");
 		List<Placement> sewn = empty ? List.of() : List.of(
@@ -104,6 +108,59 @@ public final class WardrobeSheet {
 						+ glyph.width() + "x" + glyph.height() + " at (" + glyph.x() + "," + glyph.top() + ")");
 			}
 		}
+	}
+
+	/**
+	 * {@code -PsheetState=audit}: every cell's glyph against the patch art it is meant to be
+	 * showing, by chromaticity — what a colour still has in common with itself once the doll has
+	 * shaded it. A cell whose glyph is missing one of the art's colours, or has one the art never
+	 * had, is a crop landing on cloth beside the patch instead of on the patch. The
+	 * {@code wardrobePreviewDrawsEveryCellsOwnPatchArt} game test asserts the same thing; this
+	 * prints the whole table at once, which is what a bug report about one cell needs.
+	 */
+	private static void audit() {
+		for (Patches.Patch patch : Patches.all()) {
+			Tex art = Tex.read(WardrobeSheet.class.getResourceAsStream("/art/ovvar/patches/" + patch.id() + ".png"));
+			java.util.List<Integer> want = chromas(art);
+			System.out.println("== " + patch.id() + " " + want);
+			for (Spot spot : Spot.values()) {
+				if (!patch.fits(spot)) continue;
+				WardrobeFont.Glyph glyph = WardrobePreview.patchGlyph(new Placement(spot, patch));
+				if (glyph == null) continue;
+				java.util.List<Integer> got = chromas(glyph.art().get());
+				// To within a level of quantisation: shading multiplies the channels and rounds, and a
+				// sleeve is shaded twice over, which can carry a ratio over a bucket boundary.
+				java.util.List<Integer> missing = new java.util.ArrayList<>(want.stream().filter(c -> !near(got, c)).toList());
+				java.util.List<Integer> extra = new java.util.ArrayList<>(got.stream().filter(c -> !near(want, c)).toList());
+				if (!missing.isEmpty() || !extra.isEmpty()) {
+					System.out.println("  BAD " + spot.id() + " (" + WardrobePreview.angleOf(spot) + ") missing " + missing + " extra " + extra);
+				}
+			}
+		}
+	}
+
+	private static boolean near(java.util.List<Integer> colours, int colour) {
+		for (int other : colours) {
+			if (Math.abs((other >> 8 & 0xF) - (colour >> 8 & 0xF)) <= 1
+					&& Math.abs((other >> 4 & 0xF) - (colour >> 4 & 0xF)) <= 1
+					&& Math.abs((other & 0xF) - (colour & 0xF)) <= 1) return true;
+		}
+		return false;
+	}
+
+	private static java.util.List<Integer> chromas(Tex tex) {
+		java.util.List<Integer> out = new java.util.ArrayList<>();
+		for (int y = 0; y < tex.height; y++) {
+			for (int x = 0; x < tex.width; x++) {
+				if (Tex.a(tex.get(x, y)) == 0) continue;
+				int p = tex.get(x, y);
+				int r = Tex.r(p), g = Tex.g(p), b = Tex.b(p);
+				int max = Math.max(r, Math.max(g, b));
+				int chroma = max == 0 ? 0 : (r * 15 / max) << 8 | (g * 15 / max) << 4 | b * 15 / max;
+				if (!out.contains(chroma)) out.add(chroma);
+			}
+		}
+		return out;
 	}
 
 	/** The glyphs the title would carry for this design at this angle, in the order it carries them. */

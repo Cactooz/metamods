@@ -11,6 +11,7 @@ import metacraft.ovvar.content.Ownership;
 import metacraft.ovvar.content.Patches;
 import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
+import metacraft.ovvar.datagen.Tex;
 import metacraft.ovvar.store.DesignStoreConfig;
 import metacraft.ovvar.store.FileBackend;
 import metacraft.ovvar.store.JdbcBackend;
@@ -1051,6 +1052,152 @@ public final class WardrobeTests {
 		// The inner faces are the only cells the doll never shows, and there are none of those.
 		if (hidden != 0) helper.fail(hidden + " cell(s) are on no view at all");
 		helper.succeed();
+	}
+
+	/**
+	 * <b>Every</b> cell's glyph draws the patch's own art, and the right way round — not the cloth
+	 * beside it, which is what "text missing on back, it shows on front" would be.
+	 *
+	 * <p>The art cannot be compared pixel for pixel: the doll resamples every face ×1.5 and shades
+	 * it, and the patch layer gives up the pixel the figure's outline owns. What survives all three
+	 * is <em>chromaticity</em> — shading multiplies the channels, so their ratios are kept — and the
+	 * <em>order</em> of the colours across a row, which resampling stretches but never reorders. So:
+	 * every colour of the art is in the glyph, the glyph has no colour the art does not (it is the
+	 * patch layer alone, and cloth would show up here), and the colours run left to right in the
+	 * art's own order, reversed exactly where the model mirrors that face.
+	 */
+	@GameTest
+	public void wardrobePreviewDrawsEveryCellsOwnPatchArt(GameTestHelper helper) {
+		for (Patches.Patch patch : Patches.all()) {
+			Tex art = patchArt(patch);
+			List<Integer> artColours = colours(art);
+			if (artColours.size() < 2) helper.fail(patch.id() + "'s art is one flat colour; this test cannot tell it from cloth");
+			for (Spot spot : Spot.values()) {
+				if (!patch.fits(spot)) continue;
+				Angle angle = WardrobePreview.angleOf(spot);
+				if (angle == null) helper.fail(spot + " is on no view, so " + patch.id() + " sewn there could never be seen");
+				WardrobeFont.Glyph glyph = WardrobePreview.patchGlyph(new Placement(spot, patch));
+				if (glyph == null) {
+					helper.fail("no glyph for " + patch.id() + " on " + spot.id());
+					continue;
+				}
+				Tex drawn = glyph.art().get();
+				List<Integer> got = colours(drawn);
+				String where = patch.id() + " on " + spot.id() + " (" + angle + " view)";
+				for (int colour : artColours) {
+					if (!near(got, colour)) helper.fail(where + ": the art's colour " + hex(colour) + " is not in the glyph, which has " + hex(got));
+				}
+				for (int colour : got) {
+					if (!near(artColours, colour)) helper.fail(where + ": the glyph has " + hex(colour) + ", which the art does not — cloth, or the wrong crop");
+				}
+				// And the way round: a row of the art, collapsed to the order its colours run in, must
+				// read the same way across the glyph — on every cell, left or right. A left cell is
+				// mirrored twice and so not at all: datagen mirrors its art because the armour model
+				// mirrors that limb, and the doll mirrors the limb for the same reason, which puts the
+				// art back the way it was drawn. A patch reads correctly on both sleeves, and that is
+				// the whole point of datagen pre-mirroring it.
+				List<Integer> want = run(art, art.height / 2);
+				if (!readsAs(drawn, want)) {
+					helper.fail(where + ": the art reads " + hex(want) + " across, the glyph reads " + hex(run(drawn, drawn.height / 2)));
+				}
+			}
+		}
+		helper.succeed();
+	}
+
+	private static Tex patchArt(Patches.Patch patch) {
+		try (var in = WardrobeTests.class.getResourceAsStream("/art/ovvar/patches/" + patch.id() + ".png")) {
+			if (in == null) throw new IOException("no art for " + patch.id());
+			return Tex.read(in);
+		} catch (IOException e) {
+			throw new UncheckedIOException(e);
+		}
+	}
+
+	/**
+	 * Is {@code colour} one of {@code colours}, to within a level of quantisation per channel?
+	 * Shading multiplies the channels and rounds, which can carry a ratio over a bucket boundary —
+	 * a sleeve, shaded twice over, does exactly that — so the comparison allows one level. Cloth is
+	 * nowhere near a patch's colours at this tolerance; the chapter's cerise against the ITK
+	 * patch's orange is four levels of green apart.
+	 */
+	private static boolean near(List<Integer> colours, int colour) {
+		for (int other : colours) {
+			int dr = Math.abs((other >> 8 & 0xF) - (colour >> 8 & 0xF));
+			int dg = Math.abs((other >> 4 & 0xF) - (colour >> 4 & 0xF));
+			int db = Math.abs((other & 0xF) - (colour & 0xF));
+			if (dr <= 1 && dg <= 1 && db <= 1) return true;
+		}
+		return false;
+	}
+
+	/**
+	 * A colour with its brightness divided out, quantised: what a pixel still has in common with
+	 * itself after the doll has shaded it (shading multiplies every channel by the same amount).
+	 */
+	private static int chroma(int argb) {
+		int r = Tex.r(argb), g = Tex.g(argb), b = Tex.b(argb);
+		int max = Math.max(r, Math.max(g, b));
+		if (max == 0) return 0;
+		return (r * 15 / max) << 8 | (g * 15 / max) << 4 | b * 15 / max;
+	}
+
+	/** Every chromaticity the visible pixels of {@code tex} use, in first-seen order. */
+	private static List<Integer> colours(Tex tex) {
+		List<Integer> out = new ArrayList<>();
+		for (int y = 0; y < tex.height; y++) {
+			for (int x = 0; x < tex.width; x++) {
+				if (Tex.a(tex.get(x, y)) == 0) continue;
+				int chroma = chroma(tex.get(x, y));
+				if (!out.contains(chroma)) out.add(chroma);
+			}
+		}
+		return out;
+	}
+
+	/** One row's colours left to right, each run of the same one collapsed to a single entry. */
+	private static List<Integer> run(Tex tex, int y) {
+		List<Integer> out = new ArrayList<>();
+		for (int x = 0; x < tex.width; x++) {
+			if (Tex.a(tex.get(x, y)) == 0) continue;
+			int chroma = chroma(tex.get(x, y));
+			if (out.isEmpty() || out.get(out.size() - 1) != chroma) out.add(chroma);
+		}
+		return out;
+	}
+
+	/**
+	 * Does any row of {@code drawn} read as {@code want}? Allowing an end to be missing: the pixel
+	 * the figure's own outline owns is taken off the patch layer, which can cost the first or last
+	 * colour of a row on a cell at the edge of its face.
+	 */
+	private static boolean readsAs(Tex drawn, List<Integer> want) {
+		for (int y = 0; y < drawn.height; y++) {
+			List<Integer> got = run(drawn, y);
+			if (got.isEmpty()) continue;
+			for (int from = 0; from <= 1; from++) {
+				for (int to = want.size(); to >= want.size() - 1; to--) {
+					if (from <= to && sameRun(got, want.subList(from, to))) return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	private static boolean sameRun(List<Integer> got, List<Integer> want) {
+		if (got.size() != want.size()) return false;
+		for (int i = 0; i < got.size(); i++) {
+			if (!near(List.of(want.get(i)), got.get(i))) return false;
+		}
+		return true;
+	}
+
+	private static String hex(List<Integer> colours) {
+		return colours.stream().map(WardrobeTests::hex).toList().toString();
+	}
+
+	private static String hex(int chroma) {
+		return "#" + Integer.toHexString(chroma);
 	}
 
 	/**
