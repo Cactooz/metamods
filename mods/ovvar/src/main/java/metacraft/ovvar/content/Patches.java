@@ -88,8 +88,11 @@ public final class Patches {
 
 
 	private static final List<Patch> ALL = List.of(
-			new Patch("itk", "ITK").by("Kexana"),
-			new Patch("nyckeln", "Nyckeln'26").by("Kexana")
+			new Patch("itk", "ITK", 12, 12).by("Froosty11"),
+			new Patch("nyckeln", "Nyckeln'26").by("Kexana"),
+			Patch.seat("rivals", "METAcraft Rivals '26").by("Froosty11"),   // across the seat
+			new Patch("it", "IT", 12, 12).by("Froosty11"),
+			new Patch("data", "Data", 12, 12).by("Froosty11")
 	);
 
 	private static final Map<String, Patch> BY_ID = ALL.stream()
