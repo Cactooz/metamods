@@ -45,25 +45,25 @@ public final class WardrobeTests {
 	private static final AtomicBoolean BUSY = new AtomicBoolean();
 
 	private static final Chapter CHAPTER = Chapter.values()[0];
-	private static final Patches.Patch BEER_PATCH = Patches.get("beer"), HEART_PATCH = Patches.get("heart");
-	private static final Placement BEER = new Placement(Spot.FRONT_TOP_LEFT, BEER_PATCH);
-	private static final Placement HEART = new Placement(Spot.BACK_TOP_RIGHT, HEART_PATCH);
+	private static final Patches.Patch ITK_PATCH = Patches.get("itk"), NYCKELN_PATCH = Patches.get("nyckeln");
+	private static final Placement ITK = new Placement(Spot.FRONT_TOP_LEFT, ITK_PATCH);
+	private static final Placement NYCKELN = new Placement(Spot.BACK_TOP_RIGHT, NYCKELN_PATCH);
 
 	// ---- the record
 
 	@GameTest
 	public void patchesMoveBetweenStashAndDesign(GameTestHelper helper) {
 		Wardrobe none = Wardrobe.NONE;
-		if (none.sew(CHAPTER, BEER).isPresent()) helper.fail("sewn a patch that is not in the stash");
-		Wardrobe one = none.add(BEER_PATCH, 1);
-		if (one.count(BEER_PATCH) != 1) helper.fail("count after add: " + one.count(BEER_PATCH));
-		Wardrobe sewn = one.sew(CHAPTER, BEER).orElseThrow();
-		if (sewn.count(BEER_PATCH) != 0) helper.fail("the stash still holds the sewn patch");
-		if (!BEER.equals(sewn.at(CHAPTER, Spot.FRONT_TOP_LEFT).orElse(null))) helper.fail("the patch is not on the design");
-		if (sewn.sew(CHAPTER, BEER).isPresent()) helper.fail("sewn the same patch twice from an empty stash");
-		if (sewn.add(BEER_PATCH, 1).sew(CHAPTER, BEER).isPresent()) helper.fail("sewn over an occupied spot");
+		if (none.sew(CHAPTER, ITK).isPresent()) helper.fail("sewn a patch that is not in the stash");
+		Wardrobe one = none.add(ITK_PATCH, 1);
+		if (one.count(ITK_PATCH) != 1) helper.fail("count after add: " + one.count(ITK_PATCH));
+		Wardrobe sewn = one.sew(CHAPTER, ITK).orElseThrow();
+		if (sewn.count(ITK_PATCH) != 0) helper.fail("the stash still holds the sewn patch");
+		if (!ITK.equals(sewn.at(CHAPTER, Spot.FRONT_TOP_LEFT).orElse(null))) helper.fail("the patch is not on the design");
+		if (sewn.sew(CHAPTER, ITK).isPresent()) helper.fail("sewn the same patch twice from an empty stash");
+		if (sewn.add(ITK_PATCH, 1).sew(CHAPTER, ITK).isPresent()) helper.fail("sewn over an occupied spot");
 		Wardrobe back = sewn.unpick(CHAPTER, Spot.FRONT_TOP_LEFT).orElseThrow();
-		if (back.count(BEER_PATCH) != 1 || back.design(CHAPTER).isPresent()) helper.fail("unpick did not move the patch back: " + back);
+		if (back.count(ITK_PATCH) != 1 || back.design(CHAPTER).isPresent()) helper.fail("unpick did not move the patch back: " + back);
 		if (back.unpick(CHAPTER, Spot.FRONT_TOP_LEFT).isPresent()) helper.fail("unpicked an empty spot");
 		if (!back.sameContents(one)) helper.fail("a sew and an unpick do not cancel out: " + back + " vs " + one);
 		helper.succeed();
@@ -104,10 +104,10 @@ public final class WardrobeTests {
 	private static void storesWithVersions(GameTestHelper helper, WardrobeBackend backend) throws IOException {
 		UUID owner = UUID.randomUUID();
 		if (backend.load(owner).isPresent()) helper.fail("a fresh store has a wardrobe");
-		Wardrobe v1 = Wardrobe.NONE.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElseThrow().withVersion(1);
+		Wardrobe v1 = Wardrobe.NONE.add(ITK_PATCH, 1).sew(CHAPTER, ITK).orElseThrow().withVersion(1);
 		if (!backend.store(owner, v1, 0)) helper.fail("first write refused");
 		if (backend.store(owner, v1, 0)) helper.fail("a second insert of the same owner went through");
-		Wardrobe v2 = v1.add(HEART_PATCH, 3).sew(CHAPTER, HEART).orElseThrow().withVersion(2);
+		Wardrobe v2 = v1.add(NYCKELN_PATCH, 3).sew(CHAPTER, NYCKELN).orElseThrow().withVersion(2);
 		if (!backend.store(owner, v2, 1)) helper.fail("update from version 1 refused");
 		if (backend.store(owner, v2.withVersion(3), 1)) helper.fail("update from a stale version went through");
 		Optional<Wardrobe> loaded = backend.load(owner);
@@ -135,13 +135,13 @@ public final class WardrobeTests {
 					Wardrobes.fetch(owner);
 				})
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
-				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElse(null), outcome::set))
+				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(ITK_PATCH, 1).sew(CHAPTER, ITK).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "sew outcome " + outcome.get()))
 				.thenExecute(() -> {
 					if (Wardrobes.current(owner).version() != 1) helper.fail("cached version " + Wardrobes.current(owner).version() + ", wanted 1");
-					// Another server unpicks and sews on: the store is at version 5 with only the heart on.
+					// Another server unpicks and sews on: the store is at version 5 with only the nyckeln on.
 					try {
-						Wardrobe theirs = Wardrobe.NONE.add(BEER_PATCH, 1).add(HEART_PATCH, 1).sew(CHAPTER, HEART).orElseThrow().withVersion(5);
+						Wardrobe theirs = Wardrobe.NONE.add(ITK_PATCH, 1).add(NYCKELN_PATCH, 1).sew(CHAPTER, NYCKELN).orElseThrow().withVersion(5);
 						if (!behind.store(owner, theirs, 1)) helper.fail("behind-the-back write refused");
 					} catch (IOException e) {
 						throw new GameTestAssertException(Component.literal(e.toString()), 0);
@@ -152,10 +152,10 @@ public final class WardrobeTests {
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.CONFLICT, "stale write outcome " + outcome.get()))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner) && Wardrobes.current(owner).version() == 5, "cache not refetched to version 5"))
 				.thenExecute(() -> {
-					if (Wardrobes.current(owner).at(CHAPTER, Spot.FRONT_TOP_LEFT).isPresent()) helper.fail("the beer survived the refetch");
-					if (Wardrobes.current(owner).count(BEER_PATCH) != 1) helper.fail("the beer is not back in the stash after the refetch");
+					if (Wardrobes.current(owner).at(CHAPTER, Spot.FRONT_TOP_LEFT).isPresent()) helper.fail("the itk survived the refetch");
+					if (Wardrobes.current(owner).count(ITK_PATCH) != 1) helper.fail("the itk is not back in the stash after the refetch");
 					outcome.set(null);
-					Wardrobes.update(owner, w -> w.sew(CHAPTER, BEER).orElse(null), outcome::set);
+					Wardrobes.update(owner, w -> w.sew(CHAPTER, ITK).orElse(null), outcome::set);
 				})
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK && Wardrobes.current(owner).version() == 6, "retry after the refetch: " + outcome.get()))
 				.thenExecute(() -> release(server))
@@ -180,12 +180,12 @@ public final class WardrobeTests {
 					if (!owner.equals(OvveItem.owner(a)) || !owner.equals(OvveItem.owner(b))) helper.fail("not bound on pickup");
 				})
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
-				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElse(null), outcome::set))
+				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(ITK_PATCH, 1).sew(CHAPTER, ITK).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "sew outcome " + outcome.get()))
 				.thenExecute(() -> {
 					OvveItem.syncDesign(player, a);
 					OvveItem.syncDesign(player, b);
-					if (!BEER.equals(Looks.at(a, Spot.FRONT_TOP_LEFT)) || !BEER.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("the sew did not reach both ovves");
+					if (!ITK.equals(Looks.at(a, Spot.FRONT_TOP_LEFT)) || !ITK.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("the sew did not reach both ovves");
 					outcome.set(null);
 					Wardrobes.update(owner, w -> w.unpick(CHAPTER, Spot.FRONT_TOP_LEFT).orElse(null), outcome::set);
 				})
@@ -218,21 +218,21 @@ public final class WardrobeTests {
 					Wardrobes.fetch(owner);
 				})
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
-				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElse(null), outcome::set))
+				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(ITK_PATCH, 1).sew(CHAPTER, ITK).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "sew outcome " + outcome.get()))
 				.thenExecute(() -> {
 					OvveItem.refresh(a);
 					OvveItem.refresh(b);
-					if (!BEER.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("b does not show the beer");
+					if (!ITK.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("b does not show the itk");
 					// Into the hand (a survival server): the store lets go of it first, and only once.
 					OwnedSewing.unpick(a, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
 				})
 				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 1, "first unpick not answered"))
 				.thenExecute(() -> {
-					if (given.size() != 1 || !BEER.equals(given.get(0).placement()) || given.get(0).toStash()) helper.fail("first unpick: given " + given + ", refused " + refused);
-					if (Wardrobes.current(owner).count(BEER_PATCH) != 0) helper.fail("an unpick into the hand also left one in the stash");
+					if (given.size() != 1 || !ITK.equals(given.get(0).placement()) || given.get(0).toStash()) helper.fail("first unpick: given " + given + ", refused " + refused);
+					if (Wardrobes.current(owner).count(ITK_PATCH) != 0) helper.fail("an unpick into the hand also left one in the stash");
 					// b still carries the old copy; the unpick asks the store, not the item.
-					if (!BEER.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("b was refreshed before being asked");
+					if (!ITK.equals(Looks.at(b, Spot.FRONT_TOP_LEFT))) helper.fail("b was refreshed before being asked");
 					OwnedSewing.unpick(b, Spot.FRONT_TOP_LEFT, false, given::add, refused::add);
 				})
 				.thenWaitUntil(() -> assertThat(given.size() + refused.size() == 2, "second unpick not answered"))

@@ -29,8 +29,9 @@ public final class Patches {
 	 * @param id	 also the art file name and the item id suffix ({@code ovvar:patch_<id>})
 	 * @param width  art width in pixels ({@link Spot#PX} for a cell-sized patch; a seat patch is 2 cells wide)
 	 * @param height art height in pixels
+	 * @param artist who drew the art, credited in the tooltip; null when nobody is named
 	 */
-	public record Patch(String id, String name, boolean seat, int width, int height) {
+	public record Patch(String id, String name, boolean seat, int width, int height, String artist) {
 		public Patch {
 			if (seat && (width != 2 * Spot.PX || height != Spot.PX)) throw new IllegalArgumentException(id + ": a seat patch is " + 2 * Spot.PX + "×" + Spot.PX);
 			if (width < 2 || height < 2 || width > MAX_ART || height > MAX_ART || width % 2 != 0 || height % 2 != 0) {
@@ -48,8 +49,17 @@ public final class Patches {
 			this(id, name, false, width, height);
 		}
 
+		public Patch(String id, String name, boolean seat, int width, int height) {
+			this(id, name, seat, width, height, null);
+		}
+
 		public static Patch seat(String id, String name) {
 			return new Patch(id, name, true, 2 * Spot.PX, Spot.PX);
+		}
+
+		/** The same patch, credited to an artist. */
+		public Patch by(String artist) {
+			return new Patch(id, name, seat, width, height, artist);
 		}
 
 		public boolean fits(Spot spot) {
@@ -77,17 +87,9 @@ public final class Patches {
 	}
 
 
-	// Placeholder set for testing the system; real patch art replaces these one for one.
 	private static final List<Patch> ALL = List.of(
-			new Patch("metacraft", "METAcraft"),
-			new Patch("kth", "KTH", 12, 12),   // hangs over its cell: the overlap showcase
-			new Patch("heart", "Heart"),
-			new Patch("star", "Star"),
-			new Patch("beer", "Beer"),
-			new Patch("nolle", "Nolle"),
-			new Patch("sittning", "Sittning"),
-			new Patch("gasque", "Gasque"),
-			Patch.seat("chapter", "Chapter")
+			new Patch("itk", "ITK").by("Kexana"),
+			new Patch("nyckeln", "Nyckeln'26").by("Kexana")
 	);
 
 	private static final Map<String, Patch> BY_ID = ALL.stream()

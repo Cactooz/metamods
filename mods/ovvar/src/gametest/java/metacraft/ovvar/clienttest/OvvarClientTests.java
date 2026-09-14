@@ -41,8 +41,8 @@ import java.util.Properties;
  * {@code build/run/clientGameTest/screenshots}.
  */
 public final class OvvarClientTests implements FabricClientGameTest {
-	/** Four patches on the front of the top: more than the dye colours carry, so the rest must come from the pack or the post pass. */
-	private static final String PATCHES = "front_top_left.heart,front_top_right.star,front_low_left.kth,front_low_right.beer";
+	/** The catalogue's two patches on the front of the top, one on each side of the chest. */
+	private static final String PATCHES = "front_top_left.itk,front_top_right.nyckeln";
 
 	@Override
 	public void runTest(ClientGameTestContext ctx) {
@@ -67,10 +67,8 @@ public final class OvvarClientTests implements FabricClientGameTest {
 					ItemStack ovve = new ItemStack(ModContent.ovve(Chapter.DATA));
 					OvveItem.setTopUp(ovve, true);
 					Looks.setSewn(ovve, SpotPlacements.fromList(List.of(
-							new Placement(Spot.FRONT_TOP_LEFT, Patches.get("heart")),
-							new Placement(Spot.FRONT_TOP_RIGHT, Patches.get("star")),
-							new Placement(Spot.FRONT_LOW_LEFT, Patches.get("kth")),
-							new Placement(Spot.FRONT_LOW_RIGHT, Patches.get("beer")))).getOrThrow());
+							new Placement(Spot.FRONT_TOP_LEFT, Patches.get("itk")),
+							new Placement(Spot.FRONT_TOP_RIGHT, Patches.get("nyckeln")))).getOrThrow());
 					Mannequin m = new Mannequin(EntityTypes.MANNEQUIN, level);
 					m.setPos(0.5, -60, 3.5);
 					m.setYRot(180); m.setYBodyRot(180); m.setYHeadRot(180);
@@ -80,7 +78,7 @@ public final class OvvarClientTests implements FabricClientGameTest {
 					m.setItemSlot(EquipmentSlot.CHEST, top);
 					level.addFreshEntity(m);
 				});
-				acceptResourcePack(ctx);   // the current system may push a rebuilt pack for the fourth patch
+				acceptResourcePack(ctx);   // the current system may push a rebuilt pack for these placements
 				server.runCommand("tp Tester 0.5 -60 0.5 0 0");   // look south (+Z, yaw 0) straight at the mannequin
 				ctx.runOnClient(client -> client.options.setCameraType(CameraType.FIRST_PERSON));
 				conn.waitForClientboundPackets();
@@ -95,16 +93,16 @@ public final class OvvarClientTests implements FabricClientGameTest {
 					System.out.println("[ovvar-clienttest] server legs: " + legs + " " + legs.getComponentsPatch());
 				});
 
-				Path first = ctx.takeScreenshot(TestScreenshotOptions.of("front_four_patches").withSize(1920, 1080));
+				Path first = ctx.takeScreenshot(TestScreenshotOptions.of("front_two_patches").withSize(1920, 1080));
 				ctx.waitTicks(5);
-				Path second = ctx.takeScreenshot(TestScreenshotOptions.of("front_four_patches_again").withSize(1920, 1080));
+				Path second = ctx.takeScreenshot(TestScreenshotOptions.of("front_two_patches_again").withSize(1920, 1080));
 
 				BufferedImage a = read(first), b = read(second);
 				Region box = Region.subjectBox(a);
-				// The star's yellow and KTH's blue cannot come from the red garment: their presence proves
-				// those patches drew. (Heart and beer read close to the garment and make poor probes.)
-				assertPresent(a, box, "star (yellow)", (r, g, bl) -> r > 130 && g > 100 && bl < 70, 30);
-				assertPresent(a, box, "kth (blue)", (r, g, bl) -> bl > 90 && bl > r + 40 && g < 120, 30);
+				// ITK's green and Nyckeln's orange cannot come from the cerise garment: their presence
+				// proves those patches drew.
+				assertPresent(a, box, "itk (green)", (r, g, bl) -> g > 120 && g > r + 60 && bl < 100, 20);
+				assertPresent(a, box, "nyckeln (orange)", (r, g, bl) -> r > 150 && g > 80 && g < 200 && bl < 90 && r > bl + 80, 20);
 				// The garment surface must be steady between two frames: the prototype's tag crawl changed
 				// interior pixels by large amounts every frame, which this catches. A few silhouette pixels
 				// shift by sub-pixel model interpolation (small deltas); those are tolerated.
