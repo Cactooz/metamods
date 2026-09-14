@@ -154,6 +154,8 @@ row 5   [take out][put in][sew][see in 3D][finish][ · ][ · ][help][close]
 
 - a tab is the chapter's *ovve*, named "Data ovve", the one on show glinting and its lore reading
   "(showing)" while the others read "Click to switch to it";
+- a patch in the pocket says how many of it are in the stash, where it may be sewn, and who drew it
+  ("Art by Kexana" — the credit `PatchItem` puts on the item itself);
 - the preview is the **whole** ovve, top and trousers as one figure, and the two buttons at cols 7
   and 8 turn it a quarter at a time (front, their right, back, their left; per open screen, front to
   begin with). There is no piece toggle any more — the chestplate and boots that prompted "why is
@@ -236,8 +238,18 @@ inventory — the name goes through the server's own profile resolver (the one `
 and the wardrobe is fetched by UUID.
 
 The left block (cols 0-4, rows 1-4) is the patch collection — the stash, one slot per kind, left
-and right click exactly as before (take out / start a session); a wardrobe with more than 20 kinds
-gives up the last slot to a "+N more" marker instead of a 21st kind. Which slot of the right block a
+and right click exactly as before (take out / start a session) — and it **pages** once there are
+more kinds than fit, where it used to give the last slot up to a "+N more" marker. Twenty kinds
+still use all twenty slots; from the twenty-first the two ends of the bottom row become the page
+arrows (the rotation arrows' own sprites, pointing the same ways), so a page holds eighteen — and
+both arrow slots are reserved on every page, even one that needs only the one, so an arrow never
+moves under the pointer. Kinds are sorted by name, so a kind keeps its place as the counts change;
+the page is per open screen; and "page 2/3" is drawn in the tiny type in the action row's spare
+middle (cols 5-6), directly under the pocket's right end — the pocket is slots edge to edge with
+nothing but 1 px gutters between them, and five pixels of type has to go somewhere it does not sit
+on an icon. `WardrobeGui.perPage` and `pageCount` are the whole of the arithmetic, and the game test
+exercises them as arithmetic: the catalogue holds two patches, so no wardrobe this server can build
+has 45 kinds to page through. Which slot of the right block a
 placement's tooltip sits on is `WardrobeGui.previewSlot`, and the mapping is hand-written
 in `WardrobeGui.PREVIEW_CELL`: a front view of the wearer, column 0 their left, column 3 their
 right, the two middle columns the body; several of the garment's 33 spots share a cell on

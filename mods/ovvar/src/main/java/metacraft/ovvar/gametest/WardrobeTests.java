@@ -785,6 +785,94 @@ public final class WardrobeTests {
 		return String.join(" | ", lore.lines().stream().map(Component::getString).toList());
 	}
 
+	/**
+	 * The pocket pages when a stash holds more kinds of patch than its twenty slots: every kind is
+	 * on exactly one page, the two ends of the bottom row belong to the arrows from the moment
+	 * there is a second page, and the counter says which page of how many.
+	 *
+	 * <p>The arithmetic is tested as arithmetic because it has to be: the catalogue has two patches
+	 * in it, so no wardrobe this server can build has 45 kinds to page through. What a real
+	 * wardrobe can show — one page, no arrows, no counter — is checked against the screen itself.
+	 */
+	@GameTest
+	public void wardrobePocketPagesTheStash(GameTestHelper helper) {
+		if (WardrobeGui.POCKET != 20) helper.fail("the pocket is " + WardrobeGui.POCKET + " slots; these numbers assume 20");
+		// Twenty kinds still fit; the twenty-first costs two slots to the arrows, so pages hold 18.
+		if (WardrobeGui.pageCount(0) != 1) helper.fail("an empty stash is " + WardrobeGui.pageCount(0) + " pages");
+		if (WardrobeGui.pageCount(20) != 1) helper.fail("20 kinds are " + WardrobeGui.pageCount(20) + " pages, wanted 1");
+		if (WardrobeGui.perPage(20) != 20) helper.fail("20 kinds on one page should use all 20 slots");
+		if (WardrobeGui.pageCount(21) != 2) helper.fail("21 kinds are " + WardrobeGui.pageCount(21) + " pages, wanted 2");
+		if (WardrobeGui.perPage(21) != 18) helper.fail("a paging pocket holds " + WardrobeGui.perPage(21) + " kinds, wanted 18");
+		if (WardrobeGui.pageCount(45) != 3) helper.fail("45 kinds are " + WardrobeGui.pageCount(45) + " pages, wanted 3");
+		if (WardrobeGui.pageCount(54) != 3) helper.fail("54 kinds are " + WardrobeGui.pageCount(54) + " pages, wanted 3");
+		if (WardrobeGui.pageCount(55) != 4) helper.fail("55 kinds are " + WardrobeGui.pageCount(55) + " pages, wanted 4");
+
+		// Every kind on exactly one page, in order, for every size worth trying.
+		for (int kinds : new int[]{1, 19, 20, 21, 37, 45, 100}) {
+			int pages = WardrobeGui.pageCount(kinds), per = WardrobeGui.perPage(kinds);
+			List<Integer> seen = new ArrayList<>();
+			for (int page = 0; page < pages; page++) {
+				int slots = WardrobeGui.pocketSlots(pages > 1).size();
+				if (slots != per) helper.fail(kinds + " kinds: a page has " + slots + " slots for " + per + " kinds");
+				for (int i = 0; i + page * per < kinds && i < slots; i++) seen.add(page * per + i);
+			}
+			for (int i = 0; i < kinds; i++) {
+				if (!seen.contains(i)) helper.fail(kinds + " kinds: kind " + i + " is on no page");
+			}
+			if (seen.size() != kinds) helper.fail(kinds + " kinds: " + seen.size() + " slots filled, so a kind is on two pages");
+			if (seen.stream().distinct().count() != kinds) helper.fail(kinds + " kinds: a kind appears twice");
+		}
+
+		// The arrows take the ends of the bottom row, and only while there is more than one page.
+		if (WardrobeGui.pocketSlots(false).contains(WardrobeGui.PAGE_NEXT) != true) helper.fail("one page: the bottom-right slot should still hold a patch");
+		if (WardrobeGui.pocketSlots(true).contains(WardrobeGui.PAGE_NEXT)) helper.fail("paging: the bottom-right slot is the next-page arrow, not a patch");
+		if (WardrobeGui.pocketSlots(true).contains(WardrobeGui.PAGE_PREVIOUS)) helper.fail("paging: the bottom-left slot is the previous-page arrow, not a patch");
+
+		// The counter: nothing on one page, "page N/M" beyond it.
+		if (!WardrobeFont.pages(0, 1).getString().isEmpty()) helper.fail("a single page still draws a counter");
+		String counter = WardrobeFont.pages(1, 3).getString();
+		if (counter.indexOf(WardrobeFont.PAGE_LABEL.codepoint()) < 0) helper.fail("the counter has no \"page\" in it");
+		if (counter.indexOf(WardrobeFont.PAGE_OF.codepoint()) < 0) helper.fail("the counter has no \"/\" in it");
+		helper.succeed();
+	}
+
+	/** A stash of the two kinds there are fits one page: no arrows, no counter, both kinds on show. */
+	@GameTest(maxTicks = 1200)
+	public void wardrobePocketShowsOnePageWithoutArrows(GameTestHelper helper) throws IOException {
+		MinecraftServer server = helper.getLevel().getServer();
+		Path dir = Files.createTempDirectory("ovvar-wardrobes");
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		UUID owner = player.getUUID();
+		AtomicReference<Wardrobes.Outcome> outcome = new AtomicReference<>();
+		helper.startSequence()
+				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
+				.thenExecute(() -> guarded(server, () -> {
+					Wardrobes.use(server, new FileBackend(dir));
+					Wardrobes.fetch(owner);
+				}))
+				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
+				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(ITK_PATCH, 3).add(NYCKELN_PATCH, 1), outcome::set))
+				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "setup outcome " + outcome.get()))
+				.thenExecute(() -> guarded(server, () -> {
+					WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, Angle.FRONT);
+					int filled = 0;
+					for (int slot : WardrobeGui.pocketSlots(false)) if (!isEmpty(gui, slot)) filled++;
+					if (filled != 2) helper.fail(filled + " pocket slots filled, wanted one per kind (2)");
+					if (!isEmpty(gui, WardrobeGui.PAGE_NEXT) && gui.getGuiElement(WardrobeGui.PAGE_NEXT).getItemStack()
+							.get(DataComponents.ITEM_MODEL) == WardrobeAction.PAGE_NEXT.model(true)) {
+						helper.fail("a next-page arrow on a stash that fits one page");
+					}
+					if (gui.getTitle().getString().indexOf(WardrobeFont.PAGE_LABEL.codepoint()) >= 0) {
+						helper.fail("a page counter on a stash that fits one page");
+					}
+					// Sorted by name, so a kind keeps its slot however the counts change.
+					String first = gui.getGuiElement(WardrobeGui.pocketSlots(false).get(0)).getItemStack().getHoverName().getString();
+					if (!first.equals("ITK")) helper.fail("the first slot holds " + first + ", wanted the first kind by name");
+					release(server);
+				}))
+				.thenSucceed();
+	}
+
 	/** The tab row only ever lists chapters the player owns an ovve of. */
 	@GameTest
 	public void foreignOvveHasNoWardrobeTab(GameTestHelper helper) {
@@ -1003,12 +1091,12 @@ public final class WardrobeTests {
 	public void wardrobeTitleHighlightsTheTabOnShow(GameTestHelper helper) {
 		char highlight = WardrobeFont.ACTIVE_TAB.codepoint();
 		for (int col = 0; col < WardrobeGui.TAB_COLS; col++) {
-			String title = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, col, true).getString();
+			String title = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, col, true, 0).getString();
 			if (title.indexOf(highlight) < 0) helper.fail("no active-tab highlight in the title for tab " + col);
 			String at = WardrobeFont.at(WardrobeFont.ACTIVE_TAB, WardrobeFont.cellX(col));
 			if (!title.contains(at)) helper.fail("the highlight for tab " + col + " is not placed at x " + WardrobeFont.cellX(col));
 		}
-		if (WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, -1, true).getString().indexOf(highlight) >= 0) {
+		if (WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, -1, true, 0).getString().indexOf(highlight) >= 0) {
 			helper.fail("a player on no tab of their own still gets a highlight");
 		}
 		helper.succeed();

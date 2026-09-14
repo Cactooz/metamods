@@ -73,6 +73,12 @@ public final class WardrobeSheet {
 			WardrobeFont.Glyph glyph = stats.get(i);
 			screen = draw(screen, glyph.art().get(), WardrobeFont.statsX(stats, i), glyph.top());
 		}
+		// And the pocket's page counter, as a stash of more than twenty kinds would show it.
+		List<WardrobeFont.Glyph> counter = WardrobeFont.pagesRow(1, 3);
+		for (int i = 0; i < counter.size(); i++) {
+			WardrobeFont.Glyph glyph = counter.get(i);
+			screen = draw(screen, glyph.art().get(), WardrobeFont.rowX(counter, i, WardrobeFont.PAGE_X), glyph.top());
+		}
 		for (int[] slot : slots()) screen = box(screen, SLOT0_X + slot[1] * PITCH, SLOT0_Y + slot[0] * PITCH, slot[2]);
 
 		// And the four angles in a row underneath, on the panel's own cloth, at panel size.

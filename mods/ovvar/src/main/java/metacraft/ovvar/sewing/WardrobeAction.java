@@ -10,7 +10,8 @@ import net.minecraft.resources.Identifier;
  * and a dimmed twin with a red slash for an action this server does not allow. A refused action is
  * then plainly the same action, out of use — where the grey glass pane it used to be read as a bug.
  *
- * @param id	the art's name, the model's name, and the half of both they share
+ * @param id	the art's name and the model's name; two actions may share one (the page
+ *			  arrows are the rotation arrows, pointing the same ways)
  * @param verb  what the button is called ("Take out"); a refused one is "… (not here)"
  * @param does  the one line under it saying what it does
  */
@@ -21,9 +22,14 @@ public enum WardrobeAction {
 	SEE_3D("see_3d", "See it in 3D", "Stands a mannequin wearing your ovve in front of you"),
 	/** The two that turn the preview; their own labels name the side they bring round. */
 	ROTATE_LEFT("rotate_left", "Turn it left", "The preview, a quarter turn anticlockwise"),
-	ROTATE_RIGHT("rotate_right", "Turn it right", "The preview, a quarter turn clockwise");
+	ROTATE_RIGHT("rotate_right", "Turn it right", "The preview, a quarter turn clockwise"),
+	/** And the two that page the pocket: the same two arrows, pointing the same ways, another job. */
+	PAGE_PREVIOUS("rotate_left", "◀ Previous page", "The kinds of patch before these"),
+	PAGE_NEXT("rotate_right", "Next page ▶", "The kinds of patch after these");
 
-	public final String id, verb, does;
+	/** The art's name, which two actions may share — so {@code id} is not unique, the constant is. */
+	public final String id;
+	public final String verb, does;
 
 	WardrobeAction(String id, String verb, String does) {
 		this.id = id;

@@ -113,7 +113,10 @@ public final class GeneratedAssets implements DataProvider {
 
 		// The wardrobe's own action icons, and a dimmed twin of each for an action this server does
 		// not allow — the same icon, plainly out of use, rather than a pane of grey glass.
+		List<String> icons = new ArrayList<>();
 		for (WardrobeAction action : WardrobeAction.values()) {
+			if (icons.contains(action.art())) continue;   // the page arrows share the rotation arrows' art
+			icons.add(action.art());
 			Tex art = art(action.art());
 			require(art.width == 16 && art.height == 16, action.art() + ".png is " + art.width + "×" + art.height + ", not 16×16");
 			item(action.itemName(true), art);

@@ -78,6 +78,10 @@ public final class WardrobeGui extends SimpleGui {
 	private static final int ROWS = 6, WIDTH = 9;
 	private static final int TAB_ROW = 0, BODY_TOP = 1, BODY_ROWS = 4, ACTION_ROW = 5;
 	private static final int PATCH_COL0 = 0, PATCH_COLS = 5;
+	/** The pocket's slots, and the two of them the page arrows take when there is more than one page. */
+	public static final int POCKET = BODY_ROWS * PATCH_COLS;
+	public static final int PAGE_PREVIOUS = slot(BODY_TOP + BODY_ROWS - 1, PATCH_COL0);
+	public static final int PAGE_NEXT = slot(BODY_TOP + BODY_ROWS - 1, PATCH_COL0 + PATCH_COLS - 1);
 	private static final int PREVIEW_COL0 = 5, PREVIEW_COLS = 4;
 	private static final int TAKE_OUT_HINT = slot(ACTION_ROW, 0), DEPOSIT = slot(ACTION_ROW, 1), SEW_HINT = slot(ACTION_ROW, 2);
 	private static final int MANNEQUIN = slot(ACTION_ROW, 3), FINISH_SEWING = slot(ACTION_ROW, 4);
@@ -90,12 +94,14 @@ public final class WardrobeGui extends SimpleGui {
 	private final Chapter chapter;
 	/** Which way round the preview is turned; per open screen, front to begin with. */
 	private final Angle angle;
+	/** Which page of the pocket is on show; per open screen, the first to begin with. */
+	private final int page;
 	/** Whose wardrobe is on show — the player's own, or somebody else's for {@code /ovvar look}. */
 	private final UUID owner;
 	private final String ownerName;
 
 	public static void open(ServerPlayer player) {
-		WardrobeGui gui = new WardrobeGui(player, player.getUUID(), player.getName().getString(), defaultChapter(player), Angle.FRONT);
+		WardrobeGui gui = new WardrobeGui(player, player.getUUID(), player.getName().getString(), defaultChapter(player), Angle.FRONT, 0);
 		gui.build();
 		gui.open();
 	}
@@ -116,17 +122,18 @@ public final class WardrobeGui extends SimpleGui {
 				}
 			}
 		}
-		WardrobeGui gui = new WardrobeGui(viewer, owner, ownerName, chapter, Angle.FRONT);
+		WardrobeGui gui = new WardrobeGui(viewer, owner, ownerName, chapter, Angle.FRONT, 0);
 		gui.build();
 		gui.open();
 	}
 
-	private WardrobeGui(ServerPlayer player, UUID owner, String ownerName, Chapter chapter, Angle angle) {
+	private WardrobeGui(ServerPlayer player, UUID owner, String ownerName, Chapter chapter, Angle angle, int page) {
 		super(MenuType.GENERIC_9x6, player, false);
 		this.owner = owner;
 		this.ownerName = ownerName;
 		this.chapter = chapter;
 		this.angle = angle;
+		this.page = page;
 	}
 
 	/** Is this the player's own wardrobe, or a look at somebody else's? */
@@ -139,14 +146,18 @@ public final class WardrobeGui extends SimpleGui {
 	 * for gametests to inspect {@link #getGuiElement} without the networking an open screen needs.
 	 */
 	public static WardrobeGui forTest(ServerPlayer player, Chapter chapter, Angle angle) {
-		WardrobeGui gui = new WardrobeGui(player, player.getUUID(), player.getName().getString(), chapter, angle);
+		return forTest(player, chapter, angle, 0);
+	}
+
+	public static WardrobeGui forTest(ServerPlayer player, Chapter chapter, Angle angle, int page) {
+		WardrobeGui gui = new WardrobeGui(player, player.getUUID(), player.getName().getString(), chapter, angle, page);
 		gui.build();
 		return gui;
 	}
 
 	/** The same, for a look at somebody else's wardrobe. */
 	public static WardrobeGui forTestLook(ServerPlayer viewer, UUID owner, String ownerName, Chapter chapter, Angle angle) {
-		WardrobeGui gui = new WardrobeGui(viewer, owner, ownerName, chapter, angle);
+		WardrobeGui gui = new WardrobeGui(viewer, owner, ownerName, chapter, angle, 0);
 		gui.build();
 		return gui;
 	}
@@ -254,7 +265,7 @@ public final class WardrobeGui extends SimpleGui {
 	 * and {@code activeTab} is the column of the tab they are on (owned-chapter order, so it is
 	 * theirs alone) — the highlight under it cannot be baked into a per-chapter background.
 	 */
-	public static Component title(Chapter chapter, Wardrobe wardrobe, Angle angle, int activeTab, boolean own) {
+	public static Component title(Chapter chapter, Wardrobe wardrobe, Angle angle, int activeTab, boolean own, int page) {
 		MutableComponent text = Component.literal(titleText(chapter)).withStyle(ChatFormatting.WHITE);
 		MutableComponent out = Component.empty().append(WardrobeArt.backgroundGlyph(chapter));
 		if (activeTab >= 0 && activeTab < TAB_COLS) {
@@ -266,6 +277,8 @@ public final class WardrobeGui extends SimpleGui {
 		if (!own) out.append(WardrobeFont.drawn(WardrobeFont.LOOK_ONLY));
 		else if (wardrobe.stashed().isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NO_PATCHES));
 		if (sewn.isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NOTHING_SEWN));
+		// "page 2/3" under the pocket, when the stash has more kinds than one page of it holds.
+		out.append(WardrobeFont.pages(page, pageCount(wardrobe.stashed().size())));
 		// The counts as pixel text in the spare header width, not as more of the title's own text:
 		// at 6 px a character that ran off the right of the screen.
 		out.append(WardrobeFont.stats(earned(wardrobe), sewnCount(wardrobe, chapter), wardrobe.stashSize(), titleText(chapter).length()));
@@ -299,7 +312,7 @@ public final class WardrobeGui extends SimpleGui {
 	 * the stats strip reads as ordinary text on the same line.
 	 */
 	public static Component title(Chapter chapter, Wardrobe wardrobe, Angle angle) {
-		return title(chapter, wardrobe, angle, 0, true);
+		return title(chapter, wardrobe, angle, 0, true, 0);
 	}
 
 	// ---- building the screen
@@ -317,7 +330,7 @@ public final class WardrobeGui extends SimpleGui {
 		}
 		Wardrobe wardrobe = Wardrobes.current(owner);
 		List<Chapter> tabs = tabs(wardrobe);
-		setTitle(title(chapter, wardrobe, angle, tabs.indexOf(chapter), own()));
+		setTitle(title(chapter, wardrobe, angle, tabs.indexOf(chapter), own(), page));
 
 		buildTabs(tabs);
 		buildPreview(wardrobe);
@@ -365,8 +378,12 @@ public final class WardrobeGui extends SimpleGui {
 	 * re-opening the screen — which is also how switching tabs has always worked here.
 	 */
 	private void reopen(Chapter tab, Angle to) {
+		reopen(tab, to, page);
+	}
+
+	private void reopen(Chapter tab, Angle to, int toPage) {
 		if (!isOpen()) return;
-		WardrobeGui next = new WardrobeGui(player, owner, ownerName, tab, to);
+		WardrobeGui next = new WardrobeGui(player, owner, ownerName, tab, to, toPage);
 		next.build();
 		next.open();
 	}
@@ -386,20 +403,49 @@ public final class WardrobeGui extends SimpleGui {
 				.setCallback((index, type, action, gui) -> reopen(chapter, to)).build();
 	}
 
+	/**
+	 * How many kinds of patch one page of the pocket holds. All twenty of its slots while they are
+	 * enough; eighteen once they are not, because the two ends of the bottom row go to the page
+	 * arrows — both of them, on every page, even the pages that only need one, so that the arrows
+	 * never move under the pointer.
+	 */
+	public static int perPage(int kinds) {
+		return kinds > POCKET ? POCKET - 2 : POCKET;
+	}
+
+	/** How many pages the pocket needs for {@code kinds} kinds of patch; never fewer than one. */
+	public static int pageCount(int kinds) {
+		int per = perPage(kinds);
+		return Math.max(1, (kinds + per - 1) / per);
+	}
+
+	/** The pocket's slots that hold patches on a screen that is paging, in reading order. */
+	public static List<Integer> pocketSlots(boolean paging) {
+		List<Integer> out = new ArrayList<>();
+		for (int i = 0; i < POCKET; i++) {
+			int row = i / PATCH_COLS, col = i % PATCH_COLS;
+			boolean arrow = paging && row == BODY_ROWS - 1 && (col == 0 || col == PATCH_COLS - 1);
+			if (!arrow) out.add(slot(BODY_TOP + row, PATCH_COL0 + col));
+		}
+		return out;
+	}
+
 	private void buildCollection(ServerPlayer player, Wardrobe wardrobe) {
 		String refusal = OwnedSewing.editingRefusal(player);
 		boolean canSew = refusal == null && config().sessions(), canTake = refusal == null && config().canWithdraw();
 		boolean leftTakes = !config().sessions() || config().stashClick() == StashConfig.StashClick.WITHDRAW;
 
-		List<Patches.Patch> stashed = wardrobe.stashed();
-		int capacity = BODY_ROWS * PATCH_COLS;
 		// One kind's stack of items, not one item per patch, so "kind" and "collection slot" are the
-		// same thing; a wardrobe with more kinds than fit gives up the last slot to say so instead.
-		boolean overflow = stashed.size() > capacity;
-		int max = overflow ? capacity - 1 : Math.min(stashed.size(), capacity);
-		for (int i = 0; i < max; i++) {
-			Patches.Patch patch = stashed.get(i);
-			int row = i / PATCH_COLS, col = i % PATCH_COLS;
+		// same thing. Sorted by name, so a kind keeps its place from one opening to the next and does
+		// not move about as the counts change; a stash with more kinds than the pocket holds is paged.
+		List<Patches.Patch> stashed = new ArrayList<>(wardrobe.stashed());
+		stashed.sort(java.util.Comparator.comparing(Patches.Patch::name));
+		int pages = pageCount(stashed.size());
+		int showing = Math.min(page, pages - 1);
+		List<Integer> slots = pocketSlots(pages > 1);
+		int from = showing * perPage(stashed.size());
+		for (int i = 0; i + from < stashed.size() && i < slots.size(); i++) {
+			Patches.Patch patch = stashed.get(from + i);
 			int count = wardrobe.count(patch);
 			GuiElementBuilder element = GuiElementBuilder.from(new ItemStack(ModContent.patchItem(patch), Math.min(count, 64)))
 					.setName(Component.literal(patch.name()).withStyle(ChatFormatting.WHITE))
@@ -426,17 +472,23 @@ public final class WardrobeGui extends SimpleGui {
 					StashSession.start(player, patch, why -> player.sendSystemMessage(Component.literal(why).withStyle(ChatFormatting.RED)));
 				}
 			});
-			setSlot(slot(BODY_TOP + row, PATCH_COL0 + col), element.build());
+			setSlot(slots.get(i), element.build());
 		}
 		// An empty stash says so in the glyph layer (WardrobeFont.NO_PATCHES, drawn by the title
 		// across the whole pocket): no item here, so there is nothing to hover or mistake for a patch.
-		if (overflow) {
-			int more = stashed.size() - max;
-			int row = capacity / PATCH_COLS - 1, col = PATCH_COLS - 1;
-			setSlot(slot(BODY_TOP + row, PATCH_COL0 + col), new GuiElementBuilder(Items.CRAFTING_TABLE)
-					.setName(Component.literal("+" + more + " more").withStyle(ChatFormatting.GOLD))
-					.addLoreLine(Component.literal("kind(s) not shown here").withStyle(ChatFormatting.GRAY)).build());
+		if (pages > 1) {
+			if (showing > 0) setSlot(PAGE_PREVIOUS, pageArrow(WardrobeAction.PAGE_PREVIOUS, showing - 1, pages));
+			if (showing < pages - 1) setSlot(PAGE_NEXT, pageArrow(WardrobeAction.PAGE_NEXT, showing + 1, pages));
 		}
+	}
+
+	/** One of the pocket's page arrows: the rotation arrows' own sprite, pointing the same way, another job. */
+	private GuiElement pageArrow(WardrobeAction what, int to, int pages) {
+		return GuiElementBuilder.from(icon(what, true))
+				.setName(Component.literal(what.verb).withStyle(ChatFormatting.AQUA))
+				.addLoreLine(Component.literal(what.does).withStyle(ChatFormatting.GRAY))
+				.addLoreLine(Component.literal("Page " + (to + 1) + " of " + pages).withStyle(ChatFormatting.DARK_GRAY))
+				.setCallback((index, type, action, gui) -> reopen(chapter, angle, to)).build();
 	}
 
 	/**

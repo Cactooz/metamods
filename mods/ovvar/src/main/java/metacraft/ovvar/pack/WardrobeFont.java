@@ -300,6 +300,54 @@ public final class WardrobeFont {
 		return out;
 	}
 
+	// ---- the pocket's page counter
+
+	/**
+	 * "page 2/3", when the stash has more kinds of patch than the pocket's twenty slots. It goes in
+	 * the action row's spare middle (cols 5-6), which is the nearest free pixels to the pocket's
+	 * bottom-right corner: the pocket itself is slots edge to edge, with nothing but 1 px gutters
+	 * between them, and 5 px of type has to go somewhere it does not sit on an icon.
+	 */
+	public static final int PAGE_X = cellX(5) + 2, PAGE_TOP = cellY(5) + 6;
+
+	private static final Glyph[] PAGE_DIGITS = new Glyph[10];
+	public static final Glyph PAGE_LABEL = pageWord("page", "page "), PAGE_OF = pageWord("of", "/");
+
+	static {
+		for (int digit = 0; digit < 10; digit++) PAGE_DIGITS[digit] = pageWord("p" + digit, String.valueOf(digit));
+	}
+
+	private static Glyph pageWord(String name, String text) {
+		int width = TinyType.width(text);
+		return glyph("page/" + name, PAGE_X, PAGE_TOP, width, TinyType.HEIGHT,
+				() -> TinyType.block(List.of(text), width, STATS_INK, STATS_SHADOW).crop(0, 0, width, TinyType.HEIGHT));
+	}
+
+	/** {@code page N/M}, or nothing at all when it all fits on one page. */
+	public static Component pages(int page, int of) {
+		List<Glyph> row = pagesRow(page, of);
+		if (row.isEmpty()) return Component.empty();
+		return Component.literal(row(PAGE_X, row)).withStyle(WardrobeArt.STYLE);
+	}
+
+	/** The glyphs {@link #pages} draws, in order; empty when it all fits on one page. */
+	public static List<Glyph> pagesRow(int page, int of) {
+		List<Glyph> row = new ArrayList<>();
+		if (of <= 1) return row;
+		row.add(PAGE_LABEL);
+		for (char c : String.valueOf(page + 1).toCharArray()) row.add(PAGE_DIGITS[c - '0']);
+		row.add(PAGE_OF);
+		for (char c : String.valueOf(of).toCharArray()) row.add(PAGE_DIGITS[c - '0']);
+		return row;
+	}
+
+	/** Where {@link #row} puts the glyph at {@code index}, laid out from {@code from}. */
+	public static int rowX(List<Glyph> row, int index, int from) {
+		int x = from;
+		for (int i = 0; i < index; i++) x += row.get(i).width() + GAP;
+		return x;
+	}
+
 	// ---- drawing
 
 	/** {@code [spaces to x][the glyph][spaces back]}: the cursor ends exactly where it started. */
