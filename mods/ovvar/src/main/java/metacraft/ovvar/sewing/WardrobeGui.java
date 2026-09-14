@@ -217,8 +217,7 @@ public final class WardrobeGui extends SimpleGui {
 	 * theirs alone) — the highlight under it cannot be baked into a per-chapter background.
 	 */
 	public static Component title(Chapter chapter, Wardrobe wardrobe, Angle angle, int activeTab) {
-		String stats = "earned " + earned(wardrobe) + " · sewn " + sewnCount(wardrobe, chapter) + " · stash " + wardrobe.stashSize();
-		MutableComponent text = Component.literal(" " + chapter.name + " " + chapter.garmentWord() + " · " + stats).withStyle(ChatFormatting.WHITE);
+		MutableComponent text = Component.literal(titleText(chapter)).withStyle(ChatFormatting.WHITE);
 		MutableComponent out = Component.empty().append(WardrobeArt.backgroundGlyph(chapter));
 		if (activeTab >= 0 && activeTab < TAB_COLS) {
 			out.append(WardrobeFont.drawnAt(WardrobeFont.ACTIVE_TAB, WardrobeFont.cellX(activeTab)));
@@ -228,7 +227,30 @@ public final class WardrobeGui extends SimpleGui {
 		// The empty states are art across the panel they are about, not an item in the middle of it.
 		if (wardrobe.stashed().isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NO_PATCHES));
 		if (sewn.isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NOTHING_SEWN));
+		// The counts as pixel text in the spare header width, not as more of the title's own text:
+		// at 6 px a character that ran off the right of the screen.
+		out.append(WardrobeFont.stats(earned(wardrobe), sewnCount(wardrobe, chapter), wardrobe.stashSize(), titleText(chapter).length()));
 		return out.append(text);
+	}
+
+	/**
+	 * The only text in the title: whose ovve this is. The client draws it in the vanilla font at
+	 * about {@value WardrobeFont#TITLE_CHAR} px a character, and the screen is 176 px wide, so
+	 * everything else the title used to say is drawn as glyphs instead.
+	 */
+	public static String titleText(Chapter chapter) {
+		String full = " " + chapter.name + " " + chapter.garmentWord();
+		// A long chapter name gives up the garment word rather than the counts beside it. Measured
+		// against counts nobody will reach, so the title does not wobble as the numbers grow.
+		if (!WardrobeFont.statsRow(999, 99, 99, full.length()).isEmpty()) return full;
+		return " " + chapter.name;
+	}
+
+	/** What the longest chapter name leaves for the stats: the title's text must fit the screen on its own. */
+	public static int titleChars() {
+		int longest = 0;
+		for (Chapter chapter : Chapter.values()) longest = Math.max(longest, titleText(chapter).length());
+		return longest;
 	}
 
 	/**
@@ -461,6 +483,9 @@ public final class WardrobeGui extends SimpleGui {
 			if (config().canWithdraw()) book.addLoreLine(Component.literal((leftTakes ? "Left" : "Right") + "-click a patch to take it out as an item (trade it!)").withStyle(ChatFormatting.WHITE));
 			if (config().sessions()) book.addLoreLine(Component.literal((leftTakes ? "Right" : "Left") + "-click to sew it on your ovve on a private stand").withStyle(ChatFormatting.WHITE));
 		}
+		// The counts in full, whatever the header had room to draw of them.
+		book.addLoreLine(Component.literal("Patches earned " + earned(wardrobe) + " · sewn on this ovve " + sewnCount(wardrobe, chapter)
+				+ " · in the stash " + wardrobe.stashSize()).withStyle(ChatFormatting.WHITE));
 		book.addLoreLine(Component.literal("The stash and your ovvar follow you to every server").withStyle(ChatFormatting.DARK_GRAY));
 		for (Map.Entry<Chapter, SpotPlacements> entry : wardrobe.designs().entrySet()) {
 			List<Placement> list = entry.getValue().asPlacementList();

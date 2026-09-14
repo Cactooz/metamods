@@ -172,6 +172,114 @@ public final class WardrobeFont {
 		return glyph(name, x, PANEL_Y + (PANEL_H - height) / 2, width, height, () -> TinyType.block(lines, width, ink, shadow));
 	}
 
+	// ---- the stats readout: tiny numerals in the header, beside the chapter's name
+
+	/** The right margin of the container's header, and the row the stats sit on. */
+	public static final int HEADER_RIGHT = WardrobeArt.WIDTH - ITEM_X, STATS_TOP = 7;
+	/**
+	 * A conservative width for a character of the vanilla font, which draws the title's own text:
+	 * the widest is 6 px with its gap, so the stats never run into the chapter's name even though
+	 * the server cannot measure that text the way the client does.
+	 */
+	public static final int TITLE_CHAR = 6;
+	/** The gap the stats keep from the title's text, and between two of their own glyphs. */
+	private static final int MARGIN = 4, GAP = 1;
+
+	private static final int STATS_INK = 0xFFFFFFFF, STATS_SHADOW = 0xAA000000;
+
+	private static final Glyph[] DIGITS = new Glyph[10];
+	// The labels carry a trailing space of their own, so "earned" and its number do not run together.
+	public static final Glyph EARNED = word("earned", "earned "), SEWN = word("sewn", "sewn "), STASH = word("stash", "stash ");
+	public static final Glyph DOT = word("dot", "·");
+
+	static {
+		for (int digit = 0; digit < 10; digit++) {
+			String text = String.valueOf(digit);
+			DIGITS[digit] = word("d" + digit, text);
+		}
+	}
+
+	private static Glyph word(String name, String text) {
+		int width = TinyType.width(text);
+		return glyph("stats/" + name, HEADER_RIGHT, STATS_TOP, width, TinyType.HEIGHT,
+				() -> TinyType.block(List.of(text), width, STATS_INK, STATS_SHADOW).crop(0, 0, width, TinyType.HEIGHT));
+	}
+
+	public static Glyph digit(int value) {
+		return DIGITS[value];
+	}
+
+	/** The glyphs of a number, most significant first. */
+	public static List<Glyph> number(int value) {
+		List<Glyph> out = new ArrayList<>();
+		for (char c : String.valueOf(Math.max(0, value)).toCharArray()) out.add(digit(c - '0'));
+		return out;
+	}
+
+	/** How wide a row of glyphs comes out, laid side by side with {@value #GAP} px between them. */
+	public static int width(List<Glyph> row) {
+		int w = 0;
+		for (Glyph glyph : row) w += glyph.width() + GAP;
+		return Math.max(0, w - GAP);
+	}
+
+	/** A row of glyphs laid left to right from {@code x}; the cursor ends where it started. */
+	public static String row(int x, List<Glyph> glyphs) {
+		StringBuilder out = new StringBuilder();
+		int at = x;
+		for (Glyph glyph : glyphs) {
+			out.append(at(glyph, at));
+			at += glyph.width() + GAP;
+		}
+		return out.toString();
+	}
+
+	/**
+	 * {@code earned 32 · sewn 11 · stash 0} as pixel text, right-aligned against the header's right
+	 * margin, with as many of the three counts as fit to the right of a title {@code titleChars}
+	 * characters long. The v2 screen put all this in the title's own text and it ran off the edge
+	 * of the screen ("text going over the limit"); at 3×5 it fits beside the chapter's name, and
+	 * what does not fit is still in the help item's lore, in full.
+	 */
+	public static Component stats(int earned, int sewn, int stash, int titleChars) {
+		List<Glyph> shown = statsRow(earned, sewn, stash, titleChars);
+		if (shown.isEmpty()) return Component.empty();
+		return Component.literal(row(HEADER_RIGHT - width(shown), shown)).withStyle(WardrobeArt.STYLE);
+	}
+
+	/**
+	 * The glyphs {@link #stats} would draw, in order: as many of the three counts as fit, separated
+	 * by a dot. Empty when the chapter's name leaves no room at all — the help item's lore has them
+	 * in full whatever happens.
+	 */
+	public static List<Glyph> statsRow(int earned, int sewn, int stash, int titleChars) {
+		List<List<Glyph>> groups = List.of(labelled(EARNED, earned), labelled(SEWN, sewn), labelled(STASH, stash));
+		int room = HEADER_RIGHT - (TITLE_X + titleChars * TITLE_CHAR) - MARGIN;
+		List<Glyph> shown = new ArrayList<>();
+		for (List<Glyph> group : groups) {
+			List<Glyph> next = new ArrayList<>(shown);
+			if (!next.isEmpty()) next.add(DOT);
+			next.addAll(group);
+			if (width(next) > room) break;
+			shown = next;
+		}
+		return shown;
+	}
+
+	/** Where {@link #statsRow} puts each of its glyphs: right-aligned against the header's margin. */
+	public static int statsX(List<Glyph> shown, int index) {
+		int x = HEADER_RIGHT - width(shown);
+		for (int i = 0; i < index; i++) x += shown.get(i).width() + GAP;
+		return x;
+	}
+
+	private static List<Glyph> labelled(Glyph label, int value) {
+		List<Glyph> out = new ArrayList<>();
+		out.add(label);
+		out.addAll(number(value));
+		return out;
+	}
+
 	// ---- drawing
 
 	/** {@code [spaces to x][the glyph][spaces back]}: the cursor ends exactly where it started. */

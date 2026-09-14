@@ -6,6 +6,7 @@ import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
 import metacraft.ovvar.datagen.Tex;
 import metacraft.ovvar.pack.WardrobePreview.Angle;
+import metacraft.ovvar.sewing.WardrobeGui;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -58,6 +59,13 @@ public final class WardrobeSheet {
 			for (WardrobeFont.Glyph notice : List.of(WardrobeFont.NO_PATCHES, WardrobeFont.NOTHING_SEWN)) {
 				screen = draw(screen, notice.art().get(), notice.x(), notice.top());
 			}
+		}
+		// The header: the stats readout exactly where the title's glyphs put it, for a sample of
+		// counts. (The title's own text is the client's vanilla font, not ours to draw here.)
+		List<WardrobeFont.Glyph> stats = WardrobeFont.statsRow(32, sewn.size(), 3, WardrobeGui.titleText(chapter).length());
+		for (int i = 0; i < stats.size(); i++) {
+			WardrobeFont.Glyph glyph = stats.get(i);
+			screen = draw(screen, glyph.art().get(), WardrobeFont.statsX(stats, i), glyph.top());
 		}
 		for (int[] slot : slots()) screen = box(screen, SLOT0_X + slot[1] * PITCH, SLOT0_Y + slot[0] * PITCH, slot[2]);
 

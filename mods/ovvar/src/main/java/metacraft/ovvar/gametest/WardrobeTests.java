@@ -897,6 +897,48 @@ public final class WardrobeTests {
 		helper.succeed();
 	}
 
+	/**
+	 * The title's own text is the chapter's name and nothing else, which fits the screen at the
+	 * vanilla font's widest; the counts are pixel glyphs right-aligned in the spare header width,
+	 * as many of them as fit beside that name, and the help item's lore has them all whatever
+	 * happens. ("Text going over the limit": v2 put all of it in the title's text.)
+	 */
+	@GameTest
+	public void wardrobeTitleTextFitsAndTheStatsAreGlyphs(GameTestHelper helper) {
+		for (Chapter chapter : Chapter.values()) {
+			String text = WardrobeGui.titleText(chapter);
+			if (text.length() > 28) helper.fail(chapter + "'s title text is " + text.length() + " characters: \"" + text + "\"");
+			if (WardrobeFont.TITLE_X + text.length() * WardrobeFont.TITLE_CHAR > WardrobeArt.WIDTH) {
+				helper.fail(chapter + "'s title text can run off the right of the screen");
+			}
+			// Nothing of the counts is left in the text.
+			for (String word : List.of("earned", "sewn", "stash")) {
+				if (text.contains(word)) helper.fail(chapter + "'s title text still spells out the counts: \"" + text + "\"");
+			}
+		}
+
+		Wardrobe wardrobe = Wardrobe.NONE.add(BEER_PATCH, 3).sew(CHAPTER, BEER).orElseThrow();
+		String title = WardrobeGui.title(CHAPTER, wardrobe, Angle.FRONT).getString();
+		for (WardrobeFont.Glyph label : List.of(WardrobeFont.EARNED, WardrobeFont.SEWN, WardrobeFont.STASH)) {
+			if (title.indexOf(label.codepoint()) < 0) helper.fail("the title does not carry the " + label.name() + " readout");
+		}
+		// The digits of each count are there, and the row stays inside the header's right margin.
+		if (title.indexOf(WardrobeFont.digit(3).codepoint()) < 0) helper.fail("the title does not carry the count 3 (earned) as a digit glyph");
+		List<WardrobeFont.Glyph> row = WardrobeFont.statsRow(3, 1, 2, WardrobeGui.titleText(CHAPTER).length());
+		if (row.isEmpty()) helper.fail("no room for any of the counts beside " + CHAPTER + "'s name");
+		if (WardrobeFont.statsX(row, 0) < WardrobeFont.TITLE_X + WardrobeGui.titleText(CHAPTER).length() * WardrobeFont.TITLE_CHAR) {
+			helper.fail("the stats readout starts on top of the title's own text");
+		}
+		int end = WardrobeFont.statsX(row, row.size() - 1) + row.get(row.size() - 1).width();
+		if (end > WardrobeFont.HEADER_RIGHT) helper.fail("the stats readout ends at " + end + ", past the header's margin");
+
+		// The longest chapter name there is still leaves room for at least one count.
+		if (WardrobeFont.statsRow(1, 1, 1, WardrobeGui.titleChars()).isEmpty()) {
+			helper.fail("the longest chapter name (" + WardrobeGui.titleChars() + " chars) leaves no room for any count");
+		}
+		helper.succeed();
+	}
+
 	/** The tab being shown gets the highlight glyph, placed at its own column; no tab, no highlight. */
 	@GameTest
 	public void wardrobeTitleHighlightsTheTabOnShow(GameTestHelper helper) {
