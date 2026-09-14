@@ -5384,6 +5384,74 @@ public final class RivalsGameTests {
 	}
 
 	/**
+	 * The specials are tuned from inside the game too, under a literal of their own:
+	 * {@code /rivals tune special <id> <param> <value>}. The same shape as a weapon's sheet, the same
+	 * {@code reset} in either slot, and the same two refusals — a parameter the special does not have,
+	 * and a number outside what it takes — because the point of the command is that the knobs can be
+	 * found from in front of the game rather than in a file.
+	 */
+	@GameTest
+	public void tuneSpecialCommandMovesTheSpecialsNumbers(GameTestHelper helper) {
+		List<String> said = new ArrayList<>();
+		MinecraftServer server = helper.getLevel().getServer();
+		CommandSourceStack source = server.createCommandSourceStack().withSource(sink(said));
+		withSpecialTuning(() -> {
+			SpecialTuning.resetAll();
+			// The whole sheet, which is what a tuner reads first.
+			server.getCommands().performPrefixedCommand(source, "rivals tune special burst_bomb");
+			String sheet = String.join(" | ", said);
+			helper.assertTrue(sheet.contains("ink") && sheet.contains("blast") && sheet.contains("velocity"),
+					"the sheet lists the burst bomb's numbers: " + sheet);
+			helper.assertFalse(sheet.contains("slide_ticks"), "and not the curling bomb's slide: " + sheet);
+			// A parameter this special does not have names itself and lists the ones that would work.
+			said.clear();
+			server.getCommands().performPrefixedCommand(source, "rivals tune special burst_bomb fuse 5");
+			String refused = String.join(" | ", said);
+			helper.assertTrue(refused.contains("fuse"), "the failure names what was typed: " + refused);
+			helper.assertTrue(refused.contains("ink") && refused.contains("blast"),
+					"and lists what would have worked: " + refused);
+			// A number outside the range is refused with the range in the message, and changes nothing.
+			said.clear();
+			server.getCommands().performPrefixedCommand(source, "rivals tune special splat_bomb radius 500");
+			String outside = String.join(" | ", said);
+			helper.assertTrue(outside.contains("radius") && outside.contains(SpecialTuning.Param.RADIUS.range()),
+					"the failure states the range: " + outside);
+			helper.assertValueEqual(SpecialTuning.get(Special.SPLAT_BOMB).value("radius"),
+					(double) Weapon.SPECIAL_RADIUS, "and the splat bomb is untouched");
+			// And one that works lands, and reset puts it back. The curling bomb's friction, which nothing
+			// else in the suite throws.
+			said.clear();
+			server.getCommands().performPrefixedCommand(source, "rivals tune special curling_bomb friction 0.8");
+			helper.assertValueEqual(SpecialTuning.get(Special.CURLING_BOMB).value("friction"), 0.8,
+					"a known parameter is set");
+			helper.assertTrue(String.join(" | ", said).contains("0.8"), "and the reply says so: " + said);
+			server.getCommands().performPrefixedCommand(source, "rivals tune special reset");
+			helper.assertValueEqual(SpecialTuning.get(Special.CURLING_BOMB).value("friction"), Special.CURLING_FRICTION,
+					"/rivals tune special reset puts every special back");
+		});
+		helper.succeed();
+	}
+
+	/** {@link #withTuning} for the specials' sheet: every number put back however the body left it. */
+	private static void withSpecialTuning(Runnable body) {
+		Map<Special, Map<SpecialTuning.Param, Double>> before = new EnumMap<>(Special.class);
+		for (Special special : Special.values()) {
+			Map<SpecialTuning.Param, Double> values = new EnumMap<>(SpecialTuning.Param.class);
+			for (SpecialTuning.Param param : SpecialTuning.Param.values()) {
+				values.put(param, SpecialTuning.get(special).value(param));
+			}
+			before.put(special, values);
+		}
+		try {
+			body.run();
+		} finally {
+			for (Special special : Special.values()) {
+				before.get(special).forEach((param, value) -> SpecialTuning.get(special).set(param, value));
+			}
+		}
+	}
+
+	/**
 	 * A parameter nobody has heard of is a failure that says what the weapon does have, rather than a
 	 * silent no-op: the whole point of the command is that you can find the knobs from inside the game.
 	 * A number outside what the parameter takes is the same story, with the range in the message.

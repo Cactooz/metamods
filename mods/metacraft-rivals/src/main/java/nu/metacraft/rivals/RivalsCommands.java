@@ -26,6 +26,7 @@ import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Special;
 import nu.metacraft.rivals.gun.SpecialDialog;
+import nu.metacraft.rivals.gun.SpecialTuning;
 import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponDialog;
 import nu.metacraft.rivals.gun.WeaponPicks;
@@ -93,6 +94,20 @@ public final class RivalsCommands {
 						// what is on offer instead of failing to parse, and "reset" sits in the same slot.
 						.then(literal("tune").requires(ADMIN)
 								.executes(ctx -> tuneAll(ctx.getSource()))
+								// A literal in the weapon's place, because a special is not a weapon and no
+								// weapon answers to the word: /rivals tune special <id> <param> <value>, with
+								// the same shape as a weapon's sheet and the same "reset" in either slot.
+								.then(literal("special")
+										.executes(ctx -> tuneSpecials(ctx.getSource()))
+										.then(argument("special", StringArgumentType.word()).suggests(SPECIALS)
+												.executes(ctx -> tuneSpecial(ctx.getSource(), StringArgumentType.getString(ctx, "special")))
+												.then(argument("param", StringArgumentType.word()).suggests(SPECIAL_PARAMS)
+														.executes(ctx -> tuneSpecialParam(ctx.getSource(), StringArgumentType.getString(ctx, "special"),
+																StringArgumentType.getString(ctx, "param")))
+														.then(argument("value", DoubleArgumentType.doubleArg())
+																.executes(ctx -> tuneSpecialSet(ctx.getSource(), StringArgumentType.getString(ctx, "special"),
+																		StringArgumentType.getString(ctx, "param"),
+																		DoubleArgumentType.getDouble(ctx, "value")))))))
 								.then(argument("weapon", StringArgumentType.word()).suggests(WEAPONS)
 										.executes(ctx -> tuneWeapon(ctx.getSource(), StringArgumentType.getString(ctx, "weapon")))
 										.then(argument("param", StringArgumentType.word()).suggests(PARAMS)
@@ -431,10 +446,16 @@ public final class RivalsCommands {
 				Stream.concat(WeaponTuning.params(weapon.get()).stream().map(param -> param.id), Stream.of("reset")), builder);
 	};
 
-	/** Every weapon's tuning that is off its default, or a word to say that none of it is. */
+	/**
+	 * Every weapon's tuning that is off its default, and every special's, or a word to say that none of
+	 * it is. Both sheets, because {@code /rivals tune} with nothing after it is the question "what has
+	 * been changed here", and a specials sheet that only appeared when asked for by name would be a
+	 * tuning session's worth of changes nobody was told about.
+	 */
 	private static int tuneAll(CommandSourceStack source) {
-		if (WeaponTuning.allDefault()) {
-			source.sendSuccess(() -> Component.literal("Weapon tuning: all defaults. " + WeaponTuning.configPath()), false);
+		if (WeaponTuning.allDefault() && SpecialTuning.allDefault()) {
+			source.sendSuccess(() -> Component.literal("Weapon and special tuning: all defaults. "
+					+ WeaponTuning.configPath() + ", " + SpecialTuning.configPath()), false);
 			return 0;
 		}
 		int changed = 0;
@@ -448,7 +469,145 @@ public final class RivalsCommands {
 					.collect(Collectors.joining(", "));
 			source.sendSuccess(() -> Component.literal(line), false);
 		}
+		return changed + specialLines(source);
+	}
+
+	/** The special ids, plus the {@code reset} that takes all three back to their defaults. */
+	private static final SuggestionProvider<CommandSourceStack> SPECIALS = (ctx, builder) ->
+			SharedSuggestionProvider.suggest(
+					Stream.concat(Stream.of(Special.values()).map(Special::commandId), Stream.of("reset")), builder);
+
+	/** The parameters the special already typed answers to, plus its own {@code reset}. */
+	private static final SuggestionProvider<CommandSourceStack> SPECIAL_PARAMS = (ctx, builder) -> {
+		Optional<Special> special = Special.byId(StringArgumentType.getString(ctx, "special"));
+		if (special.isEmpty()) return builder.buildFuture();
+		return SharedSuggestionProvider.suggest(Stream.concat(
+				SpecialTuning.params(special.get()).stream().map(param -> param.id), Stream.of("reset")), builder);
+	};
+
+	/** Every special's tuning that is off its default, or a word to say that none of it is. */
+	private static int tuneSpecials(CommandSourceStack source) {
+		if (SpecialTuning.allDefault()) {
+			source.sendSuccess(() -> Component.literal("Special tuning: all defaults. " + SpecialTuning.configPath()), false);
+			return 0;
+		}
+		return specialLines(source);
+	}
+
+	/** The changed lines of every special's sheet, and only those. Shared with {@link #tuneAll}. */
+	private static int specialLines(CommandSourceStack source) {
+		int changed = 0;
+		for (Special special : Special.values()) {
+			SpecialTuning tuning = SpecialTuning.get(special);
+			List<SpecialTuning.Param> params = tuning.changed();
+			if (params.isEmpty()) continue;
+			changed += params.size();
+			String line = special.commandId() + ": " + params.stream()
+					.map(param -> param.id + " " + WeaponTuning.number(tuning.value(param))
+							+ " [" + WeaponTuning.number(tuning.defaultValue(param)) + "]")
+					.collect(Collectors.joining(", "));
+			source.sendSuccess(() -> Component.literal(line), false);
+		}
 		return changed;
+	}
+
+	/**
+	 * One special's whole sheet, defaults in brackets behind anything that has moved — or, for the word
+	 * {@code reset} in the special's place, all three back to the numbers they shipped with.
+	 */
+	private static int tuneSpecial(CommandSourceStack source, String specialId) {
+		if ("reset".equalsIgnoreCase(specialId)) {
+			int changed = 0;
+			for (Special special : Special.values()) changed += SpecialTuning.get(special).changed().size();
+			SpecialTuning.resetAll();
+			SpecialTuning.save();
+			int total = changed;
+			source.sendSuccess(() -> Component.literal("Every special back to its defaults: " + total + " values")
+					.withStyle(ChatFormatting.YELLOW), true);
+			return total;
+		}
+		Optional<Special> found = specialOr(source, specialId);
+		if (found.isEmpty()) return 0;
+		Special special = found.get();
+		SpecialTuning tuning = SpecialTuning.get(special);
+		List<SpecialTuning.Param> params = SpecialTuning.params(special);
+		source.sendSuccess(() -> Component.literal(special.displayName + " (" + special.commandId() + ")")
+				.withStyle(ChatFormatting.AQUA), false);
+		for (SpecialTuning.Param param : params) {
+			boolean untouched = tuning.isDefault(param);
+			String line = "  " + param.id + ": " + WeaponTuning.number(tuning.value(param))
+					+ (untouched ? "" : " [" + WeaponTuning.number(tuning.defaultValue(param)) + "]")
+					+ "  (" + param.range() + ")";
+			source.sendSuccess(() -> Component.literal(line).withStyle(untouched ? ChatFormatting.GRAY : ChatFormatting.WHITE), false);
+		}
+		return params.size();
+	}
+
+	/** One number — or, for {@code reset} in the parameter's place, this special's whole sheet. */
+	private static int tuneSpecialParam(CommandSourceStack source, String specialId, String paramId) {
+		Optional<Special> found = specialOr(source, specialId);
+		if (found.isEmpty()) return 0;
+		Special special = found.get();
+		SpecialTuning tuning = SpecialTuning.get(special);
+		if ("reset".equalsIgnoreCase(paramId)) {
+			int changed = tuning.changed().size();
+			tuning.reset();
+			SpecialTuning.save();
+			source.sendSuccess(() -> Component.literal(special.displayName + " back to its defaults: " + changed + " values")
+					.withStyle(ChatFormatting.YELLOW), true);
+			return changed;
+		}
+		Optional<SpecialTuning.Param> wanted = specialParamOr(source, special, paramId);
+		if (wanted.isEmpty()) return 0;
+		SpecialTuning.Param param = wanted.get();
+		String line = special.commandId() + " " + param.id + ": " + WeaponTuning.number(tuning.value(param))
+				+ (tuning.isDefault(param) ? " (default)" : " [default " + WeaponTuning.number(tuning.defaultValue(param)) + "]")
+				+ ", " + param.range();
+		source.sendSuccess(() -> Component.literal(line), false);
+		return 1;
+	}
+
+	/** Move one of a special's numbers and write the file. Old → new, the same as a weapon's. */
+	private static int tuneSpecialSet(CommandSourceStack source, String specialId, String paramId, double value) {
+		Optional<Special> found = specialOr(source, specialId);
+		if (found.isEmpty()) return 0;
+		Special special = found.get();
+		Optional<SpecialTuning.Param> wanted = specialParamOr(source, special, paramId);
+		if (wanted.isEmpty()) return 0;
+		SpecialTuning.Param param = wanted.get();
+		if (!param.holds(value)) {
+			source.sendFailure(Component.literal(param.id + " must be " + param.range() + ", not "
+					+ WeaponTuning.number(value)).withStyle(ChatFormatting.RED));
+			return 0;
+		}
+		SpecialTuning tuning = SpecialTuning.get(special);
+		double was = tuning.set(param, value);
+		SpecialTuning.save();
+		source.sendSuccess(() -> Component.literal(special.commandId() + " " + param.id + ": "
+				+ WeaponTuning.number(was) + " \u2192 " + WeaponTuning.number(value)
+				+ (tuning.isDefault(param) ? " (the default)" : " [default " + WeaponTuning.number(tuning.defaultValue(param)) + "]")), true);
+		return 1;
+	}
+
+	/** The named special, or a failure that says which names there are. */
+	private static Optional<Special> specialOr(CommandSourceStack source, String id) {
+		Optional<Special> special = Special.byId(id);
+		if (special.isEmpty()) {
+			source.sendFailure(Component.literal("No special called \"" + id + "\". Try one of: " + Special.idList())
+					.withStyle(ChatFormatting.RED));
+		}
+		return special;
+	}
+
+	/** The named parameter of that special, or a failure that lists the ones it has. */
+	private static Optional<SpecialTuning.Param> specialParamOr(CommandSourceStack source, Special special, String id) {
+		Optional<SpecialTuning.Param> param = SpecialTuning.Param.byId(id)
+				.filter(found -> SpecialTuning.applies(special, found));
+		if (param.isEmpty()) {
+			source.sendFailure(Component.literal("The " + special.displayName + " has no parameter called \"" + id
+					+ "\". Try one of: " + SpecialTuning.paramList(special)).withStyle(ChatFormatting.RED));
+		}
+		return param;
 	}
 
 	/**

@@ -103,7 +103,7 @@ dedicated Rivals server wants.
 - Damage is Splatoon's, and it falls off. A shot is worth its full damage for the first few ticks of
   flight and then loses a slice a tick down to a floor, read at the hit rather than baked in at the
   throw: a shooter's ball is 8 up close and 4 across a courtyard. A weapon that says nothing about
-  falloff — the slosher, the splat bomb — is flat.
+  falloff — the slosher, every special — is flat.
 - One colour per cell: a hit in another colour wipes the cell and starts it over as a single
   connected face in the new colour, even if the old cell held paint on more than one face.
 - Four weapons, one item class (`PaintWeapon`) parameterised by a `Weapon` enum, given with
@@ -119,7 +119,9 @@ dedicated Rivals server wants.
   | charger | 2 → 18 | 20 ticks | 8 → 16 over a partial charge, **32 at a full one** | hold right click to aim (the spyglass scope; a full charge is 20 ticks), left click to fire a hitscan line of 9 → 24 blocks, stopped by the first block or player in it | `splat_charger.json` |
   | slosher | 7 | 12 ticks (click) | 7, flat | 2 pellets 8° apart, lobbed 15° up at 1.1 under gravity 0.06, 5×5 splat, no bounce | `slosher.json` |
   | roller | 9 a flick, 1 per 5 ticks rolling | 15 ticks after a flick | flick 30, −3.45/tick from tick 8, floor 7; roll 25 | **hold** right click to roll a 3-wide strip where you walk, with 8% more speed, no sprinting, and a head that runs over anyone in front once per 10 ticks — both only while you are actually moving, so a roller parked in a doorway is not a wall of damage, and paint thrown up where the head touches the ground; **left click** to flick 3 drops in a high arc | `splat_roller.json` |
-  | splat bomb | 70 | 4 s of its own | 36 at the centre → 6 at 3.25 blocks | thrown 30° up at 0.75, bounces where it lands and goes off 20 ticks later | `splat_bomb.json` |
+
+  The thing on **F** is not in this table any more, because it is not a weapon and it is not the
+  weapon's: see **Specials**, below.
 
   Standing in your own ink refills the tank in ten seconds on your feet and three as a squid, and a
   weapon that has just fired waits its own `refill_delay` first (7 for a shooter, 15 for a roller —
@@ -138,13 +140,41 @@ dedicated Rivals server wants.
 
   | weapon | right click | left click | F (swap hands key) |
   |---|---|---|---|
-  | shooter | hold to fire | — | special (splat bomb) |
-  | charger | hold to scope/charge | fire the charge | special |
-  | slosher | slosh | — | special |
-  | roller | hold to roll | **flick** | special |
+  | shooter | hold to fire | — | your special |
+  | charger | hold to scope/charge | fire the charge | — |
+  | slosher | slosh | — | your special |
+  | roller | hold to roll | **flick** | your special |
 
-  The charger is the one weapon with nothing on F: its charge *is* its special, it reads none of the
-  `special_*` tuning, and pressing F with one in hand says so rather than doing nothing.
+  The charger is the one weapon with nothing on F: its charge *is* its special, and pressing F with one
+  in hand says so rather than doing nothing.
+
+  ### Specials
+
+  **F throws your special**, and there are three of them — Splatoon 1 sub weapons on the same
+  hundred-unit tank. They differ in the one way a sub can: *when* it goes off. The splat bomb lands and
+  waits, so throwing one is a question about where somebody will be in a second; the burst bomb goes off
+  on contact, so it is a question about where they are now; the curling bomb goes off somewhere else
+  entirely, because it slides there first painting the floor as it goes, and it is the only one worth
+  throwing at nobody at all.
+
+  | special | ink | wait | behaviour |
+  |---|---|---|---|
+  | splat bomb | 70 | 80 t | a slow lob 30° up at 0.75; bounces where it lands and goes off 20 ticks later; 7×7 splat, 36 at the centre → 6 at 3.25 blocks |
+  | burst bomb | 40 | 40 t | thrown nearly flat at 1.4 and **bursts on impact**, block or body, no fuse; 5×5 splat on the face it struck, 25 → 5 at 2 blocks |
+  | curling bomb | 55 | 70 t | thrown low, **slides along the floor for up to 40 ticks** painting a 1-wide line under itself and reflecting off walls, then bursts; 5×5 splat, 18 → 4 at 2.5 blocks |
+
+  The special is the *player's*, not the gun's: a splat bomb out of a roller is the same splat bomb, so
+  it is picked once and remembered ([`SpecialChoice`](src/main/java/nu/metacraft/rivals/gun/SpecialChoice.java),
+  saved data by UUID, written as the special's own id). `/rivals special` opens the picker — three
+  pictures of the blob the bomb actually flies as, in your team's colour and at the size it is thrown
+  at — and `/rivals special pick <id>` is what its buttons run. The weapon picker's last button says
+  what F throws now and opens it, taking a weapon opens it once for anybody who has never picked, and a
+  match start asks whoever is still missing either half of a loadout.
+
+  Every number above is tunable live, keyed by special rather than by weapon:
+  `/rivals tune special <id> <param> <value>`. The falloff is linear in distance *squared* with no
+  line-of-sight test, the same shape Splatcraft's own explosion uses, and every blast is at full damage
+  inside its `core`, so it starts falling off at the edge of the bomb rather than at a point.
 
   **The pick is locked in its slot.** A weapon you have picked is *the* weapon you are carrying, and it
   stays in the slot it was put in (`WeaponPicks.GIVEN_SLOT`, the first): the hotbar selection is pinned
@@ -220,12 +250,11 @@ dedicated Rivals server wants.
   None of this took effect at all until the client started using the item for real: `use_effects` is
   applied in `LocalPlayer`, and only while it is using.
 
-  **F** — the swap-hands key — throws a **splat bomb** on everything but the charger: a slow lob that bounces where it
-  lands and counts twenty ticks down there rather than going off on contact, so it is a thing you can
-  run away from and throwing one is a decision about where someone will be. It splashes a 7×7 patch
-  and takes 36 hearts off at the centre falling to 6 at three and a quarter blocks (linear in distance
-  squared, no line-of-sight test), for 70 ink and a four-second wait of its own — separate from the
-  fire cooldown, so the trigger is never held up by it; all of it is tunable as `special_*`. F reaches
+  **F** — the swap-hands key — throws **your special** on everything but the charger: whichever of the
+  three in **Specials** above you picked, for that special's own ink and its own wait, separate from the
+  fire cooldown so the trigger is never held up by it. A player who never picked throws the splat bomb,
+  which is what F has always thrown. The wait is named when it refuses, because a player who picked the
+  burst bomb should be told about a burst bomb. F reaches
   the server as a `ServerboundPlayerActionPacket` carrying `SWAP_ITEM_WITH_OFFHAND`, which nothing in the
   Fabric API covers, so a mixin on `handlePlayerAction` turns it into `PaintWeapon.swapHands` and
   **cancels the packet**: vanilla never runs, so nothing moves between the hands, whether the bomb went or
@@ -712,6 +741,7 @@ Then, once per round:
 ```
 /team join data @s                     each player picks a side (or an operator assigns them)
 /rivals weapons                        each player, or right-click the weapon selector
+/rivals special                        and what F throws; the weapon picker's last button opens it too
 /rivals ready                          fails and names anybody on neither team
 /rivals match start 3                  ... or  /rivals match start 3 force
 /rivals match status                   the state and the clock
@@ -734,10 +764,16 @@ click — no restart, no reload:
 /rivals tune shooter velocity 2.4       set it; the reply says what it was
 /rivals tune shooter reset              that weapon back to its defaults
 /rivals tune reset                      all four back to theirs
+/rivals tune special                    the specials' sheet: what is off its default
+/rivals tune special burst_bomb         one special's whole sheet
+/rivals tune special burst_bomb ink 30  set it; the reply says what it was
+/rivals tune special reset              all three back to theirs
 ```
 
-Weapon ids and parameter names both tab-complete, and a name that does not exist answers with the
-ones that do.
+Weapon ids, special ids and parameter names all tab-complete, and a name that does not exist answers
+with the ones that do. `special` is a literal in the weapon's place, because a special is not a weapon:
+what F throws belongs to the thrower rather than to the gun, so it has a sheet of its own keyed by
+special.
 
 | group | parameters | who reads them |
 |---|---|---|
@@ -745,24 +781,31 @@ ones that do.
 | the cost | `ink`, `cooldown`, `refill_delay`, `kick` | all four |
 | the damage | `damage`, `decay_start`, `decay_per_tick`, `decayed_damage` | the three that throw a ball |
 | a bounce | `spatter_count`, `spatter_lifetime`, `spatter_speed`, `spatter_scatter`, `spatter_damage` | the three that throw a ball |
-| the splat bomb | `special_ink`, `special_cooldown`, `special_refill_delay`, `special_radius`, `special_damage`, `special_edge_damage`, `special_blast`, `special_fuse`, `special_velocity`, `special_gravity`, `special_lifetime` | everything but the charger |
 | the roll | `roll_width`, `roll_damage`, `roll_hit_cooldown`, `roll_ink_every`, `roll_speed` | the roller alone |
 | the charge | `charge_min`, `charge_full`, `range_min`, `range_full`, `charge_ink_min`, `charge_ink_full`, `charge_damage_min`, `charge_damage_partial`, `charge_damage_full` | the charger alone |
+
+And the specials' own sheet, under `/rivals tune special <id>`:
+
+| group | parameters | who reads them |
+|---|---|---|
+| the cost | `ink`, `cooldown`, `refill_delay` | all three |
+| the throw | `velocity`, `gravity`, `pitch`, `lifetime`, `scale` | all three |
+| the blast | `radius`, `damage`, `edge_damage`, `blast`, `core` | all three |
+| the fuse | `fuse` | the splat bomb alone |
+| the slide | `slide_ticks`, `friction` | the curling bomb alone |
 
 `straight_blocks` and `decayed_speed` are the shot's shape — how far it flies straight and fast, and
 what it drops to after that — and `decay_start` / `decay_per_tick` / `decayed_damage` are how the
 damage falls off with time in the air; a `decay_per_tick` of 0 is a weapon that does not care how far
-it has thrown. `refill_delay` belongs to all four, and a splat bomb waits `special_refill_delay`
-instead — its own, not the weapon it was thrown from, because seventy ink of a hundred is not a
-shooter's shot.
+it has thrown. `refill_delay` belongs to all four, and a special waits its own instead — the
+special's, not the weapon it was thrown from, because seventy ink of a hundred is not a shooter's shot.
 
 The charger's `range_*` and `charge_ink_*` run from no charge to a full one with everything between
 interpolated. Its **damage does not**, and that is deliberate: `charge_damage_min` → `charge_damage_partial`
 is the line a partial charge climbs (8 → 16), and `charge_damage_full` (32) is a *step* taken the moment
 the charge is full. Splatoon's charger is built on exactly that discontinuity — held to the top it
 splats, let go a moment early it does not — and a straight 8 → 32 would make every fraction of a charge
-worth its fraction of a kill, which is a duller weapon. The charger takes no `special_*`, because its
-left click is its shot and it has no bomb to put on F. `flick_tap` is gone with the tap it timed: the
+worth its fraction of a kill, which is a duller weapon. `flick_tap` is gone with the tap it timed: the
 roller's flick is the left button, so there is nothing to tell a tap from a hold, and a tuning file that
 still names the key is accepted with a line in the log and the key dropped.
 
@@ -772,11 +815,11 @@ in one splat) or a `count` of 5000 is refused rather than clamped. A value out o
 clamped with a warning, and `NaN`/`Infinity` — which a hand edit can get past the json parser — is
 ignored with one.
 
-The tuning lives in `config/metacraft-rivals/weapons.json` and is written after every change. Only
-what differs from the defaults is kept, so a fresh file is `{}` and a default changed in the code
-still reaches everyone who never touched it. The defaults themselves are the constants in
-`Weapon.java` and `PaintBall.java`; a missing or unreadable file is a warning in the log and the
-defaults stand.
+The tuning lives in `config/metacraft-rivals/weapons.json`, and the specials' in
+`config/metacraft-rivals/specials.json`; both are written after every change. Only what differs from the
+defaults is kept, so a fresh file is `{}` and a default changed in the code still reaches everyone who
+never touched it. The defaults themselves are the constants in `Weapon.java`, `Special.java` and
+`PaintBall.java`; a missing or unreadable file is a warning in the log and the defaults stand.
 
 Or just get dressed: wearing an ovvar ovve puts you on that chapter's team within the second, creating
 the teams if nobody has run `/rivals setup` yet. Matched on the item's registry id (`ovvar:data_*` →
