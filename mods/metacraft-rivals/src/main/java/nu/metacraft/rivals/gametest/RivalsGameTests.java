@@ -98,6 +98,8 @@ import nu.metacraft.rivals.gun.WeaponChoice;
 import nu.metacraft.rivals.gun.WeaponDialog;
 import nu.metacraft.rivals.gun.WeaponLock;
 import nu.metacraft.rivals.gun.Special;
+import nu.metacraft.rivals.gun.SpecialChoice;
+import nu.metacraft.rivals.gun.SpecialDialog;
 import nu.metacraft.rivals.gun.SpecialTuning;
 import nu.metacraft.rivals.gun.WeaponPicks;
 import nu.metacraft.rivals.gun.WeaponSelector;
@@ -524,7 +526,7 @@ public final class RivalsGameTests {
 		try {
 			MultiActionDialog dialog = WeaponDialog.build(player);
 			helper.assertValueEqual(dialog.common().body().size(), 4, "one picture per weapon");
-			helper.assertValueEqual(dialog.actions().size(), 4, "and one button per weapon");
+			helper.assertValueEqual(dialog.actions().size(), 5, "one button per weapon, and one out to the special");
 			helper.assertValueEqual(dialog.columns(), 2, "two buttons to a row");
 			int index = 0;
 			for (Weapon weapon : Weapon.values()) {
@@ -547,6 +549,12 @@ public final class RivalsGameTests {
 			helper.assertValueEqual(WeaponChoice.DEFAULT, Weapon.SHOOTER, "the default is the shooter");
 			helper.assertTrue(((ItemBody) dialog.common().body().getFirst()).description().orElseThrow()
 					.contents().getString().contains("(current)"), "and it is the one marked current");
+			// The last button is the other half of a loadout: it says what F throws now and opens the picker.
+			ActionButton special = dialog.actions().getLast();
+			helper.assertValueEqual(buttonCommand(special), WeaponDialog.SPECIAL_COMMAND, "the last button opens the special picker");
+			String label = special.button().label().getString();
+			helper.assertTrue(label.contains(SpecialChoice.DEFAULT.displayName),
+					"and names the one they throw today: " + label);
 			ActionButton exit = dialog.exitAction().orElseThrow();
 			helper.assertTrue(exit.action().isEmpty(), "the way out runs no command");
 			helper.assertTrue(exit.button().label().getString().contains(Weapon.SHOOTER.displayName),
@@ -833,6 +841,140 @@ public final class RivalsGameTests {
 					"and it is still a slosher after a round trip");
 			// Stored as the weapon's own id, so reordering the enum cannot hand anyone somebody else's gun.
 			helper.assertTrue(written.toString().contains("slosher"), "written as an id: " + written);
+		} finally {
+			choices.forget(player.getUUID());
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * The special pick survives a relog the same way the weapon pick does, and for the same reason: it is
+	 * a decision made in a lobby, and a restart may well happen between the lobby and the match. Written
+	 * as the special's own id rather than an ordinal, so reordering the enum cannot hand anyone somebody
+	 * else's bomb, and a player who never picked reads as empty rather than as the default — which is what
+	 * decides whether they are asked.
+	 */
+	@GameTest
+	public void theSpecialChoicePersists(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		SpecialChoice choices = SpecialChoice.of(helper.getLevel().getServer());
+		try {
+			helper.assertTrue(choices.get(player).isEmpty(), "nothing picked yet");
+			helper.assertValueEqual(SpecialChoice.DEFAULT, Special.SPLAT_BOMB, "the default is the splat bomb");
+			helper.assertValueEqual(choices.orDefault(player), Special.SPLAT_BOMB, "so that is what F throws");
+			SpecialDialog.pick(player, Special.CURLING_BOMB);
+			helper.assertValueEqual(choices.get(player).orElse(null), Special.CURLING_BOMB, "the pick is remembered");
+			helper.assertTrue(choices.isDirty(), "and the saved data knows it has to be written");
+			JsonElement written = SpecialChoice.CODEC.encodeStart(JsonOps.INSTANCE, choices)
+					.getOrThrow(error -> new AssertionError("encode: " + error));
+			SpecialChoice reloaded = SpecialChoice.CODEC.parse(JsonOps.INSTANCE, written)
+					.getOrThrow(error -> new AssertionError("decode: " + error));
+			helper.assertValueEqual(reloaded.get(player.getUUID()).orElse(null), Special.CURLING_BOMB,
+					"and it is still a curling bomb after a round trip");
+			helper.assertTrue(written.toString().contains("curling_bomb"), "written as an id: " + written);
+		} finally {
+			choices.forget(player.getUUID());
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * The special picker is the weapon picker's twin: one picture per special — the blob the bomb actually
+	 * flies as, dyed in the viewer's colour and drawn at the size it is thrown at — what it does and what
+	 * it costs written under it, one button each that runs the pick as the player, and a way out that keeps
+	 * what they already throw.
+	 */
+	@GameTest
+	public void theSpecialDialogListsEverySpecial(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.IT));
+		SpecialChoice choices = SpecialChoice.of(helper.getLevel().getServer());
+		try {
+			MultiActionDialog dialog = SpecialDialog.build(player);
+			helper.assertValueEqual(dialog.common().body().size(), 3, "one picture per special");
+			helper.assertValueEqual(dialog.actions().size(), 3, "and one button per special");
+			int index = 0;
+			for (Special special : Special.values()) {
+				ItemBody picture = (ItemBody) dialog.common().body().get(index);
+				ItemStack icon = picture.item().create();
+				DyedItemColor dye = icon.get(DataComponents.DYED_COLOR);
+				helper.assertTrue(dye != null && dye.rgb() == PaintColor.IT.rgb,
+						"picture " + index + " is dyed in the viewer's team colour, not " + dye);
+				String said = picture.description().orElseThrow().contents().getString();
+				helper.assertTrue(said.contains(special.displayName), special + " is named: " + said);
+				helper.assertTrue(said.contains("ink"), special + "'s line says what it costs: " + said);
+				helper.assertValueEqual(buttonCommand(dialog.actions().get(index)),
+						"rivals special pick " + special.commandId(), "button " + index + " takes the " + special);
+				index++;
+			}
+			// A burst bomb is a smaller bomb, so its picture is smaller: the row is to scale with itself.
+			helper.assertTrue(SpecialDialog.iconSize(Special.BURST_BOMB) < SpecialDialog.iconSize(Special.SPLAT_BOMB),
+					"the burst bomb is drawn smaller than the splat bomb");
+			// With no pick of their own the splat bomb is the one marked, since that is what F throws.
+			helper.assertTrue(((ItemBody) dialog.common().body().getFirst()).description().orElseThrow()
+					.contents().getString().contains("(current)"), "the splat bomb is the one marked current");
+			ActionButton exit = dialog.exitAction().orElseThrow();
+			helper.assertTrue(exit.action().isEmpty(), "the way out runs no command");
+			helper.assertTrue(exit.button().label().getString().contains(Special.SPLAT_BOMB.displayName),
+					"and says what it keeps: " + exit.button().label().getString());
+		} finally {
+			choices.forget(player.getUUID());
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * And the buttons are real commands, runnable by a player with no permission at all — {@code /rivals
+	 * special pick <id>} — because that is what a dialog button is. An id nothing answers to is a failure
+	 * that lists the ones that work, and changes nothing.
+	 */
+	@GameTest
+	public void theSpecialPickCommandTakesTheSpecial(GameTestHelper helper) {
+		MinecraftServer server = helper.getLevel().getServer();
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		SpecialChoice choices = SpecialChoice.of(server);
+		List<String> said = new ArrayList<>();
+		CommandSourceStack source = server.createCommandSourceStack().withSource(sink(said)).withEntity(player);
+		try {
+			server.getCommands().performPrefixedCommand(source, SpecialDialog.command(Special.BURST_BOMB));
+			helper.assertValueEqual(choices.get(player).orElse(null), Special.BURST_BOMB, "the pick is remembered");
+			said.clear();
+			server.getCommands().performPrefixedCommand(source, "rivals special pick trombone");
+			String refused = String.join(" | ", said);
+			helper.assertTrue(refused.contains("trombone") && refused.contains("burst_bomb"),
+					"an unknown id names itself and lists the real ones: " + refused);
+			helper.assertValueEqual(choices.get(player).orElse(null), Special.BURST_BOMB, "and changed nothing");
+		} finally {
+			choices.forget(player.getUUID());
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * And the pick is what F throws: the same key, the same ink cost path, a different bomb. The refusal
+	 * inside the wait names it too — a player who picked the burst bomb is told about a burst bomb.
+	 */
+	@GameTest
+	public void theSpecialPickIsWhatFThrows(GameTestHelper helper) {
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		SpecialChoice choices = SpecialChoice.of(helper.getLevel().getServer());
+		try {
+			choices.set(player, Special.BURST_BOMB);
+			ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+			long now = helper.getLevel().getServer().getTickCount();
+			helper.assertTrue(PaintWeapon.swapHands(player), "F is still ours");
+			List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(4, 3, 4), 4.0);
+			helper.assertValueEqual(balls.size(), 1, "one bomb");
+			PaintBall bomb = balls.getFirst();
+			helper.assertValueEqual(bomb.special(), Special.BURST_BOMB, "and it is the one they picked");
+			helper.assertValueEqual(bomb.blast(), Special.BURST_BLAST, "with the burst bomb's blast");
+			helper.assertValueEqual(bomb.damage(), Special.BURST_DAMAGE, "and its damage");
+			helper.assertValueEqual(Ink.get(gun), Ink.MAX - Special.BURST_INK, "for its own ink");
+			// Its own wait, too: forty ticks rather than the splat bomb's eighty.
+			helper.assertValueEqual(PaintWeapon.specialWait(player, now), (long) Special.BURST_COOLDOWN,
+					"and its own wait");
+			balls.forEach(Entity::discard);
 		} finally {
 			choices.forget(player.getUUID());
 		}
@@ -1165,20 +1307,28 @@ public final class RivalsGameTests {
 		ServerPlayer never = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		ServerPlayer teamless = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		WeaponChoice choices = WeaponChoice.of(helper.getLevel().getServer());
+		SpecialChoice specials = SpecialChoice.of(helper.getLevel().getServer());
 		try {
 			board.addPlayerToTeam(picked.getScoreboardName(), team(helper, PaintColor.DATA));
 			board.addPlayerToTeam(never.getScoreboardName(), team(helper, PaintColor.IT));
 			choices.set(picked, Weapon.SLOSHER);
+			specials.set(picked, Special.BURST_BOMB);
 			List<ServerPlayer> everyone = List.of(picked, never, teamless);
 			helper.assertValueEqual(Match.askUnarmed(Readiness.of(everyone)), 1,
 					"only the player who never picked is asked");
-			// Once they have picked, nobody is asked at all.
+			// A weapon but no special is still a player with half a loadout, and the other half is asked
+			// for on its own rather than stacked on top of a weapon picker they never saw.
 			choices.set(never, Weapon.ROLLER);
+			helper.assertValueEqual(Match.askUnarmed(Readiness.of(everyone)), 1,
+					"now it is the special they have never picked");
+			specials.set(never, Special.CURLING_BOMB);
 			helper.assertValueEqual(Match.askUnarmed(Readiness.of(everyone)), 0,
-					"and once everybody has a weapon, the countdown is left alone");
+					"and once everybody has both, the countdown is left alone");
 		} finally {
 			choices.forget(picked.getUUID());
 			choices.forget(never.getUUID());
+			specials.forget(picked.getUUID());
+			specials.forget(never.getUUID());
 			board.removePlayerFromTeam(picked.getScoreboardName());
 			board.removePlayerFromTeam(never.getScoreboardName());
 		}

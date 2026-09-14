@@ -18,7 +18,8 @@ import java.util.Optional;
 
 /**
  * The weapon picker: a 26.3 dialog with a picture of each weapon, what it is for under it, and a button
- * to take it.
+ * to take it — and, last of all, a button out to {@link SpecialDialog}, because the weapon and the thing
+ * on F are two choices and this is where a player is already standing when they make the first.
  *
  * <p>Each picture is the <em>real</em> weapon stack dyed in the viewer's own team colour, the way one in
  * their hand is, so the screen is four paint guns drawn by their own models rather than four stand-in
@@ -48,11 +49,17 @@ public final class WeaponDialog {
 	 */
 	public static MultiActionDialog build(ServerPlayer player) {
 		Weapon chosen = WeaponChoice.of(player.level().getServer()).orDefault(player);
-		return build(player.getTeam(), chosen);
+		Special special = SpecialChoice.of(player.level().getServer()).orDefault(player);
+		return build(player.getTeam(), chosen, special);
 	}
 
 	/** The same over a bare team and pick, which is the whole of what the screen depends on. */
 	public static MultiActionDialog build(@Nullable PlayerTeam team, Weapon chosen) {
+		return build(team, chosen, SpecialChoice.DEFAULT);
+	}
+
+	/** The same, told which special the viewer throws, which is what the last button says. */
+	public static MultiActionDialog build(@Nullable PlayerTeam team, Weapon chosen, Special special) {
 		Optional<PaintColor> color = PaintColor.byTeam(team);
 		List<DialogBody> body = new ArrayList<>();
 		List<ActionButton> buttons = new ArrayList<>();
@@ -67,6 +74,13 @@ public final class WeaponDialog {
 					Component.literal(WeaponPicks.blurb(weapon)),
 					command(weapon)));
 		}
+		// And the other half of a loadout, on a button of its own rather than a fifth picture: what F
+		// throws is not a weapon and does not belong in a row of them, but it is the next thing a player
+		// wants after they have picked one, and the only place they would think to look for it is here.
+		buttons.add(Dialogs.command(
+				Component.literal("Special: " + special.displayName + " \u2192 change").withStyle(ChatFormatting.AQUA),
+				Component.literal(SpecialDialog.blurb(special)),
+				SPECIAL_COMMAND));
 		Component title = Component.literal("Pick your weapon")
 				.withStyle(style -> color.map(c -> style.withColor(c.teamColor.textColor())).orElse(style));
 		// The way out says what staying costs nothing: the weapon they already have.
@@ -79,4 +93,7 @@ public final class WeaponDialog {
 	public static String command(Weapon weapon) {
 		return "rivals weapons pick " + weapon.commandId();
 	}
+
+	/** What the last button runs: the special picker, on the player's own screen. */
+	public static final String SPECIAL_COMMAND = "rivals special";
 }

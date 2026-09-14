@@ -417,11 +417,22 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		if (lifetime > 0 && age >= lifetime && slide < 0) expire(serverLevel);
 	}
 
-	/** The display that players actually see: a dyed blob model glued to this entity, gliding a tick behind. */
-	private void attachBlob() {
+	/**
+	 * The blob on a stack: the rounded model the pack ships, tinted. What the flying display wears, and
+	 * what {@link SpecialDialog} draws a special's picture with — there is no item a special <em>is</em>,
+	 * so the blob it flies as is the truest picture of it there can be. A null colour leaves it untinted,
+	 * which is what a viewer on no team sees.
+	 */
+	public static ItemStack blobModel(@Nullable PaintColor color) {
 		ItemStack stack = new ItemStack(Items.STICK);
 		stack.set(DataComponents.ITEM_MODEL, Rivals.id("blob"));
-		stack.set(DataComponents.DYED_COLOR, new DyedItemColor(color.rgb));
+		if (color != null) stack.set(DataComponents.DYED_COLOR, new DyedItemColor(color.rgb));
+		return stack;
+	}
+
+	/** The display that players actually see: a dyed blob model glued to this entity, gliding a tick behind. */
+	private void attachBlob() {
+		ItemStack stack = blobModel(color);
 		ElementHolder holder = new ElementHolder();
 		ItemDisplayElement element = new ItemDisplayElement(stack);
 		element.setItemDisplayContext(ItemDisplayContext.FIXED);

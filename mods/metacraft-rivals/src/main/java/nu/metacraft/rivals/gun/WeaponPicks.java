@@ -62,6 +62,11 @@ public final class WeaponPicks {
 				SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.7f, 1.2f);
 		player.sendSystemMessage(Component.literal("You picked the " + weapon.displayName + ". "
 				+ blurb(weapon)).withStyle(ChatFormatting.AQUA));
+		// The other half of a loadout, asked once: somebody who has never picked a special is shown the
+		// three now, while they are already in a picking frame of mind. Somebody who has picked is left
+		// alone — being asked the same question every time you change guns is a nag, not a choice, and
+		// the weapon picker's own last button is there for whoever wants to change it.
+		if (SpecialChoice.of(player.level().getServer()).get(player).isEmpty()) SpecialDialog.open(player);
 		return given;
 	}
 

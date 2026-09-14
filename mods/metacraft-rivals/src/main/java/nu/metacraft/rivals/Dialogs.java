@@ -69,8 +69,17 @@ public final class Dialogs {
 
 	/** A picture of a stack with a paragraph under it. */
 	public static ItemBody item(ItemStack stack, Component description) {
+		return item(stack, description, ICON_SIZE);
+	}
+
+	/**
+	 * The same at a given size, for a row of pictures that are meant to be to scale with each other
+	 * rather than all as big as the frame allows — the three specials, which really are three sizes of
+	 * bomb.
+	 */
+	public static ItemBody item(ItemStack stack, Component description, int size) {
 		return new ItemBody(ItemStackTemplate.fromStack(stack),
-				Optional.of(new PlainMessage(description, TEXT_WIDTH)), true, true, ICON_SIZE, ICON_SIZE);
+				Optional.of(new PlainMessage(description, TEXT_WIDTH)), true, true, size, size);
 	}
 
 	public static PlainMessage text(Component contents) {

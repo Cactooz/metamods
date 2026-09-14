@@ -24,6 +24,8 @@ import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.scores.PlayerTeam;
 import net.minecraft.world.scores.Team;
 import nu.metacraft.rivals.gun.PaintWeapon;
+import nu.metacraft.rivals.gun.Special;
+import nu.metacraft.rivals.gun.SpecialDialog;
 import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponDialog;
 import nu.metacraft.rivals.gun.WeaponPicks;
@@ -45,7 +47,8 @@ import static net.minecraft.commands.Commands.literal;
 
 /**
  * {@code /rivals setup | gun [weapon] | kit | score | reset | reload | ready | match | tune} for game masters
- * (permission {@code metacraft.rivals}), and {@code /rivals weapons} for everybody.
+ * (permission {@code metacraft.rivals}), and {@code /rivals weapons} and {@code /rivals special} for
+ * everybody.
  *
  * <p>The arena half — {@code spawn set|list}, {@code arena set|clear|show} — is the same permission: it
  * edits {@link Arena}, the level's saved spawns and bounds.
@@ -139,7 +142,13 @@ public final class RivalsCommands {
 						.then(literal("weapons").executes(ctx -> weapons(ctx.getSource()))
 								.then(literal("pick").then(argument("weapon", StringArgumentType.word()).suggests(WEAPON_IDS)
 										.executes(ctx -> weaponPick(ctx.getSource(),
-												StringArgumentType.getString(ctx, "weapon"))))))));
+												StringArgumentType.getString(ctx, "weapon"))))))
+						// The other half of a loadout, and no permission on this one either: what F throws is
+						// the thrower's own business, and the picker's buttons are theirs to run.
+						.then(literal("special").executes(ctx -> special(ctx.getSource()))
+								.then(literal("pick").then(argument("special", StringArgumentType.word()).suggests(SPECIAL_IDS)
+										.executes(ctx -> specialPick(ctx.getSource(),
+												StringArgumentType.getString(ctx, "special"))))))));
 	}
 
 	/**
@@ -341,6 +350,32 @@ public final class RivalsCommands {
 	/** Open the weapon picker on the sender's own screen. */
 	private static int weapons(CommandSourceStack source) throws CommandSyntaxException {
 		WeaponDialog.open(source.getPlayerOrException());
+		return 1;
+	}
+
+	/** The same for the special picker, which the weapon picker's last button also runs. */
+	private static int special(CommandSourceStack source) throws CommandSyntaxException {
+		SpecialDialog.open(source.getPlayerOrException());
+		return 1;
+	}
+
+	/** The special ids, for {@code /rivals special pick} and for {@code /rivals tune special}. */
+	private static final SuggestionProvider<CommandSourceStack> SPECIAL_IDS = (ctx, builder) ->
+			SharedSuggestionProvider.suggest(Stream.of(Special.values()).map(Special::commandId), builder);
+
+	/**
+	 * Take a special: what the picker's buttons run, as the player who clicked one. Any player, the same
+	 * as a weapon pick — a dialog button is a command the client sends, and this one has to be theirs.
+	 */
+	private static int specialPick(CommandSourceStack source, String id) throws CommandSyntaxException {
+		ServerPlayer player = source.getPlayerOrException();
+		Optional<Special> special = Special.byId(id);
+		if (special.isEmpty()) {
+			source.sendFailure(Component.literal("No special called \"" + id + "\". Try one of: " + Special.idList())
+					.withStyle(ChatFormatting.RED));
+			return 0;
+		}
+		SpecialDialog.pick(player, special.get());
 		return 1;
 	}
 

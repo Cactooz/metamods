@@ -35,6 +35,8 @@ import net.minecraft.world.scores.PlayerTeam;
 import nu.metacraft.rivals.gun.InkOnScreen;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Roll;
+import nu.metacraft.rivals.gun.SpecialChoice;
+import nu.metacraft.rivals.gun.SpecialDialog;
 import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponChoice;
 import nu.metacraft.rivals.gun.WeaponDialog;
@@ -238,19 +240,33 @@ public final class Match {
 	}
 
 	/**
-	 * Put the weapon picker in front of everybody on a side who has never picked one, and return how many
-	 * were asked.
+	 * Put a picker in front of everybody on a side who has never answered one, and return how many were
+	 * asked. Both choices count: the weapon picker for whoever has no weapon, and the special picker for
+	 * whoever has a weapon but has never said what F throws.
+	 *
+	 * <p>One screen each, never two — a second dialog would simply replace the first, and a player would
+	 * answer a question they never saw the other half of. Whoever needs the weapon gets the weapon picker,
+	 * and taking a weapon out of it opens the special picker on its own ({@link WeaponPicks#pick}), so the
+	 * two arrive in order rather than on top of each other.
 	 *
 	 * <p>During the countdown, which is the one moment in a round when a player is frozen with nothing to
 	 * do: five seconds is plenty to click a button, and somebody who does not answer keeps the shooter
-	 * {@link #arm} has already put in their hand. Asking a player who <em>has</em> picked would be taking a
-	 * screen away from someone who is watching the numbers count down.
+	 * {@link #arm} has already put in their hand and the splat bomb F has always thrown. Asking a player
+	 * who <em>has</em> picked would be taking a screen away from someone watching the numbers count down.
 	 */
 	public static int askUnarmed(Readiness.Report report) {
 		int asked = 0;
 		for (Readiness.Line line : report.lines()) {
-			if (line.team().isEmpty() || line.weapon().isPresent()) continue;
-			WeaponDialog.open(line.player());
+			if (line.team().isEmpty()) continue;
+			ServerPlayer player = line.player();
+			MinecraftServer server = player.level().getServer();
+			if (line.weapon().isEmpty()) {
+				WeaponDialog.open(player);
+			} else if (server != null && SpecialChoice.of(server).get(player).isEmpty()) {
+				SpecialDialog.open(player);
+			} else {
+				continue;
+			}
 			asked++;
 		}
 		return asked;

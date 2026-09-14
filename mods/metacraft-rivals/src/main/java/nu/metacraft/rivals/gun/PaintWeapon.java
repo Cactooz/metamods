@@ -353,7 +353,7 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	 * and somebody pressing F with one in hand has asked a fair question.
 	 */
 	public boolean special(ServerLevel level, Player player, ItemStack gun) {
-		return special(level, player, gun, Special.SPLAT_BOMB);
+		return special(level, player, gun, SpecialChoice.of(level.getServer()).orDefault(player));
 	}
 
 	/**
