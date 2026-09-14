@@ -25,6 +25,7 @@ import metacraft.ovvar.pack.WardrobeArt;
 import metacraft.ovvar.pack.WardrobeFont;
 import metacraft.ovvar.pack.WardrobePreview;
 import metacraft.ovvar.pack.WardrobePreview.Angle;
+import metacraft.ovvar.sewing.WardrobeAction;
 import metacraft.ovvar.sewing.WardrobeGui;
 import metacraft.ovvar.sewing.WardrobeMannequin;
 import metacraft.ovvar.sewing.StashSession;
@@ -35,6 +36,7 @@ import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
 import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EquipmentSlot;
@@ -651,23 +653,28 @@ public final class WardrobeTests {
 										stash.unpickToStash(), stash.withdraw(), stash.sessions(), stash.stashClick(), stash.anyStand(),
 										stash.sessionReach(), stash.sessionSeconds(), stash.explainInChat())));
 						WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, Angle.FRONT);
-						// Not gone — greyed out, named "(not here)" and carrying the reason: a missing
-						// slot teaches nobody why they cannot do the thing.
-						for (int slot : new int[]{45, 47, 48}) {
-							if (isEmpty(gui, slot)) helper.fail("action slot " + slot + " is missing instead of greyed out on a minigame server");
-							ItemStack pane = gui.getGuiElement(slot).getItemStack();
-							if (pane.getItem() != net.minecraft.world.item.Items.STAINED_GLASS_PANE.gray()) {
-								helper.fail("action slot " + slot + " is " + pane.getItem() + " on a minigame server, wanted a grey pane");
+						// Not gone, and not a pane of grey glass either: the action's own icon, dimmed
+						// and slashed, named "(not here)" and carrying the reason.
+						Map<Integer, WardrobeAction> refused = Map.of(45, WardrobeAction.TAKE_OUT, 47, WardrobeAction.SEW, 48, WardrobeAction.SEE_3D);
+						for (var entry : refused.entrySet()) {
+							int slot = entry.getKey();
+							WardrobeAction what = entry.getValue();
+							if (isEmpty(gui, slot)) helper.fail(what + " is missing instead of dimmed on a minigame server");
+							ItemStack item = gui.getGuiElement(slot).getItemStack();
+							Identifier model = item.get(DataComponents.ITEM_MODEL);
+							if (!what.model(false).equals(model)) helper.fail(what + " wears the model " + model + ", wanted " + what.model(false));
+							if (!item.getHoverName().getString().contains("(not here)")) {
+								helper.fail(what + " is not named \"… (not here)\": " + item.getHoverName().getString());
 							}
-							if (!pane.getHoverName().getString().contains("(not here)")) {
-								helper.fail("action slot " + slot + " is not named \"… (not here)\": " + pane.getHoverName().getString());
-							}
-							var lore = pane.get(net.minecraft.core.component.DataComponents.LORE);
-							boolean sawReason = lore != null && lore.lines().stream().anyMatch(line -> line.getString().equals(StashConfig.LOOK_ONLY));
-							if (!sawReason) helper.fail("action slot " + slot + " does not carry the reason \"" + StashConfig.LOOK_ONLY + "\"");
+							if (!lore(item).contains(StashConfig.LOOK_ONLY)) helper.fail(what + " does not carry the reason: " + lore(item));
 							if (gui.getGuiElement(slot).getGuiCallback() != GuiElement.EMPTY_CALLBACK) {
-								helper.fail("action slot " + slot + " is refused but still clickable");
+								helper.fail(what + " is refused but still clickable");
 							}
+						}
+						// And an action that is allowed wears the plain icon, with no reason on it.
+						ItemStack allowed = gui.getGuiElement(46).getItemStack();
+						if (!WardrobeAction.PUT_IN.model(true).equals(allowed.get(DataComponents.ITEM_MODEL))) {
+							helper.fail("an allowed action does not wear its plain icon: " + allowed.get(DataComponents.ITEM_MODEL));
 						}
 						if (isEmpty(gui, 52)) helper.fail("no help book on a minigame server");
 						GuiElement help = gui.getGuiElement(52);

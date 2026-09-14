@@ -276,8 +276,8 @@ public final class WardrobeGui extends SimpleGui {
 			setSlot(slot(TAB_ROW, col++), element.build());
 			if (col >= TAB_COLS) break;   // leave the far end to the piece toggle
 		}
-		setSlot(ROTATE_LEFT, rotator(player, -1, "\u25c0 Turn it left", Items.SPECTRAL_ARROW));
-		setSlot(ROTATE_RIGHT, rotator(player, 1, "Turn it right \u25b6", Items.ARROW));
+		setSlot(ROTATE_LEFT, rotator(player, -1, WardrobeAction.ROTATE_LEFT));
+		setSlot(ROTATE_RIGHT, rotator(player, 1, WardrobeAction.ROTATE_RIGHT));
 	}
 
 	/**
@@ -298,10 +298,10 @@ public final class WardrobeGui extends SimpleGui {
 	 * trousers together, so there is nothing left to toggle between — which is what the piece toggle
 	 * that used to sit here was for.
 	 */
-	private GuiElement rotator(ServerPlayer player, int turn, String label, net.minecraft.world.item.Item icon) {
+	private GuiElement rotator(ServerPlayer player, int turn, WardrobeAction what) {
 		Angle to = angle.turned(turn);
-		return new GuiElementBuilder(icon)
-				.setName(Component.literal(label).withStyle(ChatFormatting.AQUA))
+		return GuiElementBuilder.from(icon(what, true))
+				.setName(Component.literal(what.verb).withStyle(ChatFormatting.AQUA))
 				.addLoreLine(Component.literal("Showing: " + angle.label).withStyle(ChatFormatting.GRAY))
 				.addLoreLine(Component.literal("Click for: " + to.label).withStyle(ChatFormatting.DARK_GRAY))
 				.setCallback((index, type, action, gui) -> reopen(player, chapter, to)).build();
@@ -391,25 +391,22 @@ public final class WardrobeGui extends SimpleGui {
 	 * pane named "\<verb\> (not here)" carrying the reason {@link StashConfig} gives for it.
 	 */
 	private void buildActions(ServerPlayer player, Wardrobe wardrobe) {
-		String noWithdraw = config().whyNoWithdraw(), noSessions = config().whyNoSessions();
-		setSlot(TAKE_OUT_HINT, action(Items.HOPPER, "Take out", "Click a patch on the left to take it out as an item", noWithdraw, null));
-		setSlot(SEW_HINT, action(Items.SHEARS, "Sew on a stand", "Click a patch on the left to start sewing it on", noSessions, null));
-		setSlot(DEPOSIT, action(Items.CHEST, "Put held patches in", "Every patch item in your inventory goes into your stash",
-				config().whyNoDeposit(), () -> Stash.deposit(player, reply -> {
-					player.sendOverlayMessage(Component.literal(reply));
-					if (isOpen()) build();
-				})));
+		setSlot(TAKE_OUT_HINT, action(WardrobeAction.TAKE_OUT, config().whyNoWithdraw(), null));
+		setSlot(SEW_HINT, action(WardrobeAction.SEW, config().whyNoSessions(), null));
+		setSlot(DEPOSIT, action(WardrobeAction.PUT_IN, config().whyNoDeposit(), () -> Stash.deposit(player, reply -> {
+			player.sendOverlayMessage(Component.literal(reply));
+			if (isOpen()) build();
+		})));
 
 		ItemStack worn = player.getItemBySlot(EquipmentSlot.LEGS);
 		String noMannequin = config().whyNoMannequin() != null ? config().whyNoMannequin()
 				: worn.getItem() instanceof OvveItem ? null : "Wear an ovve first";
-		setSlot(MANNEQUIN, action(Items.ARMOR_STAND, "See it in 3D", "Stands a mannequin wearing your ovve in front of you",
-				noMannequin, () -> {
-					ItemStack copy = worn.copy();
-					String refusal = WardrobeMannequin.show(player, copy);
-					if (refusal != null) player.sendSystemMessage(Component.literal(refusal).withStyle(ChatFormatting.RED));
-					close();
-				}));
+		setSlot(MANNEQUIN, action(WardrobeAction.SEE_3D, noMannequin, () -> {
+			ItemStack copy = worn.copy();
+			String refusal = WardrobeMannequin.show(player, copy);
+			if (refusal != null) player.sendSystemMessage(Component.literal(refusal).withStyle(ChatFormatting.RED));
+			close();
+		}));
 
 		if (StashSession.of(player) != null) {
 			setSlot(FINISH_SEWING, new GuiElementBuilder(Items.BARRIER).setName(Component.literal("Finish sewing").withStyle(ChatFormatting.RED))
@@ -425,23 +422,27 @@ public final class WardrobeGui extends SimpleGui {
 	}
 
 	/**
-	 * An action item: the verb, the one line saying what it does, and a click — or, when
-	 * {@code why} says it cannot be done here, a grey pane with that reason and no click at all.
-	 * {@code click} null means the verb is a reminder for a gesture that lives on the collection
-	 * slots themselves (there is no selected patch for a button to act on).
+	 * An action item: its own icon, the verb, the one line saying what it does, and a click — or,
+	 * when {@code why} says it cannot be done here, the same icon dimmed and slashed, that reason in
+	 * red, and no click at all. {@code click} null means the verb is a reminder for a gesture that
+	 * lives on the collection slots themselves (there is no selected patch for a button to act on).
 	 */
-	private GuiElement action(net.minecraft.world.item.Item icon, String verb, String does, @Nullable String why, @Nullable Runnable click) {
-		if (why != null) {
-			return new GuiElementBuilder(Items.STAINED_GLASS_PANE.gray())
-					.setName(Component.literal(verb + " (not here)").withStyle(ChatFormatting.DARK_GRAY))
-					.addLoreLine(Component.literal(why).withStyle(ChatFormatting.RED))
-					.addLoreLine(Component.literal(does).withStyle(ChatFormatting.DARK_GRAY)).build();
-		}
-		GuiElementBuilder element = new GuiElementBuilder(icon)
-				.setName(Component.literal(verb).withStyle(ChatFormatting.AQUA))
-				.addLoreLine(Component.literal(does).withStyle(ChatFormatting.GRAY));
-		if (click != null) element.setCallback((index, type, action, gui) -> click.run());
+	private GuiElement action(WardrobeAction what, @Nullable String why, @Nullable Runnable click) {
+		boolean available = why == null;
+		GuiElementBuilder element = GuiElementBuilder.from(icon(what, available))
+				.setName(Component.literal(available ? what.verb : what.verb + " (not here)")
+						.withStyle(available ? ChatFormatting.AQUA : ChatFormatting.DARK_GRAY));
+		if (!available) element.addLoreLine(Component.literal(why).withStyle(ChatFormatting.RED));
+		element.addLoreLine(Component.literal(what.does).withStyle(available ? ChatFormatting.GRAY : ChatFormatting.DARK_GRAY));
+		if (available && click != null) element.setCallback((index, type, action, gui) -> click.run());
 		return element.build();
+	}
+
+	/** A blank stack wearing one of our own action models: the icon is the model, not the item. */
+	private static ItemStack icon(WardrobeAction what, boolean available) {
+		ItemStack stack = new ItemStack(Items.PAPER);
+		stack.set(DataComponents.ITEM_MODEL, what.model(available));
+		return stack;
 	}
 
 	/** The screen explained top to bottom, in five lines, then what this server allows and what is sewn where. */

@@ -19,6 +19,7 @@ import metacraft.ovvar.content.Spot;
 import metacraft.ovvar.pack.EquipmentJson;
 import metacraft.ovvar.pack.Trims;
 import metacraft.ovvar.sewing.Outline;
+import metacraft.ovvar.sewing.WardrobeAction;
 import metacraft.ovvar.sewing.Seam;
 import metacraft.ovvar.sewing.SewingFont;
 import net.fabricmc.fabric.api.datagen.v1.FabricPackOutput;
@@ -109,6 +110,15 @@ public final class GeneratedAssets implements DataProvider {
 		// tooltip (which patch is on which spot) while the paper doll behind them shows through, so
 		// their item wears this ovvar:invisible model instead of an icon.
 		item("invisible", Tex.blank(16, 16));
+
+		// The wardrobe's own action icons, and a dimmed twin of each for an action this server does
+		// not allow — the same icon, plainly out of use, rather than a pane of grey glass.
+		for (WardrobeAction action : WardrobeAction.values()) {
+			Tex art = art(action.art());
+			require(art.width == 16 && art.height == 16, action.art() + ".png is " + art.width + "×" + art.height + ", not 16×16");
+			item(action.itemName(true), art);
+			item(action.itemName(false), dimmed(art));
+		}
 		Tex icon = art("icon");
 		require(icon.width == 16 && icon.height == 16, "icon.png is not 16×16");
 
@@ -626,6 +636,22 @@ public final class GeneratedAssets implements DataProvider {
 				obj("parent", "minecraft:item/generated", "textures", obj("layer0", MOD + ":item/" + name)));
 		png(assets.resolve("textures/item/" + name + ".png"), texture);
 	}
+
+	/**
+	 * An action icon, out of use: half the brightness, and a red slash across the bottom-right
+	 * corner so it reads as refused and not merely dark (and reads that way to a colour-blind
+	 * player too — it is a shape, not only a colour).
+	 */
+	private static Tex dimmed(Tex icon) {
+		Tex out = icon.brightened(DIMMED);
+		for (int i = 0; i < 5; i++) {
+			out = out.with(15 - i, 11 + i, SLASH).with(Math.max(0, 14 - i), 11 + i, SLASH);
+		}
+		return out;
+	}
+
+	private static final float DIMMED = 0.5f;
+	private static final int SLASH = 0xFFCC3333;
 
 	/** The ghost of a sprite: every opaque pixel mixed {@value #GHOST_WHITE} to white — the preview of a patch not sewn yet. */
 	private static Tex ghosted(Tex sprite) {
