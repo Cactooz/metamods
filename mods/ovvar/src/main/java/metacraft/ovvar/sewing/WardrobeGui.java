@@ -253,9 +253,13 @@ public final class WardrobeGui extends SimpleGui {
 		MutableComponent text = Component.literal(" " + chapter.name + " " + (piece == Piece.TOP ? "top" : "trousers") + " · " + stats).withStyle(ChatFormatting.WHITE);
 		MutableComponent out = Component.empty().append(WardrobeArt.backgroundGlyph(chapter));
 		if (activeTab >= 0 && activeTab < TAB_COLS) {
-			out.append(WardrobeFont.drawn(WardrobeFont.ACTIVE_TAB, WardrobeFont.cellX(activeTab)));
+			out.append(WardrobeFont.drawnAt(WardrobeFont.ACTIVE_TAB, WardrobeFont.cellX(activeTab)));
 		}
-		return out.append(WardrobePreview.glyph(previewKey(chapter, wardrobe, piece, player))).append(text);
+		out.append(WardrobePreview.glyph(previewKey(chapter, wardrobe, piece, player)));
+		// The empty states are art across the panel they are about, not an item in the middle of it.
+		if (wardrobe.stashed().isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NO_PATCHES));
+		if (shownPlacements(wardrobe, chapter, piece).isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NOTHING_SEWN));
+		return out.append(text);
 	}
 
 	/**
@@ -386,13 +390,8 @@ public final class WardrobeGui extends SimpleGui {
 			});
 			setSlot(slot(BODY_TOP + row, PATCH_COL0 + col), element.build());
 		}
-		if (max == 0 && !overflow) {
-			setSlot(NO_PATCHES, new GuiElementBuilder(Items.PAPER)
-					.setName(Component.literal("No patches yet").withStyle(ChatFormatting.GRAY))
-					.addLoreLine(Component.literal("Patches are earned at chapter events").withStyle(ChatFormatting.DARK_GRAY))
-					.addLoreLine(Component.literal("Gamemasters: /ovvar patch give").withStyle(ChatFormatting.DARK_GRAY))
-					.addLoreLine(Component.literal("Whatever you earn lands here, on every server").withStyle(ChatFormatting.DARK_GRAY)).build());
-		}
+		// An empty stash says so in the glyph layer (WardrobeFont.NO_PATCHES, drawn by the title
+		// across the whole pocket): no item here, so there is nothing to hover or mistake for a patch.
 		if (overflow) {
 			int more = stashed.size() - max;
 			int row = capacity / PATCH_COLS - 1, col = PATCH_COLS - 1;
@@ -408,18 +407,9 @@ public final class WardrobeGui extends SimpleGui {
 	 * (a transparent icon), no callback, at the slot nearest each sewn placement's spot.
 	 */
 	private void buildPreview(Wardrobe wardrobe) {
-		List<Placement> sewn = shownPlacements(wardrobe, chapter, piece);
-		// Nothing sewn on this half, and so a bare garment on the doll behind: say so in the middle
-		// of it. (A design the player's own pack cannot draw yet also shows the bare garment, but
-		// then there are patches to point at and their tooltips are worth more than the hint.)
-		if (sewn.isEmpty() && previewKey(chapter, wardrobe, piece, player.getUUID()).bare()) {
-			setSlot(NOTHING_SEWN, new GuiElementBuilder(Items.PAPER)
-					.setName(Component.literal("Nothing sewn on yet").withStyle(ChatFormatting.GRAY))
-					.addLoreLine(Component.literal("Take a patch to a sewing stand and it shows up here").withStyle(ChatFormatting.DARK_GRAY))
-					.addLoreLine(Component.literal("This is your " + chapter.name + " " + chapter.garmentWord() + " as it looks now").withStyle(ChatFormatting.DARK_GRAY)).build());
-			return;
-		}
-		for (Placement placement : sewn) {
+		// Nothing sewn on this half says so in the glyph layer too (WardrobeFont.NOTHING_SEWN),
+		// across the bare garment on the doll behind.
+		for (Placement placement : shownPlacements(wardrobe, chapter, piece)) {
 			int slot = previewSlot(placement.spot());
 			if (slot < 0) continue;
 			GuiElementBuilder element = GuiElementBuilder.from(invisible())

@@ -729,20 +729,47 @@ public final class WardrobeTests {
 							.getGuiElement(WardrobeGui.PIECE_TOGGLE).getItemStack().getHoverName().getString();
 					if (!trousers.contains("Showing: Trousers") || !trousers.contains("click for Top")) helper.fail("the piece toggle showing the trousers reads \"" + trousers + "\"");
 
-					// An empty stash, and a half with nothing sewn on it, each say so.
-					if (isEmpty(gui, WardrobeGui.NO_PATCHES)) helper.fail("an empty stash says nothing in the middle of the collection");
-					ItemStack noPatches = gui.getGuiElement(WardrobeGui.NO_PATCHES).getItemStack();
-					if (!noPatches.getHoverName().getString().contains("No patches yet")) helper.fail("the empty stash reads \"" + noPatches.getHoverName().getString() + "\"");
-					if (!lore(noPatches).contains("earned at chapter events") || !lore(noPatches).contains("/ovvar patch give")) {
-						helper.fail("the empty stash does not say where patches come from: " + lore(noPatches));
+					// An empty stash and an unsewn half each say so across the whole panel, in the glyph
+					// layer: no item anywhere in either panel, and the notice in the title instead.
+					for (int slot = 9; slot < 45; slot++) {
+						if (!isEmpty(gui, slot)) helper.fail("slot " + slot + " has an item in it with an empty stash and nothing sewn");
 					}
-					if (isEmpty(gui, WardrobeGui.NOTHING_SEWN)) helper.fail("an unsewn half says nothing in the middle of the preview");
-					ItemStack nothingSewn = gui.getGuiElement(WardrobeGui.NOTHING_SEWN).getItemStack();
-					if (!nothingSewn.getHoverName().getString().contains("Nothing sewn on yet")) helper.fail("the unsewn hint reads \"" + nothingSewn.getHoverName().getString() + "\"");
-					if (!lore(nothingSewn).contains("sewing stand")) helper.fail("the unsewn hint does not say where to sew: " + lore(nothingSewn));
+					String title = gui.getTitle().getString();
+					if (title.indexOf(WardrobeFont.NO_PATCHES.codepoint()) < 0) helper.fail("no \"no patches yet\" notice in the title of an empty stash");
+					if (title.indexOf(WardrobeFont.NOTHING_SEWN.codepoint()) < 0) helper.fail("no \"nothing sewn yet\" notice in the title of an unsewn half");
+					if (!title.contains(WardrobeFont.at(WardrobeFont.NO_PATCHES))) helper.fail("the empty-stash notice is not placed over the collection panel");
+					if (!title.contains(WardrobeFont.at(WardrobeFont.NOTHING_SEWN))) helper.fail("the unsewn notice is not placed over the preview panel");
 					release(server);
 				}))
 				.thenSucceed();
+	}
+
+	/**
+	 * The empty-state notices are art over their panel, and only when the panel is empty: a stash
+	 * with a patch in it, or a half with a patch sewn on it, loses its notice.
+	 */
+	@GameTest
+	public void wardrobeNoticesOnlyShowWhileThePanelIsEmpty(GameTestHelper helper) {
+		char noPatches = WardrobeFont.NO_PATCHES.codepoint(), nothingSewn = WardrobeFont.NOTHING_SEWN.codepoint();
+		String bare = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Piece.TOP).getString();
+		if (bare.indexOf(noPatches) < 0 || bare.indexOf(nothingSewn) < 0) helper.fail("an empty wardrobe is missing a notice");
+
+		String stashed = WardrobeGui.title(CHAPTER, Wardrobe.NONE.add(BEER_PATCH, 1), Piece.TOP).getString();
+		if (stashed.indexOf(noPatches) >= 0) helper.fail("the \"no patches yet\" notice is still drawn over a stash with a patch in it");
+		if (stashed.indexOf(nothingSewn) < 0) helper.fail("the \"nothing sewn yet\" notice went missing while nothing is sewn");
+
+		Wardrobe sewn = Wardrobe.NONE.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElseThrow();
+		String worn = WardrobeGui.title(CHAPTER, sewn, Piece.TOP).getString();
+		if (worn.indexOf(nothingSewn) >= 0) helper.fail("the \"nothing sewn yet\" notice is still drawn over a sewn-on half");
+		if (worn.indexOf(noPatches) < 0) helper.fail("the \"no patches yet\" notice went missing while the stash is empty");
+
+		// Both notices are pixel text this font can actually draw, and neither is wider than its panel.
+		for (WardrobeFont.Glyph notice : List.of(WardrobeFont.NO_PATCHES, WardrobeFont.NOTHING_SEWN)) {
+			var art = notice.art().get();
+			if (art.width != notice.width() || art.height != notice.height()) helper.fail(notice.name() + " art is " + art.width + "x" + art.height);
+			if (notice.x() + notice.width() > WardrobeArt.WIDTH) helper.fail(notice.name() + " runs past the right edge of the screen");
+		}
+		helper.succeed();
 	}
 
 	/** Every lore line of a stack, joined — what a player reads when they hover it. */

@@ -89,10 +89,13 @@ public final class WardrobeFont {
 	// ---- the static glyphs
 
 	/**
-	 * One bitmap glyph of the font: its art, its size, the container y its top sits at (which fixes
-	 * its ascent) and the codepoint it is drawn with. {@code art} is called once per pack build.
+	 * One bitmap glyph of the font: its art, its size, where it goes on the screen — the container
+	 * x it is normally drawn at and the container y its top sits at, which fixes its ascent — and
+	 * the codepoint it is drawn with. {@code art} is called once per pack build. A glyph whose
+	 * place is the player's own (the tab highlight, the stats) is drawn with {@link #at} instead,
+	 * and its {@code x} is only where it would go by default.
 	 */
-	public record Glyph(String name, int width, int height, int top, char codepoint, Supplier<Tex> art) {
+	public record Glyph(String name, int x, int top, int width, int height, char codepoint, Supplier<Tex> art) {
 		/** What the client adds to the cursor after drawing it: the texture's width plus one. */
 		public int advance() {
 			return width + 1;
@@ -111,9 +114,9 @@ public final class WardrobeFont {
 	/** The static glyphs' codepoints; the previews have {@code \\uE000}… and the spaces {@code \\uE800}…. */
 	private static char next = '\uE100';
 
-	static Glyph glyph(String name, int width, int height, int top, Supplier<Tex> art) {
+	static Glyph glyph(String name, int x, int top, int width, int height, Supplier<Tex> art) {
 		if (next >= SPACE_FIRST) throw new IllegalStateException("too many wardrobe glyphs");
-		Glyph glyph = new Glyph(name, width, height, top, next++, art);
+		Glyph glyph = new Glyph(name, x, top, width, height, next++, art);
 		GLYPHS.add(glyph);
 		return glyph;
 	}
@@ -127,7 +130,7 @@ public final class WardrobeFont {
 	 * tabs are in owned-chapter order, which is per player, so the highlight cannot be baked into
 	 * the background: it is its own cell-sized glyph, placed with spaces at the active tab's slot.
 	 */
-	public static final Glyph ACTIVE_TAB = glyph("active_tab", CELL, CELL, cellY(0), WardrobeFont::activeTabArt);
+	public static final Glyph ACTIVE_TAB = glyph("active_tab", cellX(0), cellY(0), CELL, CELL, WardrobeFont::activeTabArt);
 
 	private static Tex activeTabArt() {
 		int[] px = new int[CELL * CELL];
@@ -142,6 +145,33 @@ public final class WardrobeFont {
 		return Tex.of(CELL, CELL, px);
 	}
 
+	// ---- the empty states, drawn across the panel they are about
+
+	/** The patch collection: rows 1-4, cols 0-4. The preview: rows 1-4, cols 5-8. */
+	public static final int PATCH_PANEL_X = cellX(0), PREVIEW_PANEL_X = cellX(5), PANEL_Y = cellY(1);
+	public static final int PATCH_PANEL_W = 5 * PITCH, PREVIEW_PANEL_W = 4 * PITCH, PANEL_H = 4 * PITCH;
+
+	/** Ink for a notice on the cream canvas pocket, and for one on the darker cloth behind the preview. */
+	private static final int DARK_INK = 0xFF2B1F19, LIGHT_INK = 0xFFF6EBD2;
+	private static final int DARK_SHADOW = 0x99F6EBD2, LIGHT_SHADOW = 0x99000000;
+
+	private static final List<String> NO_PATCHES_LINES = List.of("NO PATCHES YET", "EARN THEM AT", "CHAPTER EVENTS");
+	private static final List<String> NOTHING_SEWN_LINES = List.of("NOTHING SEWN YET", "TAKE A PATCH TO", "A SEWING STAND");
+
+	/**
+	 * An empty stash, said across the whole pocket rather than by one paper item in the middle of
+	 * it: baked pixel text in the glyph layer, so the slots stay empty and there is nothing to
+	 * hover, click or mistake for a patch.
+	 */
+	public static final Glyph NO_PATCHES = notice("no_patches", PATCH_PANEL_W, PATCH_PANEL_X, NO_PATCHES_LINES, DARK_INK, DARK_SHADOW);
+	/** And a half with nothing sewn on it, across the bare garment on the doll behind. */
+	public static final Glyph NOTHING_SEWN = notice("nothing_sewn", PREVIEW_PANEL_W, PREVIEW_PANEL_X, NOTHING_SEWN_LINES, LIGHT_INK, LIGHT_SHADOW);
+
+	private static Glyph notice(String name, int width, int x, List<String> lines, int ink, int shadow) {
+		int height = TinyType.blockHeight(lines.size());
+		return glyph(name, x, PANEL_Y + (PANEL_H - height) / 2, width, height, () -> TinyType.block(lines, width, ink, shadow));
+	}
+
 	// ---- drawing
 
 	/** {@code [spaces to x][the glyph][spaces back]}: the cursor ends exactly where it started. */
@@ -150,8 +180,20 @@ public final class WardrobeFont {
 		return move(dx) + glyph.codepoint() + move(-(dx + glyph.advance()));
 	}
 
-	/** The same, as a styled component ready to append to a title. */
-	public static Component drawn(Glyph glyph, int x) {
+	/** The glyph at its own place on the screen. */
+	public static String at(Glyph glyph) {
+		return at(glyph, glyph.x());
+	}
+
+	/** A run of glyphs, each at its own place, as a styled component ready to append to a title. */
+	public static Component drawn(Glyph... glyphs) {
+		StringBuilder out = new StringBuilder();
+		for (Glyph glyph : glyphs) out.append(at(glyph));
+		return Component.literal(out.toString()).withStyle(WardrobeArt.STYLE);
+	}
+
+	/** One glyph somewhere other than its own place (the tab highlight, which follows the player). */
+	public static Component drawnAt(Glyph glyph, int x) {
 		return Component.literal(at(glyph, x)).withStyle(WardrobeArt.STYLE);
 	}
 

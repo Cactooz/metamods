@@ -46,9 +46,15 @@ public final class WardrobeSheet {
 				: List.of(new Placement(Spot.LEG_FRONT_TOP_R, Patches.get("heart")),
 						new Placement(Spot.LEG_FRONT_MID_L, Patches.get("gasque")));
 
+		boolean empty = args.length > 3 && args[3].equals("empty");
 		Tex sheet = tex(WardrobeArt.tint(WardrobeArt.readTemplate(), WardrobeArt.colour(chapter)));
-		Tex doll = WardrobePreview.art(chapter, piece, sample);
+		Tex doll = WardrobePreview.art(chapter, piece, empty ? List.of() : sample);
 		sheet = over(sheet, doll, WardrobePreview.PANEL_X, WardrobePreview.PANEL_Y);
+		if (empty) {
+			for (WardrobeFont.Glyph notice : List.of(WardrobeFont.NO_PATCHES, WardrobeFont.NOTHING_SEWN)) {
+				sheet = over(sheet, notice.art().get(), notice.x(), notice.top());
+			}
+		}
 		for (int[] slot : slots()) sheet = box(sheet, SLOT0_X + slot[1] * PITCH, SLOT0_Y + slot[0] * PITCH, slot[2]);
 
 		Files.createDirectories(out.toAbsolutePath().getParent());
