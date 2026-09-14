@@ -111,7 +111,9 @@ stands`, showcase) keep their patches on the item as before.
 
 ### The stash
 
-`/ovvar stash` opens the wardrobe screen (below). On a survival server:
+`/ovvar stash` opens the wardrobe screen (below); `/ovvar look [player]` opens the same screen
+read-only on somebody's ovve — anybody's, here or not — with their stash left out of it. On a
+survival server, on your own:
 
 - **left-click a patch** to take one out as an ordinary item: sew it on any armour stand wearing
   your ovve, the way it always worked, or trade it. The chest button puts every patch item you
@@ -138,7 +140,7 @@ cloth, tinted to the open chapter's colour, instead of the plain vanilla chest b
 `row * 9 + col`:
 
 ```
-row 0   [tab][tab][tab][tab][tab][tab][tab][tab][half]  <- an ovve per owned chapter; one toggle, far right
+row 0   [tab][tab][tab][tab][tab][tab][tab][ <- ][ -> ]  <- an ovve per owned chapter; the preview turns
 row 1   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
 row 2   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
 row 3   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
@@ -150,69 +152,85 @@ row 5   [take out][put in][sew][see in 3D][finish][ · ][ · ][help][close]
 
 - a tab is the chapter's *ovve*, named "Data ovve", the one on show glinting and its lore reading
   "(showing)" while the others read "Click to switch to it";
-- which half is on show is **one** toggle at col 8 — "Showing: Top — click for Trousers" and back
-  again — wearing the ovve's own piece icon through `ITEM_MODEL`, not the unexplained leather
-  chestplate and boots it used to be. `WardrobeGui.pieces()` drops the toggle for a garment with
-  only one half to show (both halves have cells today, so it is always there);
-- **empty states** say what would be there rather than leaving a hole: no patches puts "No patches
-  yet" in the middle of the collection ("Patches are earned at chapter events", "Gamemasters:
-  /ovvar patch give"), and a half with nothing sewn on it puts "Nothing sewn on yet — take a patch
-  to a sewing stand" in the middle of the bare garment on the doll behind it;
-- **row 5** is one verb per action with a line saying what it does, and an action this server
-  refuses is a grey pane named "Take out (not here)" carrying the reason `StashConfig` gives
-  (`whyNoWithdraw`, `whyNoSessions`, `whyNoDeposit`, `whyNoMannequin` — "Minigame server: look
-  only", "Sewing sessions are off on this server", "Wear an ovve first"), with no click on it. It
-  used to be missing altogether on a minigame server, which taught nobody anything;
+- the preview is the **whole** ovve, top and trousers as one figure, and the two buttons at cols 7
+  and 8 turn it a quarter at a time (front, their right, back, their left; per open screen, front to
+  begin with). There is no piece toggle any more — the chestplate and boots that prompted "why is
+  there a chestplate and boots there?" were it — because there are no longer two halves to choose
+  between;
+- **empty states** say what would be there, across the whole panel and in the glyph layer rather
+  than as one item in the middle of it: "NO PATCHES YET / EARN THEM AT / CHAPTER EVENTS" over the
+  pocket and "NOTHING SEWN YET / TAKE A PATCH TO / A SEWING STAND" over the bare garment, both baked
+  pixel text (`TinyType`, `WardrobeFont.NO_PATCHES` and `NOTHING_SEWN`) drawn by the title. The slots
+  underneath stay empty, so there is nothing left to hover, click or mistake for a patch;
+- **row 5** is one verb per action with a line saying what it does, each wearing an icon of our own
+  (`WardrobeAction`, `tools/wardrobe_icons.py`, six 16×16 sprites in `art/ovvar/`). An action this
+  server refuses is the *same icon at half brightness with a small red slash*, still named for the
+  verb ("Take out (not here)"), carrying the reason `StashConfig` gives (`whyNoWithdraw`,
+  `whyNoSessions`, `whyNoDeposit`, `whyNoMannequin` — "Minigame server: look only", "Sewing sessions
+  are off on this server", "Wear an ovve first") and with no click on it. It used to be missing
+  altogether, then a pane of grey glass; a missing slot teaches nobody anything and the glass read
+  as a bug. The slash is a shape and not only a colour, so it reads refused without colour too;
 - the **help** item (col 7) explains the screen top to bottom in five lines — tab row, left panel,
   right panel, bottom row — then what this server allows and what is sewn on each ovve.
 
-The right block is a **picture of the player's own ovve**, not a list of icons: `WardrobePreview`
-renders a paper doll of their garment into the resource pack and the title draws it there. A vanilla
-client cannot draw an entity inside a chest screen, so the doll is the humanoid model's front faces —
-each arm (4×12 skin px), the torso (8×12) and each leg (4×12) — cut out of the very equipment-layer
-textures the client draws the garment with, composited in the very order `EquipmentJson.layerTextures`
-lists them (which is also the order the equipment definition stacks them, so the two cannot disagree
-about where a patch goes), and laid out flat:
+The right block is a **picture of the player's own ovve**, not a list of icons, and it turns.
+A vanilla client cannot draw an entity inside a chest screen, so `WardrobePreview` draws a paper
+doll: the humanoid model's faces, cut out of the very equipment-layer textures the client draws the
+garment with, laid out flat. Front and back put each arm (4×12 skin px) beside the torso (8×12) and
+the two legs (4×12) below it; a side shows the body's own side face with the sleeve beside it and the
+trouser leg below, which is where that side's cells are.
 
 ```
-[arm][  torso  ][arm]      the top's front faces
-     [leg][leg]            the trousers' front faces
+[arm][  torso  ][arm]          [body][sleeve]
+     [leg][leg]                [leg]                  front/back        a side
 ```
 
-The whole figure is drawn whichever half is on show — `Spot` puts every `Piece.BOTTOM` cell on the
-legs, so no preview is ever missing a part — and the half on show is the one carrying the patches.
-The wearer's left limbs are the mirror images the armour model draws and a left cell's art is
-pre-mirrored in its own texture, so each side is composited from its own set of placements and the
-left one flipped back. The source textures hold 2 texels per skin px and the doll is drawn at 3 px
-per skin px, so each face is resampled ×1.5 (which keeps every texel the patch art has, at the price
-of every other column being 2 px wide), then: 1 px transparent gaps between the parts, the viewer's
-right 15% towards black and either arm 12% further (a limb is a box turning away from you), a seam
-at the waist, and a 1 px dark outline drawn *on* the silhouette's own outermost pixels so it costs no
-room. Without the gaps and the outline a front view of arms hanging at the sides is one flat slab of
-cloth and reads as a texture strip; with them it reads as a figure. There is no head: the garment's
-art has none.
+**It is built up in layers, not baked per design.** One glyph per (chapter, angle) draws the bare
+garment, and one small glyph per (patch, cell) draws that patch exactly where it lands on the doll —
+cropped to its own art, so the glyph is a dozen pixels square, and placed by space advances and its
+own ascent. The title stacks the bare ovve and then one glyph per sewn placement, so a design is
+composed at the moment the screen opens. A cell sits on exactly one face of one box and a face is
+seen from exactly one of the four angles, so that is **6 × 4 = 24 bare glyphs plus 257 patch glyphs,
+fixed**, however much anybody sews: nothing is regenerated and no pack is pushed when a patch goes
+on. (v2 keyed the art by patch combination instead, which grew with every design, spent a glyph
+budget and needed a pack build and a loading screen each time somebody sewed something.) `Combos` is
+therefore back to what it was before v2, doing equipment definitions and nothing else.
 
-One 64×72 PNG per (chapter, half, combination) — exactly the preview panel, rows 1-4 and cols 5-8
-plus its 1 px border — written in the same pack build that writes that combination's equipment
-definition, off the same `Combos.known()` set, so a design's preview can never lag its equipment
-asset. Drawing it is the background's trick one step further along the title: a `space` pair walks
-the cursor to the panel's corner and back (`d`: +93, `e`: −158, which with the glyph's own advance of
-65 cancels out), and the vertical offset is the glyph's *negative* ascent — a bitmap glyph's top
-lands at `textY + 7 − ascent` and a container title is drawn at y 6, so an ascent of −22 pushes the
-glyph down into the panel. The codepoints are a private-use range, allocated in a fixed order (the
-bare garments first, then by combination id and chapter) and never reassigned, so a glyph in a pack
-a player already has keeps its meaning; the count is logged on every build. Past the 256-glyph
-budget, and for any combination the player's *own* pack does not hold yet (the same generation rule
-`Combos.isBuilt` applies to the garment itself), the screen falls back to the bare ovve rather than a
-missing-glyph box. A container's title only travels in the packet that opens it, so when a player's
-client loads a pack holding their newest design (`Combos.onPackLoaded`) their open wardrobe is
-opened again with the doll they were waiting for.
+The cells you cannot see from an angle simply have no glyph there. The wearer's left limbs are the
+mirror images the armour model draws — and a left cell's art is pre-mirrored in its own texture to
+suit — so every left limb is drawn flipped; the wearer's right is on the viewer's left from the front
+and on the viewer's right from behind, which is why the two swap ends. The source textures hold 2
+texels per skin px and the doll is drawn at 3 px per skin px, so each face is resampled ×1.5 (which
+keeps every texel the patch art has, at the price of every other column being 2 px wide), then: 1 px
+transparent gaps between the parts, the viewer's right 15 % towards black and either arm 12 % further
+(a limb is a box turning away from you), a seam at the waist, and a 1 px dark outline drawn *on* the
+silhouette's own outermost pixels so it costs no room. Without the gaps and the outline a front view
+of arms hanging at the sides is one flat slab of cloth and reads as a texture strip; with them it
+reads as a figure. A patch layer takes the same shading and keeps off the outline's own pixels, so a
+patch at the edge of a sleeve cannot cut the figure's edge open. There is no head: the garment's art
+has none.
 
-The preview slots themselves therefore carry no icon at all: an item wearing the `ovvar:invisible`
-model (a transparent 16×16) with a name and one lore line, no click handler, at the slot nearest
-each sewn placement's spot — the picture shows through and all that is left of the slot is its
-"\<patch\> on \<spot\>" tooltip. `./gradlew :mods:ovvar:wardrobeSheet` composites the whole screen
+Every glyph is placed by arithmetic, in the container's title, which the client draws at (8, 6)
+inside the container: `WardrobeFont.move` walks the cursor with a `space` provider of ±1 … ±128 px
+and back again, and a glyph's *ascent* puts its top at a given container y (a bitmap glyph's top
+lands at `textY + 7 − ascent`, so anything below the header has a negative one). That is also how
+the tab highlight follows the player's own tab order and how the stats readout is right-aligned.
+
+The preview's sixteen slots therefore carry no icon at all: on the **front view only**, an item
+wearing the `ovvar:invisible` model (a transparent 16×16) with a name and one lore line, no click
+handler, at the slot nearest each sewn placement's spot — the picture shows through and all that is
+left of the slot is its "\<patch\> on \<spot\>" tooltip. From a side or the back those slots are
+empty: a slot of a 4×4 grid is nowhere near the cell it would be about once the figure has turned.
+`./gradlew :mods:ovvar:wardrobeSheet` composites the whole screen, and all four angles side by side,
 to a PNG (`WardrobeSheet`, a dev tool) so the doll can be looked at without starting a client.
+
+**`/ovvar look [player]`** opens the same screen read-only on somebody else's ovve: their chapters as
+tabs (the ones they have a design for — their inventory is none of our business and may not be
+loaded), their design on the doll, the rotation buttons, the tooltips. No stash, no take out, no put
+in, no sewing, no mannequin: help and close only, and the help item is titled "A look at \<name\>'s
+ovve". It works for a player who is not here, because a wardrobe is a row in a store rather than an
+inventory — the name goes through the server's own profile resolver (the one `/whitelist add` uses)
+and the wardrobe is fetched by UUID.
 
 The left block (cols 0-4, rows 1-4) is the patch collection — the stash, one slot per kind, left
 and right click exactly as before (take out / start a session); a wardrobe with more than 20 kinds
@@ -229,9 +247,14 @@ The container title carries the background: `WardrobeArt` tints the single greys
 (`art/ovvar/wardrobe_template.png`) to the chapter's colour and draws it as one `bitmap` glyph in
 the `ovvar:wardrobe` font, the same negative-space trick as the sewing dialog
 (`SewingFont`) and better-pets' `pet_gui` — a `space` provider moves the cursor to the corner,
-the glyph draws the whole 176×126 background, another space moves the cursor back, the preview's own
-pair of spaces and glyph draw the paper doll and come back too, and the ordinary stats text
-(`earned N · sewn N · stash N`, white) follows on the same line. 176×126 is exactly
+the glyph draws the whole 176×126 background, another space moves the cursor back, and every other
+glyph the screen needs follows the same way. The title's own **text** is the ovve's name and nothing
+else: the client draws it in the vanilla font at about 6 px a character on a screen 176 px wide, and
+saying `Data ovve · earned 32 · sewn 11 · stash 0` there ran off the end of it. The counts are pixel
+glyphs instead (`TinyType`, a 3×5 type face drawn in `TinyType`'s own table), right-aligned in the
+spare header width: as many of the three as fit beside the name, and a name long enough to crowd
+them out gives up its garment word rather than the counts ("Silicon-blue IT", not "Silicon-blue IT
+ovve"). The help item's lore has all three in full whatever the header had room for. 176×126 is exactly
 the `GENERIC_9x6` container's own six 18px rows below its header (`18 + 18*6`), not a px more, so
 the glyph never paints opaque cloth or a stitch line over the player's own inventory below it.
 
@@ -249,22 +272,34 @@ dupe machine.
 - The doc calls for 7 backgrounds; `Chapter` has 6 values (`DATA`, `IT`, `IT_KISEL`, `MEDIA`,
   `DATA_POLYMITER`, `IT_POLYMITER`), so there are 6 — one per chapter, as the doc's own "one
   background per chapter" says.
-- the doc's two piece toggles are one toggle naming both halves, and the half `Piece.BOTTOM` is
-  called "Trousers", not "feet": the legs and waist are what a wearer sees, and the boots render
-  channel `OvveFeet` adds to that half is not a garment piece of its own.
+- the doc's two piece toggles are gone altogether: the preview shows the whole garment, both halves
+  at once, and the two buttons there now turn it instead. Where a half still has to be named it is
+  "trousers", not "feet": the legs and waist are what a wearer sees, and the boots render channel
+  `OvveFeet` adds to that half is not a garment piece of its own.
 - Row 5's "take out" and "sew on stand" are reminder icons, not buttons: there is no "selected
   patch" state, so the actual gestures stay on the collection slots themselves, as they always
   were. On a minigame server they are greyed out with the reason rather than gone.
 - The doc's "mode text in the middle, drawn as background text" is instead the mode's first line
-  in the help book (col 7): a container title is one line, already spent on the chapter glyph and
-  the stats strip.
+  in the help book (col 7), and the reason on each refused action: a container title is one line,
+  and the glyphs on it are already drawing the background, the preview and the counts.
 
 **Template art notes** (`tools/wardrobe_template.py`, run once, checked in): 176×126 (see above —
 exactly the container's own rows), greyscale + alpha; a base cloth tone (132) with ±6 per-pixel
 luminance noise for a woven feel; the patch panel (cols 0-4, rows 1-4) is a lighter "cream canvas
-pocket" (200); the preview panel (cols 5-8, rows 1-4) is a slightly darker cloth (118) with a
-simple standing-ovve silhouette in mid grey (96); a dashed white overlock-stitch outline (255) runs
-around the tab row, both panels, the action row, and the whole background. `WardrobeArt` tints
+pocket" (200); the preview panel (cols 5-8, rows 1-4) is a slightly darker cloth (118), with no
+painted silhouette any more — it always carries the rendered paper doll, and two figures on top of
+each other was half of the "bad overlap of textures" this fixed. A dashed white overlock-stitch
+outline (255) runs around one box per cell of the tab row and the action row, both panels, and the
+whole background.
+
+**Everything drawn lies on the slot grid.** A slot's *icon* fills the 16×16 at (8 + 18·col,
+18 + 18·row) and the 18×18 *cell* around it — the ring the vanilla slot frame would use, which this
+background hides — starts one pixel up and to the left, at (7 + 18·col, 17 + 18·row). Every line the
+template draws is on that ring and never inside the 16×16; before that the panels' and the tab row's
+outlines ran a pixel inside the slots and every tab's ovve icon had a stitch line through it. The
+script checks it before saving and the `wardrobeTemplateBoxesAreOnTheSlotGrid` game test checks the
+checked-in PNG, every slot of the grid. `WardrobeFont.cellX`/`cellY` are the same arithmetic for
+everything placed at runtime. `WardrobeArt` tints
 every non-white pixel by `luminance/255 * colour` and leaves anything at or above luminance 250
 pure white, so the stitching reads the same on every chapter.
 
@@ -358,10 +393,13 @@ sewn on the last pull, nothing sewn after cutting the thread). `WardrobeTests` r
 (both backends, the compare-and-set cache, one patch in one place) and the ownership rules: a
 foreign ovve is refused by the equip checks and evicted by the tick, a stranger's sew and unpick
 change neither the store nor the ovve, the owner's own still work, `rebind` and `allow` still do
-what they say, and the MOTD names this server and its mode. It also runs the wardrobe screen: the
-title's glyphs and font, the tab row, every paper doll's size and the cell a patch lands on, that
-asking the pack for a combination gets its preview into the same build, and what each mode does to
-the action row.
+what they say, and the MOTD names this server and its mode. It also runs the wardrobe screen: that
+nothing the background draws overlaps a slot's icon, the title's glyphs and spaces, the tab row and
+its highlight, the empty-state notices, the four angles and that every visible cell has a glyph of
+its own, that a placement is drawn by that glyph on the angle that shows it and by nothing on the
+other three, the rotation buttons, the title's length and the stats readout's place, what each mode
+does to the action row (and that a refused action wears the dimmed model), and that `/ovvar look` is
+read-only and driven by the other player's design.
 
 ## Adding a chapter
 
