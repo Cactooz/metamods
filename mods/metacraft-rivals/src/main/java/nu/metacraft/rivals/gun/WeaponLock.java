@@ -90,6 +90,9 @@ public final class WeaponLock {
 	 * or the swap it predicted, so the menu is sent again whole rather than left showing a move that did
 	 * not happen.
 	 *
+	 * <p>A click on the weapon <em>selector</em> is cancelled for a different reason: it is the picker, so
+	 * the screen is closed and the dialog opened instead of the click being run.
+	 *
 	 * <p>Three ways a click can reach the weapon, and all three are refused: the clicked slot is the
 	 * weapon's own (or holds a paint weapon, which is the same thing seen from the other side, and covers
 	 * a gun an operator gave themselves into a backpack slot), the hotbar-swap key aimed at the weapon's
@@ -97,11 +100,25 @@ public final class WeaponLock {
 	 * slipped through could have put there, and which must not be allowed to land anywhere new.
 	 */
 	public static boolean refuseContainerClick(ServerPlayer player, int slotNum, int button, ContainerInput input) {
+		// The selector is the exception: a click on it is not a refusal but the picker. Answered whatever the
+		// click was — every button and every drag on it means the same thing — and whether or not the player
+		// is carrying a weapon yet, because a lobby player's selector lives in this screen too.
+		if (isSelector(player, slotNum) || WeaponSelector.is(player.containerMenu.getCarried())) {
+			player.containerMenu.sendAllDataToRemote();
+			WeaponSelector.openFromInventory(player);
+			return true;
+		}
 		if (!locked(player)) return false;
 		if (!touches(player, slotNum, button, input)) return false;
 		player.containerMenu.sendAllDataToRemote();
 		say(player, "Your weapon stays in its slot — swap it with the selector in your inventory");
 		return true;
+	}
+
+	/** Is the clicked slot the one the weapon selector is sitting in? */
+	private static boolean isSelector(ServerPlayer player, int slotNum) {
+		if (slotNum < 0 || slotNum >= player.containerMenu.slots.size()) return false;
+		return WeaponSelector.is(player.containerMenu.slots.get(slotNum).getItem());
 	}
 
 	private static boolean touches(ServerPlayer player, int slotNum, int button, ContainerInput input) {

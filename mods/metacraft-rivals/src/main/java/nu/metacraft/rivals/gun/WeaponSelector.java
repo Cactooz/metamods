@@ -76,14 +76,47 @@ public final class WeaponSelector extends Item implements PolymerItem {
 		return false;
 	}
 
+	/**
+	 * How many times the picker has been asked for, ever. There is no screen to read on a mock player — a
+	 * dialog is one packet at a connection that swallows it — so this is the seam a test can see the second
+	 * way in through, the way {@code /rivals weapons} is a command a test can call.
+	 */
+	private static int opens;
+
+	public static int opens() {
+		return opens;
+	}
+
+	/**
+	 * Open the picker for this player, from wherever they asked. Counted, and the hand is put back on the
+	 * weapon: the selector's slot is the one place a locked hotbar may go, and it is a door rather than a
+	 * room — the screen is open, so the player is holding their gun again the moment they have picked one.
+	 * Nothing to put back for anyone who is not carrying a picked weapon.
+	 */
+	public static void openPicker(ServerPlayer player) {
+		opens++;
+		WeaponDialog.open(player);
+		if (WeaponLock.locked(player)) WeaponLock.pin(player);
+	}
+
+	/**
+	 * The same, for a click on the selector <em>inside</em> the inventory screen, which is the other place a
+	 * player looks for it: an item you are told to click asks to be clickable where it is sitting, and with
+	 * the hotbar locked the inventory screen is where the selector usually is.
+	 *
+	 * <p>The screen has to go first. A dialog is drawn over whatever screen the client has open, so a picker
+	 * opened behind the inventory would be a picker nobody can see — hence {@code closeContainer}, and the
+	 * show-dialog packet immediately after it, in that order on the wire.
+	 */
+	public static void openFromInventory(ServerPlayer player) {
+		player.closeContainer();
+		openPicker(player);
+	}
+
 	@Override
 	public InteractionResult use(Level level, Player player, InteractionHand hand) {
 		if (!(player instanceof ServerPlayer serverPlayer)) return InteractionResult.CONSUME;
-		WeaponDialog.open(serverPlayer);
-		// The selector's slot is the one place a locked hotbar may go, and it is a door rather than a room:
-		// the screen is open, so the hand goes back to the weapon and the player is holding a gun again the
-		// moment they have picked one. Nothing to put back for anyone who is not carrying a picked weapon.
-		if (WeaponLock.locked(serverPlayer)) WeaponLock.pin(serverPlayer);
+		openPicker(serverPlayer);
 		return InteractionResult.SUCCESS_SERVER;
 	}
 
@@ -94,7 +127,8 @@ public final class WeaponSelector extends Item implements PolymerItem {
 
 	@Override
 	public void modifyClientTooltip(List<Component> tooltip, ItemStack stack, PacketContext context) {
-		tooltip.add(Component.literal("Right click to pick your weapon").withStyle(ChatFormatting.GRAY));
+		tooltip.add(Component.literal("Right click, or click me in your inventory, to pick your weapon")
+				.withStyle(ChatFormatting.GRAY));
 	}
 
 	@Override

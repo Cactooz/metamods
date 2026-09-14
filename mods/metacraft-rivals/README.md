@@ -152,7 +152,9 @@ dedicated Rivals server wants.
   could scroll off the gun would be standing in a firefight punching, and one who could drop it would have
   no way of getting it back. The one other slot the selection may visit is whichever holds the **weapon
   selector**, because that is the door: right-clicking it opens the picker and hands the weapon straight
-  back. Swapping weapons is only ever through the selector, so it stays in the inventory during a match
+  back. Clicking the selector *in the inventory screen* does the same — any click, any button: the click is
+  not run, the screen is closed and the picker is sent after it, since a dialog is drawn over whatever
+  screen the client has open. Swapping weapons is only ever through the selector, so it stays in the inventory during a match
   too — arming for a round moves it aside rather than writing over it, and hands out a new one to anybody
   who has lost theirs — and it cannot be dropped either. Operators are locked like everyone else; `/rivals
   gun` still hands out a weapon, which is the way round it for testing.

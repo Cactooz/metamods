@@ -740,6 +740,43 @@ public final class RivalsGameTests {
 	}
 
 	/**
+	 * The selector works from the inventory screen too, which with the hotbar locked is where it usually is.
+	 * A click on it is not run — the compass must not be picked up or moved — and is the picker instead: the
+	 * menu is resent, the screen closed and the dialog sent after it, in that order, because a dialog is
+	 * drawn over whatever screen the client has open. Any click, any button, and whether or not the player
+	 * has picked a weapon yet.
+	 */
+	@GameTest
+	public void theSelectorOpensThePickerFromTheInventory(GameTestHelper helper) {
+		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
+		Inventory inventory = player.getInventory();
+		inventory.setItem(WeaponPicks.GIVEN_SLOT, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
+		inventory.setItem(22, WeaponSelector.stack());
+		int selectorSlot = -1;
+		for (Slot slot : player.containerMenu.slots) {
+			if (slot.container == inventory && slot.getContainerSlot() == 22) selectorSlot = slot.index;
+		}
+		helper.assertTrue(selectorSlot >= 0, "the inventory menu shows the selector's slot");
+		int before = WeaponSelector.opens();
+		helper.assertTrue(WeaponLock.refuseContainerClick(player, selectorSlot, 0, ContainerInput.PICKUP),
+				"a click on the selector is not run");
+		helper.assertTrue(WeaponSelector.is(inventory.getItem(22)), "the selector is still in its slot");
+		helper.assertValueEqual(WeaponSelector.opens(), before + 1, "and the picker was asked for");
+		helper.assertValueEqual(inventory.getSelectedSlot(), WeaponPicks.GIVEN_SLOT, "with the hand back on the weapon");
+		// A shift-click, a middle click, the swap key: every click on the selector means the same thing.
+		helper.assertTrue(WeaponLock.refuseContainerClick(player, selectorSlot, 1, ContainerInput.QUICK_MOVE),
+				"and so is a shift-click on it");
+		helper.assertValueEqual(WeaponSelector.opens(), before + 2, "which is another pick request");
+		// And a lobby player, who has no weapon and so no lock, reaches the picker the same way.
+		inventory.setItem(WeaponPicks.GIVEN_SLOT, ItemStack.EMPTY);
+		helper.assertTrue(!WeaponLock.locked(player), "nothing picked");
+		helper.assertTrue(WeaponLock.refuseContainerClick(player, selectorSlot, 0, ContainerInput.PICKUP),
+				"the selector still answers");
+		helper.assertValueEqual(WeaponSelector.opens(), before + 3, "with the picker");
+		helper.succeed();
+	}
+
+	/**
 	 * Arming for a match keeps the selector: swapping weapons is only ever through it, in a match as much
 	 * as in a lobby, and the lobby hands it out into the first free slot — which after a sweep is the
 	 * weapon's own, so arming used to write straight over it.
