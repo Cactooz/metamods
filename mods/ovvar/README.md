@@ -22,9 +22,10 @@ Patches are items (`ovvar:patch_<id>`) and go on any 4×4-texel cell of the ovve
 face you see of the body, sleeves and legs — not the inner faces — keeping off the collar, the
 belt, the hands and the cuffs: 32 cells, plus the seat, which takes a two-cell-wide 8×4 patch
 across it). The catalogue holds ITK, Nyckeln'26, METAcraft Rivals '26, IT and Data
-(`Patches.java`): ITK and Data are 12×12 and IT is the PolymITer set's 16×16, all hanging over
-their neighbours; Rivals is the seat patch — Data's cerise with a creeper against IT's laser
-violet with a VS — and Nyckeln'26 is Kexana's cell-sized 8×8. Sewing: put the ovve on
+(`Patches.java`): ITK, IT and Data are 12×12 and hang over their neighbours (IT is the PolymITer
+set's 16×16 brought down to 12: the diamond rebuilt at that size, the bolt sampled from the
+original); Rivals is the seat patch — Data's cerise with a creeper against IT's laser violet with
+a VS — and Nyckeln'26 is Kexana's cell-sized 8×8. Sewing: put the ovve on
 an armour stand, hold a patch, look at the stand — the patch shows washed out on the cell you aim
 at (a ghosted sprite, see below), the action bar
 names it, right-click sews it on; sneak to aim at the far face of the part you look at
@@ -66,7 +67,7 @@ otherwise). The cell under the needle carries the click. Datagen builds the glyp
 `art/ovvar/sewing/`: `cloth.png` (22×22, recoloured in every chapter's colour), `needle.png`
 (26×9, pointing right; mirrored and turned for the other directions), `thread.png` (3×3),
 `stitch_in.png`, `stitch_out.png` and `hole.png` (5×5), `band.png` (154×22, the text is stamped
-on), plus each patch's art scaled up whole to fit 96 px (an 8×8 at 12×, a 12×12 at 8×, a 16×16 at 6×, the
+on), plus each patch's art scaled up whole to fit 96 px (an 8×8 at 12×, a 12×12 at 8×, the
 16×8 seat patch at 6×). It also
 traces each patch's outline from its opaque texels into `ovvar/outlines.json` (`Outline`), which
 `Seam` spreads the holes along at runtime. Replace the PNGs and `runDatagen`; the

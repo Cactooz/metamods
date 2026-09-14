@@ -215,7 +215,7 @@ public final class OvvarGameTests {
 		List<Case> cases = List.of(
 				new Case("itk", 6, 9),        // 12×12, 48 texels: 9 exactly
 				new Case("nyckeln", 6, 6),    // 8×8, 30 texels: 5.625 rounds up
-				new Case("rivals", 6, 9),     // the 16×8 seat patch, 50 texels: 9.375 rounds down
+				new Case("rivals", 6, 9),     // the 16×8 seat patch, 48 texels: 9 exactly
 				new Case("itk", 12, 16),      // 18 capped at the dialog's most
 				new Case("nyckeln", 1, 1));   // never below one
 		List<String> wrong = new ArrayList<>();
