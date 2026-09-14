@@ -13,6 +13,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.InteractionHand;
 import net.minecraft.world.InteractionResult;
+import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.item.Item;
 import net.minecraft.world.item.ItemStack;
@@ -24,12 +25,13 @@ import nu.metacraft.rivals.Rivals;
 import java.util.List;
 
 /**
- * The lobby's weapon selector: a Polymer item the client is shown as a compass, which opens
- * {@link WeaponDialog} when it is right-clicked.
+ * The weapon selector: a Polymer item the client is shown as a compass, which opens {@link WeaponDialog}
+ * when it is clicked in the inventory screen — where it lives, in {@link #SLOT}, the top-right slot of the
+ * main grid.
  *
  * <p>An item rather than only a command, because a player who has just joined a lobby has not read the
- * commands and a thing in the hotbar asks to be clicked. A compass because it already reads as "point
- * me at something". Polymer sends the item's own id as the client's {@code item_model}, so the pack ships
+ * commands and a thing sitting in their inventory asks to be clicked. A compass because it already reads as
+ * "point me at something". Polymer sends the item's own id as the client's {@code item_model}, so the pack ships
  * {@code items/weapon_selector.json}: a still compass face (vanilla's {@code compass_16}), because a
  * compass that points somewhere spins its needle while it works out where — without that file the
  * client drew the missing-texture square.
@@ -40,6 +42,19 @@ import java.util.List;
 public final class WeaponSelector extends Item implements PolymerItem {
 	public static final Identifier ID = Rivals.id("weapon_selector");
 	public static final Component NAME = Component.literal("Weapon selector").withStyle(ChatFormatting.AQUA);
+
+	/**
+	 * Where the selector lives: the top-right slot of the main inventory grid. A player's inventory is the
+	 * hotbar in 0..8 and the three-row grid in 9..35 ({@code Inventory.isHotbarSlot}, {@code INVENTORY_SIZE}
+	 * 36), so 17 is the right-hand end of the grid's first row — the corner of the screen, out of the way of
+	 * everything and in the same place every round.
+	 *
+	 * <p>Out of the hotbar on purpose. It was in it, which cost a hotbar slot and, worse, made the hotbar
+	 * lock two slots wide: the selection could sit on the selector, so a player could end up in a firefight
+	 * holding a compass. The hotbar now has exactly one place to be — the weapon — and the selector is
+	 * clicked where it sits, in the inventory screen.
+	 */
+	public static final int SLOT = 17;
 
 	private static WeaponSelector item;
 
@@ -68,6 +83,30 @@ public final class WeaponSelector extends Item implements PolymerItem {
 		return stack.getItem() instanceof WeaponSelector;
 	}
 
+	/**
+	 * Put this player's selector where it belongs, and make sure they have one: nothing to do if it is
+	 * already in {@link #SLOT}, otherwise the one they are carrying is moved there — from wherever a sweep,
+	 * an arm-up or an inventory shuffle left it — and a player carrying none is handed one. Whatever was in
+	 * the slot is moved aside by {@link WeaponPicks#intoSlot}. Returns whether anything moved, which is what
+	 * the lobby reports.
+	 *
+	 * <p>Find-or-create rather than add-if-missing, so there is never a second selector to lose track of.
+	 */
+	public static boolean home(ServerPlayer player) {
+		Inventory inventory = player.getInventory();
+		if (is(inventory.getItem(SLOT))) return false;
+		ItemStack selector = ItemStack.EMPTY;
+		for (int slot = 0; slot < inventory.getContainerSize(); slot++) {
+			if (is(inventory.getItem(slot))) {
+				selector = inventory.getItem(slot);
+				inventory.setItem(slot, ItemStack.EMPTY);
+				break;
+			}
+		}
+		WeaponPicks.intoSlot(player, SLOT, selector.isEmpty() ? stack() : selector);
+		return true;
+	}
+
 	/** Does this player already carry one? What keeps the lobby from handing out a second. */
 	public static boolean carried(Player player) {
 		for (int slot = 0; slot < player.getInventory().getContainerSize(); slot++) {
@@ -89,9 +128,9 @@ public final class WeaponSelector extends Item implements PolymerItem {
 
 	/**
 	 * Open the picker for this player, from wherever they asked. Counted, and the hand is put back on the
-	 * weapon: the selector's slot is the one place a locked hotbar may go, and it is a door rather than a
-	 * room — the screen is open, so the player is holding their gun again the moment they have picked one.
-	 * Nothing to put back for anyone who is not carrying a picked weapon.
+	 * weapon — an inventory click does not move the selection, but a right click from the hotbar does, and
+	 * either way the player should be holding their gun the moment they have picked one. Nothing to put back
+	 * for anyone who is not carrying a picked weapon.
 	 */
 	public static void openPicker(ServerPlayer player) {
 		opens++;
@@ -100,9 +139,9 @@ public final class WeaponSelector extends Item implements PolymerItem {
 	}
 
 	/**
-	 * The same, for a click on the selector <em>inside</em> the inventory screen, which is the other place a
-	 * player looks for it: an item you are told to click asks to be clickable where it is sitting, and with
-	 * the hotbar locked the inventory screen is where the selector usually is.
+	 * The same, for a click on the selector <em>inside</em> the inventory screen, which is where it is: the
+	 * selector is out of the hotbar, so this is the way in, and {@link WeaponLock} routes the click here
+	 * rather than letting it pick the compass up.
 	 *
 	 * <p>The screen has to go first. A dialog is drawn over whatever screen the client has open, so a picker
 	 * opened behind the inventory would be a picker nobody can see — hence {@code closeContainer}, and the
@@ -113,6 +152,12 @@ public final class WeaponSelector extends Item implements PolymerItem {
 		openPicker(player);
 	}
 
+	/**
+	 * Right click with one in hand. Not a path a player on a normal round can take — the selector is not in
+	 * the hotbar and the hotbar is locked to the weapon — but an operator who has handed themselves things
+	 * with {@code /rivals gun} can be holding anything, and a selector that did nothing in the hand would
+	 * read as broken.
+	 */
 	@Override
 	public InteractionResult use(Level level, Player player, InteractionHand hand) {
 		if (!(player instanceof ServerPlayer serverPlayer)) return InteractionResult.CONSUME;
@@ -127,8 +172,7 @@ public final class WeaponSelector extends Item implements PolymerItem {
 
 	@Override
 	public void modifyClientTooltip(List<Component> tooltip, ItemStack stack, PacketContext context) {
-		tooltip.add(Component.literal("Right click, or click me in your inventory, to pick your weapon")
-				.withStyle(ChatFormatting.GRAY));
+		tooltip.add(Component.literal("Click me in your inventory to pick your weapon").withStyle(ChatFormatting.GRAY));
 	}
 
 	@Override

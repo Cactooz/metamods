@@ -17,9 +17,9 @@ import net.minecraft.world.item.ItemStack;
  * about the hotbar was working against that: a player could scroll off the gun onto an empty slot and
  * stand in a firefight punching, drop the gun and have no way of getting it back, or drag it out of the
  * inventory screen into the void. So the pick is a commitment — {@link WeaponPicks#GIVEN_SLOT} holds the
- * weapon, the hotbar selection is pinned there, the stack cannot be dropped and it cannot be moved — and
- * <em>swapping</em> is the one thing that stays open, through the {@link WeaponSelector} in the inventory,
- * which is why the selector's own slot is the one other slot the selection is allowed to visit.
+ * weapon, the hotbar selection is pinned there and nowhere else, the stack cannot be dropped and it cannot
+ * be moved — and <em>swapping</em> is the one thing that stays open, through the {@link WeaponSelector},
+ * which sits in the inventory grid rather than the hotbar and is clicked where it sits.
  *
  * <p>Everything here is a plain question about an inventory, so the packet handlers that ask it
  * ({@link nu.metacraft.rivals.mixin.ServerGamePacketListenerImplMixin}) stay three lines each and the
@@ -36,12 +36,14 @@ public final class WeaponLock {
 	}
 
 	/**
-	 * May this player put the hotbar selection on this slot? The weapon's own slot always, the slot the
-	 * weapon selector is sitting in (that is how the picker is opened), nothing else while locked.
+	 * May this player put the hotbar selection on this slot? While locked, the weapon's own slot and nothing
+	 * else. There used to be a second allowed slot — whichever held the weapon selector — and the selector
+	 * has since moved out of the hotbar entirely ({@link WeaponSelector#SLOT}), which is what made one
+	 * allowed slot possible: a locked hotbar with two places to be is a hotbar a player can end up holding a
+	 * compass in during a firefight.
 	 */
 	public static boolean maySelect(Player player, int slot) {
-		if (!locked(player) || slot == WeaponPicks.GIVEN_SLOT) return true;
-		return WeaponSelector.is(player.getInventory().getItem(slot));
+		return !locked(player) || slot == WeaponPicks.GIVEN_SLOT;
 	}
 
 	/**
@@ -64,7 +66,7 @@ public final class WeaponLock {
 	public static boolean refuseSlot(ServerPlayer player, int slot) {
 		if (slot < 0 || slot >= Inventory.getSelectionSize() || maySelect(player, slot)) return false;
 		pin(player);
-		say(player, "Your weapon is locked in its slot — swap it with the selector in your inventory");
+		say(player, "Your weapon is locked in its slot — click the selector in your inventory to swap it");
 		return true;
 	}
 
@@ -111,7 +113,7 @@ public final class WeaponLock {
 		if (!locked(player)) return false;
 		if (!touches(player, slotNum, button, input)) return false;
 		player.containerMenu.sendAllDataToRemote();
-		say(player, "Your weapon stays in its slot — swap it with the selector in your inventory");
+		say(player, "Your weapon stays in its slot — click the selector to swap it");
 		return true;
 	}
 

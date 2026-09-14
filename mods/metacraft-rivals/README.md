@@ -150,13 +150,14 @@ dedicated Rivals server wants.
   stays in the slot it was put in (`WeaponPicks.GIVEN_SLOT`, the first): the hotbar selection is pinned
   there, the stack cannot be dropped, and it cannot be dragged out of the inventory screen — a player who
   could scroll off the gun would be standing in a firefight punching, and one who could drop it would have
-  no way of getting it back. The one other slot the selection may visit is whichever holds the **weapon
-  selector**, because that is the door: right-clicking it opens the picker and hands the weapon straight
-  back. Clicking the selector *in the inventory screen* does the same — any click, any button: the click is
-  not run, the screen is closed and the picker is sent after it, since a dialog is drawn over whatever
-  screen the client has open. Swapping weapons is only ever through the selector, so it stays in the inventory during a match
-  too — arming for a round moves it aside rather than writing over it, and hands out a new one to anybody
-  who has lost theirs — and it cannot be dropped either. Operators are locked like everyone else; `/rivals
+  no way of getting it back. The selection has exactly **one** place to be, that slot, because the **weapon
+  selector** is not in the hotbar at all: it sits in the top-right slot of the main inventory grid
+  (`WeaponSelector.SLOT` = 17 — the hotbar is 0..8 and the grid 9..35) and is clicked *there*. Any click on
+  it, any button: the click is not run, the screen is closed and the picker is sent after it, since a dialog
+  is drawn over whatever screen the client has open. Swapping weapons is only ever through the selector, so
+  it stays in the inventory during a match too — a lobby, an arm-up or a pick puts it back in that slot
+  whenever it has wandered, displacing whatever was there into the first free slot, and hands one out to
+  anybody without — and it cannot be dropped either. Operators are locked like everyone else; `/rivals
   gun` still hands out a weapon, which is the way round it for testing.
 
   Server-side the lock is three more packet handlers beside the buttons, all in the same mixin and all

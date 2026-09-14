@@ -651,34 +651,33 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * A picked weapon is locked to its slot. The hotbar selection may sit on the weapon or on the weapon
-	 * selector — that is the door to the picker — and nowhere else: anything else is refused and the client
-	 * is snapped back. A player carrying no picked weapon is nobody's business but vanilla's.
+	 * A picked weapon is locked to its slot, and that slot is the only place a locked hotbar selection may
+	 * be: every other slot is refused and the client snapped back. One allowed slot rather than two, since
+	 * the selector left the hotbar for {@link WeaponSelector#SLOT} — a locked hotbar with two places to be is
+	 * a hotbar a player can end up holding a compass in during a firefight. A player carrying no picked
+	 * weapon is nobody's business but vanilla's.
 	 */
 	@GameTest
 	public void theHotbarIsLockedToTheWeaponsSlot(GameTestHelper helper) {
 		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		Inventory inventory = player.getInventory();
-		inventory.setItem(4, WeaponSelector.stack());
+		WeaponSelector.home(player);
 		inventory.setItem(3, new ItemStack(Items.BREAD));
 		// Nothing picked yet: every slot is free to visit.
 		helper.assertTrue(!WeaponLock.locked(player), "no weapon, no lock");
 		inventory.setSelectedSlot(3);
 		helper.assertTrue(!WeaponLock.refuseSlot(player, 3), "an unarmed player scrolls where they like");
 		helper.assertValueEqual(inventory.getSelectedSlot(), 3, "and stays where they scrolled");
-		// Armed: the weapon's slot and the selector's, and nothing else.
+		// Armed: the weapon's slot, and nothing else.
 		inventory.setItem(WeaponPicks.GIVEN_SLOT, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
 		helper.assertTrue(WeaponLock.locked(player), "a weapon in its slot is the lock");
-		helper.assertTrue(WeaponLock.refuseSlot(player, 3), "slot 3 is refused");
-		helper.assertValueEqual(inventory.getSelectedSlot(), WeaponPicks.GIVEN_SLOT, "and the hand is back on the weapon");
-		helper.assertTrue(!WeaponLock.refuseSlot(player, 4), "the selector's slot is allowed: it opens the picker");
-		helper.assertTrue(!WeaponLock.refuseSlot(player, WeaponPicks.GIVEN_SLOT), "and so is the weapon's own");
-		helper.assertTrue(!WeaponLock.maySelect(player, 8), "an empty slot is not one of the two");
-		// Right-clicking the selector opens the dialog and hands the weapon back.
-		inventory.setSelectedSlot(4);
-		WeaponSelector.get().use(helper.getLevel(), player, InteractionHand.MAIN_HAND);
-		helper.assertValueEqual(inventory.getSelectedSlot(), WeaponPicks.GIVEN_SLOT,
-				"the picker is open and the hand is on the weapon again");
+		helper.assertTrue(!WeaponLock.refuseSlot(player, WeaponPicks.GIVEN_SLOT), "the weapon's own slot is allowed");
+		for (int slot = 1; slot < Inventory.getSelectionSize(); slot++) {
+			helper.assertTrue(WeaponLock.refuseSlot(player, slot), "slot " + slot + " is refused");
+			helper.assertValueEqual(inventory.getSelectedSlot(), WeaponPicks.GIVEN_SLOT,
+					"and the hand is back on the weapon");
+		}
+		helper.assertTrue(!WeaponLock.maySelect(player, 4), "there is no second allowed slot any more");
 		helper.succeed();
 	}
 
@@ -692,6 +691,8 @@ public final class RivalsGameTests {
 		Inventory inventory = player.getInventory();
 		helper.assertTrue(!WeaponLock.refuseDrop(player), "an empty-handed player drops what they like");
 		inventory.setItem(WeaponPicks.GIVEN_SLOT, new ItemStack(PaintWeapon.of(Weapon.SHOOTER)));
+		// A selector in the hotbar is not a place a normal round can put one — it lives in the inventory grid
+		// — but an operator handing themselves items can be holding anything, and it is still not droppable.
 		inventory.setItem(4, WeaponSelector.stack());
 		inventory.setItem(5, new ItemStack(Items.BREAD));
 		inventory.setSelectedSlot(WeaponPicks.GIVEN_SLOT);
@@ -751,16 +752,16 @@ public final class RivalsGameTests {
 		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		Inventory inventory = player.getInventory();
 		inventory.setItem(WeaponPicks.GIVEN_SLOT, new ItemStack(PaintWeapon.of(Weapon.ROLLER)));
-		inventory.setItem(22, WeaponSelector.stack());
+		WeaponSelector.home(player);
 		int selectorSlot = -1;
 		for (Slot slot : player.containerMenu.slots) {
-			if (slot.container == inventory && slot.getContainerSlot() == 22) selectorSlot = slot.index;
+			if (slot.container == inventory && slot.getContainerSlot() == WeaponSelector.SLOT) selectorSlot = slot.index;
 		}
 		helper.assertTrue(selectorSlot >= 0, "the inventory menu shows the selector's slot");
 		int before = WeaponSelector.opens();
 		helper.assertTrue(WeaponLock.refuseContainerClick(player, selectorSlot, 0, ContainerInput.PICKUP),
 				"a click on the selector is not run");
-		helper.assertTrue(WeaponSelector.is(inventory.getItem(22)), "the selector is still in its slot");
+		helper.assertTrue(WeaponSelector.is(inventory.getItem(WeaponSelector.SLOT)), "the selector is still in its slot");
 		helper.assertValueEqual(WeaponSelector.opens(), before + 1, "and the picker was asked for");
 		helper.assertValueEqual(inventory.getSelectedSlot(), WeaponPicks.GIVEN_SLOT, "with the hand back on the weapon");
 		// A shift-click, a middle click, the swap key: every click on the selector means the same thing.
@@ -784,14 +785,15 @@ public final class RivalsGameTests {
 	@GameTest
 	public void armingForAMatchKeepsTheSelector(GameTestHelper helper) {
 		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
-		Lobby.receive(player); // adventure, no gun, one selector — in slot 0, as add() puts it
-		helper.assertTrue(WeaponSelector.is(player.getInventory().getItem(WeaponPicks.GIVEN_SLOT)),
-				"the lobby's selector lands in the weapon's own slot");
+		Lobby.receive(player); // adventure, no gun, one selector — in its own slot, the grid's top right
+		helper.assertTrue(WeaponSelector.is(player.getInventory().getItem(WeaponSelector.SLOT)),
+				"the lobby's selector lands in its own slot");
 		ItemStack gun = Match.arm(player);
 		helper.assertTrue(gun.getItem() instanceof PaintWeapon, "arming hands over a weapon");
 		helper.assertTrue(player.getInventory().getItem(WeaponPicks.GIVEN_SLOT).getItem() instanceof PaintWeapon,
 				"which is in its own slot");
-		helper.assertTrue(WeaponSelector.carried(player), "and the selector is still carried, moved aside");
+		helper.assertTrue(WeaponSelector.is(player.getInventory().getItem(WeaponSelector.SLOT)),
+				"and the selector is still in its own slot");
 		helper.assertValueEqual(player.getInventory().getSelectedSlot(), WeaponPicks.GIVEN_SLOT, "with the gun in hand");
 		helper.succeed();
 	}
@@ -1250,13 +1252,24 @@ public final class RivalsGameTests {
 		ServerPlayer player = connected(mockServerPlayer(helper, GameType.SURVIVAL));
 		PaintWeapon.giveKit(player);
 		player.getInventory().setItem(25, new ItemStack(Items.BREAD, 3));
+		player.getInventory().setItem(WeaponSelector.SLOT, new ItemStack(Items.APPLE, 2));
 		helper.assertValueEqual(paintWeapons(player), 4, "four guns to start with");
 		helper.assertTrue(!WeaponSelector.carried(player), "and no selector");
 		int taken = Lobby.receive(player);
 		helper.assertValueEqual(taken, 4, "the lobby took all four");
 		helper.assertValueEqual(paintWeapons(player), 0, "and left none behind");
-		helper.assertTrue(WeaponSelector.carried(player), "with a selector in exchange");
+		helper.assertTrue(WeaponSelector.is(player.getInventory().getItem(WeaponSelector.SLOT)),
+				"with a selector in exchange, in its own slot at the grid's top right");
 		helper.assertValueEqual(player.getInventory().getItem(25).getCount(), 3, "the bread is untouched");
+		// Whatever was in the selector's slot is moved rather than eaten.
+		helper.assertTrue(player.getInventory().findSlotMatchingItem(new ItemStack(Items.APPLE)) >= 0,
+				"and the apples were moved aside, not destroyed");
+		// A selector that has wandered is put back rather than doubled.
+		player.getInventory().setItem(WeaponSelector.SLOT, ItemStack.EMPTY);
+		player.getInventory().setItem(30, WeaponSelector.stack());
+		helper.assertTrue(Lobby.give(player), "a stray selector is a thing to put right");
+		helper.assertTrue(WeaponSelector.is(player.getInventory().getItem(WeaponSelector.SLOT)), "it is home again");
+		helper.assertTrue(player.getInventory().getItem(30).isEmpty(), "and gone from where it was");
 		// Twice through the lobby is still one selector.
 		Lobby.receive(player);
 		Lobby.receive(player);

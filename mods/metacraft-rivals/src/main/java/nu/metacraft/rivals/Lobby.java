@@ -9,10 +9,8 @@ import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.permissions.PermissionLevel;
-import net.minecraft.util.Prediction;
 import net.minecraft.world.entity.Relative;
 import net.minecraft.world.entity.player.Player;
-import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.level.GameType;
 import net.minecraft.world.level.storage.LevelData;
 import nu.metacraft.rivals.gun.InkOnScreen;
@@ -89,14 +87,13 @@ public final class Lobby {
 	}
 
 	/**
-	 * One selector, and only one. A player who is handed a second every time the round ends finishes the
-	 * evening with a hotbar full of compasses.
+	 * One selector, and only one, in the one place it belongs: {@link WeaponSelector#SLOT}, the top-right
+	 * slot of the inventory grid. {@link WeaponSelector#home} is find-or-create, so a player who is handed
+	 * one every time a round ends does not finish the evening with a bag full of compasses, and one whose
+	 * selector has wandered has it put back rather than doubled. Returns whether anything moved.
 	 */
 	public static boolean give(ServerPlayer player) {
-		if (WeaponSelector.carried(player)) return false;
-		ItemStack selector = WeaponSelector.stack();
-		if (!player.getInventory().add(selector)) player.drop(selector, false, Prediction.SERVER_ONLY);
-		return true;
+		return WeaponSelector.home(player);
 	}
 
 	/** Their own side's spawn if their scoreboard team is one of the two, the world spawn otherwise. */

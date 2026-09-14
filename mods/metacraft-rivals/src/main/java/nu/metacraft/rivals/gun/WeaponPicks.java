@@ -55,7 +55,8 @@ public final class WeaponPicks {
 		sweep(player);
 		ItemStack given = PaintWeapon.withTankColor(new ItemStack(PaintWeapon.of(weapon)), player.getTeam());
 		intoItsSlot(player, given);
-		// Picked from the selector's slot, most of the time: the hand goes back to the gun.
+		WeaponSelector.home(player);
+		// The picker was opened from the inventory screen, which does not move the hand: put it on the gun.
 		WeaponLock.pin(player);
 		player.level().playSound(null, player.getX(), player.getY(), player.getZ(),
 				SoundEvents.ARMOR_EQUIP_LEATHER.value(), SoundSource.PLAYERS, 0.7f, 1.2f);
@@ -68,17 +69,30 @@ public final class WeaponPicks {
 	 * The weapon into {@link #GIVEN_SLOT}, and whatever was in that slot somewhere else. The slot is the
 	 * one the hotbar is locked to ({@link WeaponLock}), so a weapon that landed anywhere else would be a
 	 * weapon its owner could never select — which is what {@code inventory.add} did whenever the slot was
-	 * occupied, and after a lobby round it is occupied by the selector, because {@code add} put that in the
-	 * first free slot and the first free slot is this one.
-	 *
-	 * <p>Whatever is moved aside is moved rather than destroyed, and only dropped if there is nowhere at all
-	 * to put it: losing the selector is losing the way to another weapon.
+	 * occupied.
 	 */
 	public static void intoItsSlot(ServerPlayer player, ItemStack given) {
+		intoSlot(player, GIVEN_SLOT, given);
+	}
+
+	/**
+	 * A stack into an exact slot, and whatever was in that slot somewhere sensible: home if it is the weapon
+	 * selector ({@link WeaponSelector#SLOT}, its own corner of the inventory), the first free slot otherwise,
+	 * and the floor only if there is nowhere at all — moved rather than destroyed, because losing the
+	 * selector is losing the way to another weapon.
+	 */
+	public static void intoSlot(ServerPlayer player, int slot, ItemStack stack) {
 		Inventory inventory = player.getInventory();
-		ItemStack was = inventory.getItem(GIVEN_SLOT);
-		inventory.setItem(GIVEN_SLOT, given);
-		if (!was.isEmpty() && !inventory.add(was)) player.drop(was, false, Prediction.SERVER_ONLY);
+		ItemStack was = inventory.getItem(slot);
+		inventory.setItem(slot, stack);
+		if (was.isEmpty()) return;
+		// Guarded on the slot as well as on the item, so sending a selector home can never be what displaced
+		// it: one hop, never a loop.
+		if (WeaponSelector.is(was) && slot != WeaponSelector.SLOT) {
+			intoSlot(player, WeaponSelector.SLOT, was);
+			return;
+		}
+		if (!inventory.add(was)) player.drop(was, false, Prediction.SERVER_ONLY);
 	}
 
 	/**
