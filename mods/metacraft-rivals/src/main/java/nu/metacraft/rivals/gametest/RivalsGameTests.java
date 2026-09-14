@@ -1736,6 +1736,82 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
+	/**
+	 * Pirkko, the figure a squid wears for everyone else: Julle's mascot, imported by
+	 * {@code tools/pirkko_model.py} from {@code tools/julle/pirkko_models/}. The import is a copy and a
+	 * rename, so what there is to check is that all three files shipped and that not one {@code splat:}
+	 * id survived the rename — a texture id left pointing at the delivery's namespace is a figure that
+	 * renders as the missing-texture checker on every client, and nothing server-side would ever say so.
+	 *
+	 * <p>The blob stays too: the thrown ball still wears it, and importing Pirkko must not take it away.
+	 */
+	@GameTest
+	public void pirkkoModelAssetsArePresent(GameTestHelper helper) throws IOException {
+		String base = "/assets/" + Rivals.MOD_ID + "/";
+		for (String path : new String[] {"items/pirkko.json", "models/item/pirkko.json",
+				"textures/item/pirkko_ink.png", "items/blob.json", "models/item/blob.json"}) {
+			try (InputStream in = Rivals.class.getResourceAsStream(base + path)) {
+				helper.assertTrue(in != null, "asset present: " + path);
+			}
+		}
+		try (InputStream in = Rivals.class.getResourceAsStream(base + "textures/item/pirkko_ink.png")) {
+			BufferedImage image = ImageIO.read(in);
+			helper.assertValueEqual(image.getWidth(), 128, "Pirkko's sheet is 128 px wide");
+			helper.assertValueEqual(image.getHeight(), 128, "and 128 px tall");
+		}
+		// The item definition: our model, and the dye tint that carries the team colour.
+		try (InputStream in = Rivals.class.getResourceAsStream(base + "items/pirkko.json")) {
+			JsonObject definition = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+			JsonObject model = definition.getAsJsonObject("model");
+			helper.assertValueEqual(model.get("model").getAsString(), Rivals.MOD_ID + ":item/pirkko",
+					"the definition points at our model");
+			helper.assertValueEqual(model.getAsJsonArray("tints").get(0).getAsJsonObject().get("type").getAsString(),
+					"minecraft:dye", "and takes the dye tint the team colour is sent as");
+		}
+		try (InputStream in = Rivals.class.getResourceAsStream(base + "models/item/pirkko.json")) {
+			JsonObject model = JsonParser.parseReader(new InputStreamReader(in, StandardCharsets.UTF_8)).getAsJsonObject();
+			JsonObject textures = model.getAsJsonObject("textures");
+			helper.assertTrue(!textures.isEmpty(), "the model names its textures");
+			for (var texture : textures.entrySet()) {
+				String value = texture.getValue().getAsString();
+				helper.assertTrue(value.startsWith(Rivals.MOD_ID + ":"),
+						"every texture id is ours, but " + texture.getKey() + " is " + value);
+				try (InputStream sheet = Rivals.class.getResourceAsStream(
+						base + "textures/" + value.substring(value.indexOf(':') + 1) + ".png")) {
+					helper.assertTrue(sheet != null, "and the file it names ships: " + value);
+				}
+			}
+			helper.assertValueEqual(model.getAsJsonArray("texture_size").toString(), "[128,128]", "Julle's atlas size");
+			// Julle's geometry, verbatim: twelve cubes lying flat, face up, head towards -Z, the underside
+			// exactly at y=0 and four model units tall, 24 long and 22 wide. Those are the numbers the
+			// floor figure's lift and scale are worked out from, so a redelivery that stood Pirkko up or
+			// lifted her off the floor of her own model space has to fail here rather than in a screenshot.
+			JsonArray elements = model.getAsJsonArray("elements");
+			helper.assertValueEqual(elements.size(), 12, "twelve cubes");
+			double[] low = {Double.MAX_VALUE, Double.MAX_VALUE, Double.MAX_VALUE};
+			double[] high = {-Double.MAX_VALUE, -Double.MAX_VALUE, -Double.MAX_VALUE};
+			for (JsonElement e : elements) {
+				JsonObject box = e.getAsJsonObject();
+				for (int axis = 0; axis < 3; axis++) {
+					low[axis] = Math.min(low[axis], box.getAsJsonArray("from").get(axis).getAsDouble());
+					high[axis] = Math.max(high[axis], box.getAsJsonArray("to").get(axis).getAsDouble());
+				}
+				for (var face : box.getAsJsonObject("faces").entrySet()) {
+					helper.assertValueEqual(face.getValue().getAsJsonObject().get("tintindex").getAsInt(), 0,
+							"every face takes the team dye: " + box.get("name").getAsString() + "." + face.getKey());
+				}
+			}
+			helper.assertValueEqual(low[1], 0.0, "the underside is exactly y=0 in model units");
+			helper.assertValueEqual(high[1] - low[1], 4.0, "four model units tall");
+			helper.assertValueEqual(high[2] - low[2], 24.0, "24 long along the z axis her head points down");
+			helper.assertValueEqual(high[0] - low[0], 22.0, "22 wide across, hands included");
+			// And centred across both of those, which is what lets the display turn her about her own middle.
+			helper.assertValueEqual(low[0] + high[0], 16.0, "centred across x in item space");
+			helper.assertValueEqual(low[2] + high[2], 16.0, "and centred along z");
+		}
+		helper.succeed();
+	}
+
 	/** A thrown ball paints the cell it lands in, on the struck face, and spends its bounce doing it. */
 	@GameTest
 	public void paintBallPaintsWhereItLands(GameTestHelper helper) {
