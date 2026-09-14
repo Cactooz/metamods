@@ -13,10 +13,10 @@ import metacraft.ovvar.content.Piece;
 import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
 import metacraft.ovvar.content.SpotPlacements;
-import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.pack.WardrobeArt;
 import metacraft.ovvar.pack.WardrobeFont;
 import metacraft.ovvar.pack.WardrobePreview;
+import metacraft.ovvar.pack.WardrobePreview.Angle;
 import metacraft.ovvar.store.OwnedSewing;
 import metacraft.ovvar.store.Stash;
 import metacraft.ovvar.store.StashConfig;
@@ -82,66 +82,40 @@ public final class WardrobeGui extends SimpleGui {
 	private static final int TAKE_OUT_HINT = slot(ACTION_ROW, 0), DEPOSIT = slot(ACTION_ROW, 1), SEW_HINT = slot(ACTION_ROW, 2);
 	private static final int MANNEQUIN = slot(ACTION_ROW, 3), FINISH_SEWING = slot(ACTION_ROW, 4);
 	private static final int HELP = slot(ACTION_ROW, 7), CLOSE = slot(ACTION_ROW, 8);
-	/** How many columns of the tab row the chapter tabs may use; the far end is the piece toggle. */
-	public static final int TAB_COLS = 8;
-	/** The far end of the tab row: the one toggle for which half the screen shows. */
-	public static final int PIECE_TOGGLE_COL = 8;
-	public static final int PIECE_TOGGLE = slot(TAB_ROW, PIECE_TOGGLE_COL);
-	/** The middle of each panel, where an empty one says what would be there. */
-	public static final int NO_PATCHES = slot(BODY_TOP + 1, PATCH_COL0 + 2), NOTHING_SEWN = slot(BODY_TOP + 1, PREVIEW_COL0 + 1);
+	/** How many columns of the tab row the chapter tabs may use; the far end turns the preview. */
+	public static final int TAB_COLS = 7;
+	public static final int ROTATE_LEFT_COL = 7, ROTATE_RIGHT_COL = 8;
+	public static final int ROTATE_LEFT = slot(TAB_ROW, ROTATE_LEFT_COL), ROTATE_RIGHT = slot(TAB_ROW, ROTATE_RIGHT_COL);
 
 	private final Chapter chapter;
-	private final Piece piece;
-
-	/** Whose wardrobe screen is open, so a pack build can re-send its title (the glyphs changed under it). */
-	private static final Map<UUID, WardrobeGui> OPEN = new ConcurrentHashMap<>();
-
-	public static void init() {
-		// A container's title only travels in the packet that opens it, and the preview is part of
-		// the title, so a player whose client has just loaded a pack holding their newest design
-		// gets the screen opened again — at once, with the paper doll they were waiting for.
-		Combos.onPackLoaded(WardrobeGui::reopen);
-	}
-
-	private static void reopen(ServerPlayer player) {
-		WardrobeGui gui = OPEN.get(player.getUUID());
-		if (gui == null || !gui.isOpen()) return;
-		WardrobeGui next = new WardrobeGui(player, gui.chapter, gui.piece);
-		next.build();
-		next.open();
-	}
-
-	@Override
-	public void onOpen() {
-		OPEN.put(player.getUUID(), this);
-	}
-
-	@Override
-	public void onRemoved() {
-		OPEN.remove(player.getUUID(), this);
-	}
+	/** Which way round the preview is turned; per open screen, front to begin with. */
+	private final Angle angle;
 
 	public static void open(ServerPlayer player) {
-		Chapter chapter = defaultChapter(player);
-		WardrobeGui gui = new WardrobeGui(player, chapter, Piece.TOP);
+		WardrobeGui gui = new WardrobeGui(player, defaultChapter(player), Angle.FRONT);
 		gui.build();
 		gui.open();
 	}
 
-	private WardrobeGui(ServerPlayer player, Chapter chapter, Piece piece) {
+	private WardrobeGui(ServerPlayer player, Chapter chapter, Angle angle) {
 		super(MenuType.GENERIC_9x6, player, false);
 		this.chapter = chapter;
-		this.piece = piece;
+		this.angle = angle;
 	}
 
 	/**
 	 * Built (slots filled, title set) but never {@link #open() opened} on the player's screen —
 	 * for gametests to inspect {@link #getGuiElement} without the networking an open screen needs.
 	 */
-	public static WardrobeGui forTest(ServerPlayer player, Chapter chapter, Piece piece) {
-		WardrobeGui gui = new WardrobeGui(player, chapter, piece);
+	public static WardrobeGui forTest(ServerPlayer player, Chapter chapter, Angle angle) {
+		WardrobeGui gui = new WardrobeGui(player, chapter, angle);
 		gui.build();
 		return gui;
+	}
+
+	/** Which way the preview is turned right now. */
+	public Angle angle() {
+		return angle;
 	}
 
 	private static int slot(int row, int col) {
@@ -171,45 +145,44 @@ public final class WardrobeGui extends SimpleGui {
 		return owned.isEmpty() ? Chapter.values()[0] : owned.get(0);
 	}
 
-	// ---- preview: spot -> nearest slot in the 4x4 preview grid
+	// ---- preview: spot -> the slot of the 4x4 preview grid nearest where the doll draws it
 
 	private record Cell(int row, int col) {}
 
 	/**
-	 * Every {@link Spot} of {@link Piece#TOP} (chest, back, both sleeves) or {@link Piece#BOTTOM}
-	 * (both legs, the seat) mapped onto the 4x4 preview grid as a front view of the wearer: column
-	 * 0 is their left, column 3 their right, the two middle columns the body; row 0 is uppermost.
-	 * Several spots share a cell on purpose (the preview has 16 slots for up to 33 spots) — the
-	 * last placement drawn to a cell is the one whose tooltip shows, so a design that uses only
-	 * one spot per cell (the common case) always shows correctly, and a denser design at least
-	 * shows something for every cell it touches.
+	 * Every {@link Spot} mapped onto the 4x4 grid of hover-only slots over the preview, laid out as
+	 * the paper doll behind them is: the top's cells in rows 0-1 (the sleeves at the outer columns,
+	 * the chest and back in the middle two) and the trousers' in rows 2-3, with the wearer's right
+	 * on the viewer's left, which is where the front view draws it. Several cells share a slot on
+	 * purpose - 16 slots for 33 cells, and a cell's front and back cannot both have one - so the
+	 * last placement drawn to a slot is the one whose tooltip shows; a design with one cell per slot
+	 * (the common case) always shows correctly, and a denser one still points at every slot it
+	 * touches. The picture itself is exact: every patch is drawn where it really sits.
 	 */
 	private static final Map<Spot, Cell> PREVIEW_CELL = new EnumMap<>(Spot.class);
 
 	static {
-		// Piece.TOP: chest/back in the middle columns, sleeves on the wearer's own left/right.
+		// The top: the chest and the back in the middle columns, rows 0-1.
 		PREVIEW_CELL.put(Spot.FRONT_TOP_LEFT, new Cell(0, 1));
 		PREVIEW_CELL.put(Spot.FRONT_TOP_RIGHT, new Cell(0, 2));
 		PREVIEW_CELL.put(Spot.FRONT_LOW_LEFT, new Cell(1, 1));
 		PREVIEW_CELL.put(Spot.FRONT_LOW_RIGHT, new Cell(1, 2));
-		PREVIEW_CELL.put(Spot.BACK_TOP_LEFT, new Cell(2, 1));
-		PREVIEW_CELL.put(Spot.BACK_TOP_RIGHT, new Cell(2, 2));
-		PREVIEW_CELL.put(Spot.BACK_LOW_LEFT, new Cell(3, 1));
-		PREVIEW_CELL.put(Spot.BACK_LOW_RIGHT, new Cell(3, 2));
-		for (Spot s : List.of(Spot.SLEEVE_OUT_TOP_L, Spot.SLEEVE_FRONT_TOP_L, Spot.SLEEVE_BACK_TOP_L)) PREVIEW_CELL.put(s, new Cell(0, 0));
-		for (Spot s : List.of(Spot.SLEEVE_OUT_MID_L, Spot.SLEEVE_FRONT_MID_L, Spot.SLEEVE_BACK_MID_L)) PREVIEW_CELL.put(s, new Cell(1, 0));
-		for (Spot s : List.of(Spot.SLEEVE_OUT_TOP_R, Spot.SLEEVE_FRONT_TOP_R, Spot.SLEEVE_BACK_TOP_R)) PREVIEW_CELL.put(s, new Cell(0, 3));
-		for (Spot s : List.of(Spot.SLEEVE_OUT_MID_R, Spot.SLEEVE_FRONT_MID_R, Spot.SLEEVE_BACK_MID_R)) PREVIEW_CELL.put(s, new Cell(1, 3));
-		// Piece.BOTTOM: legs on the wearer's own left/right, front rows above back rows; the seat in the middle.
-		for (Spot s : List.of(Spot.LEG_OUT_TOP_L, Spot.LEG_FRONT_TOP_L)) PREVIEW_CELL.put(s, new Cell(0, 0));
-		for (Spot s : List.of(Spot.LEG_OUT_MID_L, Spot.LEG_FRONT_MID_L)) PREVIEW_CELL.put(s, new Cell(1, 0));
-		for (Spot s : List.of(Spot.LEG_OUT_TOP_R, Spot.LEG_FRONT_TOP_R)) PREVIEW_CELL.put(s, new Cell(0, 3));
-		for (Spot s : List.of(Spot.LEG_OUT_MID_R, Spot.LEG_FRONT_MID_R)) PREVIEW_CELL.put(s, new Cell(1, 3));
-		PREVIEW_CELL.put(Spot.LEG_BACK_TOP_L, new Cell(2, 1));
-		PREVIEW_CELL.put(Spot.LEG_BACK_MID_L, new Cell(3, 1));
-		PREVIEW_CELL.put(Spot.LEG_BACK_TOP_R, new Cell(2, 2));
-		PREVIEW_CELL.put(Spot.LEG_BACK_MID_R, new Cell(3, 2));
-		PREVIEW_CELL.put(Spot.SEAT, new Cell(2, 1));
+		PREVIEW_CELL.put(Spot.BACK_TOP_LEFT, new Cell(0, 1));
+		PREVIEW_CELL.put(Spot.BACK_TOP_RIGHT, new Cell(0, 2));
+		PREVIEW_CELL.put(Spot.BACK_LOW_LEFT, new Cell(1, 1));
+		PREVIEW_CELL.put(Spot.BACK_LOW_RIGHT, new Cell(1, 2));
+		// The sleeves: the wearer's right arm at column 0, their left at column 3.
+		for (Spot s : List.of(Spot.SLEEVE_OUT_TOP_R, Spot.SLEEVE_FRONT_TOP_R, Spot.SLEEVE_BACK_TOP_R)) PREVIEW_CELL.put(s, new Cell(0, 0));
+		for (Spot s : List.of(Spot.SLEEVE_OUT_MID_R, Spot.SLEEVE_FRONT_MID_R, Spot.SLEEVE_BACK_MID_R)) PREVIEW_CELL.put(s, new Cell(1, 0));
+		for (Spot s : List.of(Spot.SLEEVE_OUT_TOP_L, Spot.SLEEVE_FRONT_TOP_L, Spot.SLEEVE_BACK_TOP_L)) PREVIEW_CELL.put(s, new Cell(0, 3));
+		for (Spot s : List.of(Spot.SLEEVE_OUT_MID_L, Spot.SLEEVE_FRONT_MID_L, Spot.SLEEVE_BACK_MID_L)) PREVIEW_CELL.put(s, new Cell(1, 3));
+		// The trousers: rows 2-3, the wearer's right leg at column 1 and their left at column 2 -
+		// the middle two, which is where the doll hangs its legs.
+		for (Spot s : List.of(Spot.LEG_OUT_TOP_R, Spot.LEG_FRONT_TOP_R, Spot.LEG_BACK_TOP_R)) PREVIEW_CELL.put(s, new Cell(2, 1));
+		for (Spot s : List.of(Spot.LEG_OUT_MID_R, Spot.LEG_FRONT_MID_R, Spot.LEG_BACK_MID_R)) PREVIEW_CELL.put(s, new Cell(3, 1));
+		for (Spot s : List.of(Spot.LEG_OUT_TOP_L, Spot.LEG_FRONT_TOP_L, Spot.LEG_BACK_TOP_L)) PREVIEW_CELL.put(s, new Cell(2, 2));
+		for (Spot s : List.of(Spot.LEG_OUT_MID_L, Spot.LEG_FRONT_MID_L, Spot.LEG_BACK_MID_L)) PREVIEW_CELL.put(s, new Cell(3, 2));
+		PREVIEW_CELL.put(Spot.SEAT, new Cell(3, 1));
 	}
 
 	/** The preview slot a placement on {@code spot} is drawn at, or -1 if {@code spot} has none (should not happen). */
@@ -228,19 +201,14 @@ public final class WardrobeGui extends SimpleGui {
 		return wardrobe.stashSize() + sewn;
 	}
 
-	/** Placements sewn on this chapter's {@code piece} only — the collection/preview below are one piece at a time, so the stat matches what is shown. */
-	public static int sewnCount(Wardrobe wardrobe, Chapter chapter, Piece piece) {
-		return wardrobe.design(chapter).flatMap(p -> p.forPiece(piece)).map(p -> p.asPlacementList().size()).orElse(0);
+	/** Everything sewn on this chapter's garment — the preview shows the whole of it, so the stat counts the whole of it. */
+	public static int sewnCount(Wardrobe wardrobe, Chapter chapter) {
+		return shownPlacements(wardrobe, chapter).size();
 	}
 
-	/** The placements the preview should draw: this chapter's, on the half being shown. */
-	public static List<Placement> shownPlacements(Wardrobe wardrobe, Chapter chapter, Piece piece) {
-		return wardrobe.design(chapter).flatMap(p -> p.forPiece(piece)).map(SpotPlacements::asPlacementList).orElse(List.of());
-	}
-
-	/** Which paper doll the screen draws — the bare garment when nothing is sewn on this half. */
-	public static WardrobePreview.Key previewKey(Chapter chapter, Wardrobe wardrobe, Piece piece, @Nullable UUID player) {
-		return WardrobePreview.shown(chapter, piece, shownPlacements(wardrobe, chapter, piece), player);
+	/** The placements the preview draws: this chapter's, both halves, in sewing order. */
+	public static List<Placement> shownPlacements(Wardrobe wardrobe, Chapter chapter) {
+		return wardrobe.design(chapter).map(SpotPlacements::asPlacementList).orElse(List.of());
 	}
 
 	/**
@@ -248,17 +216,18 @@ public final class WardrobeGui extends SimpleGui {
 	 * and {@code activeTab} is the column of the tab they are on (owned-chapter order, so it is
 	 * theirs alone) — the highlight under it cannot be baked into a per-chapter background.
 	 */
-	public static Component title(Chapter chapter, Wardrobe wardrobe, Piece piece, @Nullable UUID player, int activeTab) {
-		String stats = "earned " + earned(wardrobe) + " · sewn " + sewnCount(wardrobe, chapter, piece) + " · stash " + wardrobe.stashSize();
-		MutableComponent text = Component.literal(" " + chapter.name + " " + (piece == Piece.TOP ? "top" : "trousers") + " · " + stats).withStyle(ChatFormatting.WHITE);
+	public static Component title(Chapter chapter, Wardrobe wardrobe, Angle angle, int activeTab) {
+		String stats = "earned " + earned(wardrobe) + " · sewn " + sewnCount(wardrobe, chapter) + " · stash " + wardrobe.stashSize();
+		MutableComponent text = Component.literal(" " + chapter.name + " " + chapter.garmentWord() + " · " + stats).withStyle(ChatFormatting.WHITE);
 		MutableComponent out = Component.empty().append(WardrobeArt.backgroundGlyph(chapter));
 		if (activeTab >= 0 && activeTab < TAB_COLS) {
 			out.append(WardrobeFont.drawnAt(WardrobeFont.ACTIVE_TAB, WardrobeFont.cellX(activeTab)));
 		}
-		out.append(WardrobePreview.glyph(previewKey(chapter, wardrobe, piece, player)));
+		List<Placement> sewn = shownPlacements(wardrobe, chapter);
+		out.append(WardrobePreview.glyphs(chapter, angle, sewn));
 		// The empty states are art across the panel they are about, not an item in the middle of it.
 		if (wardrobe.stashed().isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NO_PATCHES));
-		if (shownPlacements(wardrobe, chapter, piece).isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NOTHING_SEWN));
+		if (sewn.isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NOTHING_SEWN));
 		return out.append(text);
 	}
 
@@ -268,8 +237,8 @@ public final class WardrobeGui extends SimpleGui {
 	 * doll {@link WardrobePreview} adds to it. Every glyph leaves the cursor where it found it, so
 	 * the stats strip reads as ordinary text on the same line.
 	 */
-	public static Component title(Chapter chapter, Wardrobe wardrobe, Piece piece) {
-		return title(chapter, wardrobe, piece, null, 0);
+	public static Component title(Chapter chapter, Wardrobe wardrobe, Angle angle) {
+		return title(chapter, wardrobe, angle, 0);
 	}
 
 	// ---- building the screen
@@ -286,7 +255,7 @@ public final class WardrobeGui extends SimpleGui {
 			return;
 		}
 		Wardrobe wardrobe = Wardrobes.current(player.getUUID());
-		setTitle(title(chapter, wardrobe, piece, player.getUUID(), ownedChapters(player).indexOf(chapter)));
+		setTitle(title(chapter, wardrobe, angle, ownedChapters(player).indexOf(chapter)));
 
 		buildTabs(player);
 		buildCollection(player, wardrobe);
@@ -303,53 +272,39 @@ public final class WardrobeGui extends SimpleGui {
 					.setName(Component.literal(tab.name + " " + tab.garmentWord()).withStyle(current ? ChatFormatting.GOLD : ChatFormatting.WHITE))
 					.addLoreLine(Component.literal(current ? "(showing)" : "Click to switch to it").withStyle(current ? ChatFormatting.GOLD : ChatFormatting.GRAY))
 					.glow(current);
-			element.setCallback((index, type, action, gui) -> {
-				if (!isOpen()) return;
-				WardrobeGui next = new WardrobeGui(player, tab, piece);
-				next.build();
-				next.open();
-			});
+			element.setCallback((index, type, action, gui) -> reopen(player, tab, angle));
 			setSlot(slot(TAB_ROW, col++), element.build());
 			if (col >= TAB_COLS) break;   // leave the far end to the piece toggle
 		}
-		if (pieces().size() > 1) setSlot(slot(TAB_ROW, PIECE_TOGGLE_COL), pieceToggle(player));
+		setSlot(ROTATE_LEFT, rotator(player, -1, "\u25c0 Turn it left", Items.SPECTRAL_ARROW));
+		setSlot(ROTATE_RIGHT, rotator(player, 1, "Turn it right \u25b6", Items.ARROW));
 	}
 
 	/**
-	 * The halves the screen can show. A half with no cells at all has nothing to show and would
-	 * leave the toggle with nowhere to go; both halves have cells today, so the toggle is always
-	 * there, and a garment drawn as one piece would drop it by itself.
+	 * Opens the screen again on another tab or at another angle. A container's title only travels in
+	 * the packet that opens it, and the whole preview is drawn by the title, so turning the figure is
+	 * re-opening the screen — which is also how switching tabs has always worked here.
 	 */
-	public static List<Piece> pieces() {
-		List<Piece> out = new ArrayList<>();
-		for (Piece p : Piece.values()) if (!Spot.cells(p).isEmpty()) out.add(p);
-		return out;
-	}
-
-	/** What the half being shown is called, in the words a wearer uses. */
-	public static String pieceName(Piece piece) {
-		return piece == Piece.TOP ? "Top" : "Trousers";
+	private void reopen(ServerPlayer player, Chapter tab, Angle to) {
+		if (!isOpen()) return;
+		WardrobeGui next = new WardrobeGui(player, tab, to);
+		next.build();
+		next.open();
 	}
 
 	/**
-	 * One toggle, not a chestplate and a pair of boots: it says which half is on show and which one
-	 * a click brings up, and its icon is the ovve's own piece (through {@code ITEM_MODEL}, so it is
-	 * that garment's art and not a piece of armour).
+	 * One of the two buttons that turn the preview, at the end of the tab row. Four sides, one step at
+	 * a time, and the button names the side it would bring round. The ovve is one figure now, top and
+	 * trousers together, so there is nothing left to toggle between — which is what the piece toggle
+	 * that used to sit here was for.
 	 */
-	private GuiElement pieceToggle(ServerPlayer player) {
-		List<Piece> pieces = pieces();
-		Piece other = pieces.get((pieces.indexOf(piece) + 1) % pieces.size());
-		ItemStack icon = new ItemStack(piece == Piece.TOP ? Items.LEATHER_CHESTPLATE : Items.LEATHER_BOOTS);
-		icon.set(DataComponents.ITEM_MODEL, piece == Piece.TOP ? ModContent.topId(chapter) : ModContent.feetId(chapter));
-		return GuiElementBuilder.from(icon)
-				.setName(Component.literal("Showing: " + pieceName(piece) + " — click for " + pieceName(other)).withStyle(ChatFormatting.GOLD))
-				.addLoreLine(Component.literal(piece == Piece.TOP ? "The chest, back and sleeves" : "The legs, the waist and the seat").withStyle(ChatFormatting.GRAY))
-				.setCallback((index, type, action, gui) -> {
-					if (!isOpen()) return;
-					WardrobeGui next = new WardrobeGui(player, chapter, other);
-					next.build();
-					next.open();
-				}).build();
+	private GuiElement rotator(ServerPlayer player, int turn, String label, net.minecraft.world.item.Item icon) {
+		Angle to = angle.turned(turn);
+		return new GuiElementBuilder(icon)
+				.setName(Component.literal(label).withStyle(ChatFormatting.AQUA))
+				.addLoreLine(Component.literal("Showing: " + angle.label).withStyle(ChatFormatting.GRAY))
+				.addLoreLine(Component.literal("Click for: " + to.label).withStyle(ChatFormatting.DARK_GRAY))
+				.setCallback((index, type, action, gui) -> reopen(player, chapter, to)).build();
 	}
 
 	private void buildCollection(ServerPlayer player, Wardrobe wardrobe) {
@@ -407,9 +362,11 @@ public final class WardrobeGui extends SimpleGui {
 	 * (a transparent icon), no callback, at the slot nearest each sewn placement's spot.
 	 */
 	private void buildPreview(Wardrobe wardrobe) {
-		// Nothing sewn on this half says so in the glyph layer too (WardrobeFont.NOTHING_SEWN),
-		// across the bare garment on the doll behind.
-		for (Placement placement : shownPlacements(wardrobe, chapter, piece)) {
+		// Only the front view: from the other three sides a slot of this grid is nowhere near the
+		// cell it would be about, and a tooltip pointing at the wrong part of the figure is worse than
+		// none. Nothing sewn at all says so in the glyph layer (WardrobeFont.NOTHING_SEWN).
+		if (angle != Angle.FRONT) return;
+		for (Placement placement : shownPlacements(wardrobe, chapter)) {
 			int slot = previewSlot(placement.spot());
 			if (slot < 0) continue;
 			GuiElementBuilder element = GuiElementBuilder.from(invisible())

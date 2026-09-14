@@ -70,7 +70,7 @@ tasks.register('wardrobeSheet', JavaExec) {
 	description = 'Writes the wardrobe screen (background + paper doll + slot markers) to -Psheet=<path>.'
 	classpath = sourceSets.main.runtimeClasspath
 	mainClass = 'metacraft.ovvar.pack.WardrobeSheet'
-	args = [project.findProperty('sheet') ?: '/tmp/wardrobe_v2_sheet.png', project.findProperty('chapter') ?: 'data', project.findProperty('piece') ?: 'top', project.findProperty('sheetState') ?: 'sewn']
+	args = [project.findProperty('sheet') ?: '/tmp/wardrobe_v3_sheet.png', project.findProperty('chapter') ?: 'data', project.findProperty('sheetState') ?: 'sewn']
 }
 
 processResources {

@@ -132,15 +132,6 @@ public final class Combos {
 		ServerTickEvents.END_SERVER_TICK.register(Combos::tick);
 	}
 
-	/**
-	 * A snapshot of the combinations the pack is asked to hold. {@link WardrobePreview} draws one
-	 * paper doll per (chapter, one of these) in the same pack build that writes their equipment
-	 * definitions, so a design's preview art can never lag its equipment asset.
-	 */
-	public static Set<KeyedCombo> known() {
-		return Set.copyOf(KNOWN);
-	}
-
 	// ---- what a player can draw
 
 	/** Does the pack a player has hold this combination? {@code player} null: the current pack. */
@@ -267,13 +258,6 @@ public final class Combos {
 	 * again, so the assets that pack holds are what their client draws (equipment packets are
 	 * only sent on change, and nothing changed server-side).
 	 */
-	/** Who wants to know a player's client has just loaded a new pack (a screen drawn by the pack's own glyphs does). */
-	private static final List<java.util.function.Consumer<ServerPlayer>> PACK_LOADED = new java.util.concurrent.CopyOnWriteArrayList<>();
-
-	public static void onPackLoaded(java.util.function.Consumer<ServerPlayer> listener) {
-		PACK_LOADED.add(listener);
-	}
-
 	public static void packLoaded(ServerPlayer player) {
 		UUID id = player.getUUID();
 		LOADED.put(id, PUSHED.getOrDefault(id, generation));
@@ -291,9 +275,6 @@ public final class Combos {
 		}
 		player.containerMenu.sendAllDataToRemote();
 		player.inventoryMenu.sendAllDataToRemote();
-		// A container's title is only sent when it opens, so a screen whose title is drawn by the
-		// pack's own glyphs (the wardrobe) has to be re-sent by hand now the new glyphs are there.
-		for (var listener : PACK_LOADED) listener.accept(player);
 		Ovvar.LOGGER.debug("[ovvar] {} loaded pack generation {}; re-sent {} wearer(s)", player.getName().getString(), LOADED.get(id), sent);
 	}
 

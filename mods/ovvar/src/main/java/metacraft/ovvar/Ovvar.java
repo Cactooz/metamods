@@ -10,7 +10,6 @@ import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.pack.WardrobeArt;
 import metacraft.ovvar.sewing.StandDisplays;
 import metacraft.ovvar.sewing.StandSewing;
-import metacraft.ovvar.sewing.WardrobeGui;
 import metacraft.ovvar.sewing.WardrobeMannequin;
 import metacraft.ovvar.sewing.StashSession;
 import metacraft.ovvar.store.Wardrobes;
@@ -40,7 +39,6 @@ public class Ovvar implements ModInitializer {
 		Wardrobes.init();
 		StashSession.init();
 		WardrobeMannequin.init();
-		WardrobeGui.init();
 		ModCommands.init();
 		Motd.init();
 

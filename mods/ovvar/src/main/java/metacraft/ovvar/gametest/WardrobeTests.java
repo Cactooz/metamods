@@ -24,6 +24,7 @@ import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.pack.WardrobeArt;
 import metacraft.ovvar.pack.WardrobeFont;
 import metacraft.ovvar.pack.WardrobePreview;
+import metacraft.ovvar.pack.WardrobePreview.Angle;
 import metacraft.ovvar.sewing.WardrobeGui;
 import metacraft.ovvar.sewing.WardrobeMannequin;
 import metacraft.ovvar.sewing.StashSession;
@@ -547,7 +548,7 @@ public final class WardrobeTests {
 	@GameTest
 	public void wardrobeTitleCarriesTheChapterGlyph(GameTestHelper helper) {
 		for (Chapter tab : Chapter.values()) {
-			Component title = WardrobeGui.title(tab, Wardrobe.NONE, Piece.TOP);
+			Component title = WardrobeGui.title(tab, Wardrobe.NONE, Angle.FRONT);
 			char glyph = WardrobeArt.chapterChar(tab);
 			boolean foundGlyph = false, foundFont = false;
 			for (Component part : allParts(title)) {
@@ -590,7 +591,7 @@ public final class WardrobeTests {
 						.add(HEART_PATCH, 1).sew(CHAPTER, HEART).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "setup outcome " + outcome.get()))
 				.thenExecute(() -> guarded(server, () -> {
-					WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, Piece.TOP);
+					WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, Angle.FRONT);
 					int filledCollection = 0;
 					for (int i = 0; i < 20; i++) {
 						int slot = 9 + (i / 5) * 9 + (i % 5);
@@ -617,7 +618,7 @@ public final class WardrobeTests {
 								sessions.stashClick(), sessions.anyStand(), sessions.sessionReach(), sessions.sessionSeconds(), sessions.explainInChat());
 						OvvarConfig.modify(config -> new OvvarConfig(config.sewingMinigame(), config.stitches(), config.server(), config.designs(), withSessions));
 						StashSession.start(player, gasque, why -> helper.fail("could not start a session: " + why));
-						WardrobeGui withSession = WardrobeGui.forTest(player, CHAPTER, Piece.TOP);
+						WardrobeGui withSession = WardrobeGui.forTest(player, CHAPTER, Angle.FRONT);
 						if (isEmpty(withSession, 49)) helper.fail("finish-sewing button missing with a session running");
 						StashSession.end(player, null);
 					} finally {
@@ -649,7 +650,7 @@ public final class WardrobeTests {
 								new StashConfig(true, stash.sewGameModes(), stash.ingameObjective(), stash.bankOnPickup(), stash.bankInCreative(),
 										stash.unpickToStash(), stash.withdraw(), stash.sessions(), stash.stashClick(), stash.anyStand(),
 										stash.sessionReach(), stash.sessionSeconds(), stash.explainInChat())));
-						WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, Piece.TOP);
+						WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, Angle.FRONT);
 						// Not gone — greyed out, named "(not here)" and carrying the reason: a missing
 						// slot teaches nobody why they cannot do the thing.
 						for (int slot : new int[]{45, 47, 48}) {
@@ -708,7 +709,7 @@ public final class WardrobeTests {
 				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
 				.thenExecute(() -> guarded(server, () -> {
-					WardrobeGui gui = WardrobeGui.forTest(player, shown, Piece.TOP);
+					WardrobeGui gui = WardrobeGui.forTest(player, shown, Angle.FRONT);
 
 					ItemStack active = gui.getGuiElement(0).getItemStack();
 					if (active.getItem() != ModContent.ovve(shown)) helper.fail("the first tab is " + active.getItem() + ", wanted the shown chapter's ovve");
@@ -718,16 +719,11 @@ public final class WardrobeTests {
 					if (Boolean.TRUE.equals(sleeping.get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE))) helper.fail("a tab that is not on show glints");
 					if (!lore(sleeping).toLowerCase(java.util.Locale.ROOT).contains("click to switch")) helper.fail("a tab does not say a click switches to it: " + lore(sleeping));
 
-					// Exactly one piece toggle, and it is at the far end of the row.
+					// Nothing but tabs between them and the two rotation buttons at the far end.
 					for (int col = 2; col < 9; col++) {
-						if (col != WardrobeGui.PIECE_TOGGLE_COL && !isEmpty(gui, col)) helper.fail("something else is in the tab row at col " + col);
+						boolean rotator = col == WardrobeGui.ROTATE_LEFT_COL || col == WardrobeGui.ROTATE_RIGHT_COL;
+						if (!rotator && !isEmpty(gui, col)) helper.fail("something else is in the tab row at col " + col);
 					}
-					if (isEmpty(gui, WardrobeGui.PIECE_TOGGLE)) helper.fail("no piece toggle at col " + WardrobeGui.PIECE_TOGGLE_COL);
-					String top = gui.getGuiElement(WardrobeGui.PIECE_TOGGLE).getItemStack().getHoverName().getString();
-					if (!top.contains("Showing: Top") || !top.contains("click for Trousers")) helper.fail("the piece toggle showing the top reads \"" + top + "\"");
-					String trousers = WardrobeGui.forTest(player, shown, Piece.BOTTOM)
-							.getGuiElement(WardrobeGui.PIECE_TOGGLE).getItemStack().getHoverName().getString();
-					if (!trousers.contains("Showing: Trousers") || !trousers.contains("click for Top")) helper.fail("the piece toggle showing the trousers reads \"" + trousers + "\"");
 
 					// An empty stash and an unsewn half each say so across the whole panel, in the glyph
 					// layer: no item anywhere in either panel, and the notice in the title instead.
@@ -751,15 +747,15 @@ public final class WardrobeTests {
 	@GameTest
 	public void wardrobeNoticesOnlyShowWhileThePanelIsEmpty(GameTestHelper helper) {
 		char noPatches = WardrobeFont.NO_PATCHES.codepoint(), nothingSewn = WardrobeFont.NOTHING_SEWN.codepoint();
-		String bare = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Piece.TOP).getString();
+		String bare = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT).getString();
 		if (bare.indexOf(noPatches) < 0 || bare.indexOf(nothingSewn) < 0) helper.fail("an empty wardrobe is missing a notice");
 
-		String stashed = WardrobeGui.title(CHAPTER, Wardrobe.NONE.add(BEER_PATCH, 1), Piece.TOP).getString();
+		String stashed = WardrobeGui.title(CHAPTER, Wardrobe.NONE.add(BEER_PATCH, 1), Angle.FRONT).getString();
 		if (stashed.indexOf(noPatches) >= 0) helper.fail("the \"no patches yet\" notice is still drawn over a stash with a patch in it");
 		if (stashed.indexOf(nothingSewn) < 0) helper.fail("the \"nothing sewn yet\" notice went missing while nothing is sewn");
 
 		Wardrobe sewn = Wardrobe.NONE.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElseThrow();
-		String worn = WardrobeGui.title(CHAPTER, sewn, Piece.TOP).getString();
+		String worn = WardrobeGui.title(CHAPTER, sewn, Angle.FRONT).getString();
 		if (worn.indexOf(nothingSewn) >= 0) helper.fail("the \"nothing sewn yet\" notice is still drawn over a sewn-on half");
 		if (worn.indexOf(noPatches) < 0) helper.fail("the \"no patches yet\" notice went missing while the stash is empty");
 
@@ -811,26 +807,27 @@ public final class WardrobeTests {
 		if (advances.get("a").getAsInt() != -8 || advances.get("c").getAsInt() != -169) {
 			helper.fail("space advances are not {a: -8, c: -169}: " + advances);
 		}
-		// And the pair that walks the cursor to the preview panel and back, leaving it where it was.
-		int forward = advances.get(String.valueOf(WardrobePreview.FORWARD_CHAR)).getAsInt();
-		int back = advances.get(String.valueOf(WardrobePreview.BACK_CHAR)).getAsInt();
-		if (forward + WardrobePreview.ADVANCE + back != 0) {
-			helper.fail("the preview's advances do not cancel out: " + forward + " + " + WardrobePreview.ADVANCE + " + " + back);
+		// And the bit set of +/-1 ... +/-128 that puts everything else where it goes, each advance
+		// cancelling out against its opposite so a glyph run leaves the cursor where it found it.
+		WardrobeFont.spaceAdvances().forEach((c, advance) -> {
+			if (!advances.has(String.valueOf(c))) helper.fail("the font is missing the space for " + advance);
+			else if (advances.get(String.valueOf(c)).getAsInt() != advance) helper.fail("the space for " + advance + " advances " + advances.get(String.valueOf(c)));
+		});
+		for (int move : new int[]{1, 7, 93, -158, 255}) {
+			int sum = 0;
+			for (char c : WardrobeFont.move(move).toCharArray()) sum += advances.get(String.valueOf(c)).getAsInt();
+			if (sum != move) helper.fail("a move of " + move + " px advances " + sum);
 		}
 		List<String> backgroundFiles = new ArrayList<>();
 		for (Chapter tab : Chapter.values()) backgroundFiles.add("ovvar:wardrobe/" + tab.id + ".png");
 		List<String> staticFiles = new ArrayList<>();
 		for (WardrobeFont.Glyph glyph : WardrobeFont.glyphs()) staticFiles.add(glyph.textureRef());
-		int backgrounds = 0, previews = 0, furniture = 0;
+		int backgrounds = 0, furniture = 0;
 		for (JsonElement provider : font.getAsJsonArray("providers")) {
 			JsonObject o = provider.getAsJsonObject();
 			if (!o.get("type").getAsString().equals("bitmap")) continue;
 			String file = o.get("file").getAsString();
-			if (file.contains("/preview/")) {
-				previews++;
-				if (o.get("height").getAsInt() != WardrobePreview.HEIGHT) helper.fail("preview provider height is not " + WardrobePreview.HEIGHT + ": " + o);
-				if (o.get("ascent").getAsInt() != WardrobePreview.ASCENT) helper.fail("preview provider ascent is not " + WardrobePreview.ASCENT + ": " + o);
-			} else if (backgroundFiles.contains(file)) {
+			if (backgroundFiles.contains(file)) {
 				backgrounds++;
 				if (o.get("height").getAsInt() != WardrobeArt.HEIGHT) helper.fail("bitmap provider height is not " + WardrobeArt.HEIGHT + ": " + o);
 			} else if (staticFiles.contains(file)) {
@@ -840,8 +837,8 @@ public final class WardrobeTests {
 			}
 		}
 		if (backgrounds != Chapter.values().length) helper.fail("expected one background per chapter (" + Chapter.values().length + "), font has " + backgrounds);
-		if (previews != WardrobePreview.built().size()) helper.fail("the font lists " + previews + " previews, the pack holds " + WardrobePreview.built().size());
-		if (furniture != WardrobeFont.glyphs().size()) helper.fail("the font lists " + furniture + " of its " + WardrobeFont.glyphs().size() + " static glyphs");
+		if (furniture != WardrobeFont.glyphs().size()) helper.fail("the font lists " + furniture + " of its " + WardrobeFont.glyphs().size() + " glyphs");
+		if (WardrobeFont.glyphs().size() < WardrobePreview.glyphCount()) helper.fail("the previews are not all registered with the font");
 		// Every static glyph's art is the size the font promises for it, and the ascent puts its top
 		// where the layout says (a cell-sized highlight on the tab row's own frame ring, and so on).
 		for (WardrobeFont.Glyph glyph : WardrobeFont.glyphs()) {
@@ -898,12 +895,12 @@ public final class WardrobeTests {
 	public void wardrobeTitleHighlightsTheTabOnShow(GameTestHelper helper) {
 		char highlight = WardrobeFont.ACTIVE_TAB.codepoint();
 		for (int col = 0; col < WardrobeGui.TAB_COLS; col++) {
-			String title = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Piece.TOP, null, col).getString();
+			String title = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, col).getString();
 			if (title.indexOf(highlight) < 0) helper.fail("no active-tab highlight in the title for tab " + col);
 			String at = WardrobeFont.at(WardrobeFont.ACTIVE_TAB, WardrobeFont.cellX(col));
 			if (!title.contains(at)) helper.fail("the highlight for tab " + col + " is not placed at x " + WardrobeFont.cellX(col));
 		}
-		if (WardrobeGui.title(CHAPTER, Wardrobe.NONE, Piece.TOP, null, -1).getString().indexOf(highlight) >= 0) {
+		if (WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, -1).getString().indexOf(highlight) >= 0) {
 			helper.fail("a player on no tab of their own still gets a highlight");
 		}
 		helper.succeed();
@@ -912,103 +909,154 @@ public final class WardrobeTests {
 	// ---- the preview: a rendered picture of the player's own ovve
 
 	/**
-	 * Every paper doll is exactly the preview panel's glyph size, and the compositor puts a patch
-	 * where the layout says it does: a beer patch (8×8 texels, one cell exactly) sewn on the chest's
-	 * top left changes the pixels of that cell and of no other.
+	 * Four sides, and every cell is seen from exactly one of them: the doll is built up out of a
+	 * bare-ovve glyph per (chapter, angle) plus one glyph per (patch, cell), so the pack holds a
+	 * fixed number of glyphs however much anybody sews. The count logged is the formula.
 	 */
 	@GameTest
-	public void wardrobePreviewDrawsEveryOvveAtTheGlyphSize(GameTestHelper helper) {
-		for (Chapter chapter : Chapter.values()) {
-			for (Piece piece : Piece.values()) {
-				var art = WardrobePreview.art(chapter, piece, List.of());
-				if (art.width != WardrobePreview.WIDTH || art.height != WardrobePreview.HEIGHT) {
-					helper.fail(chapter + " " + piece + " preview is " + art.width + "x" + art.height
-							+ ", wanted " + WardrobePreview.WIDTH + "x" + WardrobePreview.HEIGHT);
-				}
+	public void wardrobePreviewGlyphsAreFixedAndCoverEveryVisibleCell(GameTestHelper helper) {
+		int bare = WardrobePreview.bareGlyphCount();
+		if (bare != Chapter.values().length * Angle.values().length) {
+			helper.fail("bare ovve glyphs: " + bare + ", wanted " + Chapter.values().length + " x " + Angle.values().length);
+		}
+		// One glyph per patch that fits a cell the doll can show, and none for a cell it cannot.
+		int wanted = 0, hidden = 0;
+		for (Spot spot : Spot.values()) {
+			Angle angle = WardrobePreview.angleOf(spot);
+			if (angle == null) {
+				hidden++;
+				continue;
+			}
+			// A cell is on one face of one box, and a face is seen from one side only.
+			int sides = 0;
+			for (Angle other : Angle.values()) if (WardrobePreview.angleOf(spot) == other) sides++;
+			if (sides != 1) helper.fail(spot + " is drawn from " + sides + " sides, wanted exactly one");
+			for (Patches.Patch patch : Patches.all()) {
+				if (!patch.fits(spot)) continue;
+				wanted++;
+				Placement placement = new Placement(spot, patch);
+				if (WardrobePreview.patchGlyph(placement) == null) helper.fail("no glyph for " + placement.key() + " on the " + angle + " view");
 			}
 		}
-		var bare = WardrobePreview.art(CHAPTER, Piece.TOP, List.of());
-		var sewn = WardrobePreview.art(CHAPTER, Piece.TOP, List.of(BEER));
-		if (sewn.width != WardrobePreview.WIDTH || sewn.height != WardrobePreview.HEIGHT) helper.fail("a sewn preview is not the glyph size");
-		int[] on = WardrobePreview.cellAt(BEER.spot());
-		int[] off = WardrobePreview.cellAt(Spot.FRONT_TOP_RIGHT);
-		if (on == null || off == null) helper.fail("the chest's top cells are not in the front view");
-		int middle = WardrobePreview.CELL / 2;
-		int sample = sewn.get(on[0] + middle, on[1] + middle);
-		if (sample == bare.get(on[0] + middle, on[1] + middle)) {
-			helper.fail("the beer patch did not change the chest's top left cell at (" + on[0] + "," + on[1] + ")");
+		if (WardrobePreview.patchGlyphCount() != wanted) {
+			helper.fail("patch glyphs: " + WardrobePreview.patchGlyphCount() + ", wanted " + wanted);
 		}
-		if (sewn.get(off[0] + middle, off[1] + middle) != bare.get(off[0] + middle, off[1] + middle)) {
-			helper.fail("the beer patch changed the cell beside the one it was sewn on");
-		}
-		// The patch's own art, not the cloth: the beer patch is white foam over yellow beer, and the
-		// bare ovve is the chapter's one colour, so the sample is nothing the cloth could have been.
-		if (WardrobePreview.CELL != 12) helper.fail("a cell is " + WardrobePreview.CELL + " px, the sample positions assume 12");
+		// The inner faces are the only cells the doll never shows, and there are none of those.
+		if (hidden != 0) helper.fail(hidden + " cell(s) are on no view at all");
 		helper.succeed();
 	}
 
 	/**
-	 * The previews ride the pack: the build the server does at startup writes one per chapter and
-	 * half, at the glyph's size, under {@code textures/wardrobe/preview/}; and asking for a
-	 * combination the pack does not hold — the very thing a sew does — gets that combination's
-	 * previews into the next build, after which the title carries the background glyph and this
-	 * combination's own preview glyph.
+	 * A placement is drawn by its own glyph, in the title, over the bare ovve of the angle that
+	 * shows its cell — and by nothing at all at the other three angles.
 	 */
+	@GameTest
+	public void wardrobeTitleStacksTheBareOvveAndEveryPlacement(GameTestHelper helper) {
+		Placement sleeve = new Placement(Spot.SLEEVE_OUT_MID_R, Patches.get("nolle"));
+		Wardrobe wardrobe = Wardrobe.NONE.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElseThrow()
+				.add(sleeve.patch(), 1).sew(CHAPTER, sleeve).orElseThrow();
+		for (Angle angle : Angle.values()) {
+			String title = WardrobeGui.title(CHAPTER, wardrobe, angle).getString();
+			char barely = WardrobePreview.bareGlyph(CHAPTER, angle).codepoint();
+			if (title.indexOf(barely) < 0) helper.fail("the " + angle + " title does not draw the bare ovve");
+			for (Placement placement : List.of(BEER, sleeve)) {
+				WardrobeFont.Glyph glyph = WardrobePreview.patchGlyph(placement);
+				boolean shown = WardrobePreview.angleOf(placement.spot()) == angle;
+				boolean drawn = title.indexOf(glyph.codepoint()) >= 0;
+				if (shown && !drawn) helper.fail(placement.key() + " is not drawn on the " + angle + " view, which shows its cell");
+				if (!shown && drawn) helper.fail(placement.key() + " is drawn on the " + angle + " view, which cannot show its cell");
+				if (shown && !title.contains(WardrobeFont.at(glyph))) helper.fail(placement.key() + " is not placed where the doll draws it");
+			}
+			// The chest is seen from the front and the sleeve's outer face from the wearer's right.
+			if (angle == Angle.FRONT && WardrobePreview.angleOf(BEER.spot()) != Angle.FRONT) helper.fail("the chest is not on the front view");
+			if (WardrobePreview.angleOf(sleeve.spot()) != Angle.RIGHT) helper.fail("a right sleeve's outer face is not on the right-side view");
+		}
+		helper.succeed();
+	}
+
+	/** Every glyph's art is the size the font promises, and every patch glyph lands inside the preview panel. */
+	@GameTest
+	public void wardrobePreviewArtFitsThePanel(GameTestHelper helper) {
+		for (WardrobeFont.Glyph glyph : WardrobeFont.glyphs()) {
+			var art = glyph.art().get();
+			if (art.width != glyph.width() || art.height != glyph.height()) {
+				helper.fail(glyph.name() + " art is " + art.width + "x" + art.height + ", the font says " + glyph.width() + "x" + glyph.height());
+			}
+			if (!glyph.name().startsWith("preview/")) continue;
+			if (glyph.x() < WardrobePreview.PANEL_X || glyph.x() + glyph.width() > WardrobePreview.PANEL_X + WardrobePreview.PANEL_W
+					|| glyph.top() < WardrobePreview.PANEL_Y || glyph.top() + glyph.height() > WardrobePreview.PANEL_Y + WardrobePreview.PANEL_H) {
+				helper.fail(glyph.name() + " is drawn outside the preview panel, at (" + glyph.x() + "," + glyph.top() + ") " + glyph.width() + "x" + glyph.height());
+			}
+		}
+		helper.succeed();
+	}
+
+	/** The rotation buttons are at the end of the tab row and cycle the angle through all four sides. */
 	@GameTest(maxTicks = 1200)
-	public void wardrobePreviewsRideThePackBuild(GameTestHelper helper) {
-		List<Placement> sewn = List.of(BEER);
-		WardrobePreview.Key key = WardrobePreview.key(CHAPTER, Piece.TOP, sewn);
-		Wardrobe wardrobe = Wardrobe.NONE.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElseThrow();
+	public void wardrobeRotationButtonsCycleTheAngle(GameTestHelper helper) {
 		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		// The screen only builds its rows once the player's wardrobe is in the cache — before that
+		// it is the "loading" screen — and the fetch goes to whichever throwaway backend is in.
+		Wardrobes.fetch(player.getUUID());
 		helper.startSequence()
-				.thenWaitUntil(() -> assertThat(!WardrobePreview.built().isEmpty(), "the resource pack was never built, so there is no preview art"))
-				.thenExecute(() -> {
-					for (Chapter chapter : Chapter.values()) {
-						for (Piece piece : Piece.values()) {
-							WardrobePreview.Key bare = new WardrobePreview.Key(chapter, piece, "");
-							if (!WardrobePreview.has(bare)) helper.fail("no bare preview in the pack for " + chapter + " " + piece);
-							int[] size = WardrobePreview.builtSizes().get(WardrobePreview.texturePath(bare));
-							if (size == null) helper.fail("no PNG in the pack at " + WardrobePreview.texturePath(bare));
-							else if (size[0] != WardrobePreview.WIDTH || size[1] != WardrobePreview.HEIGHT) {
-								helper.fail(WardrobePreview.texturePath(bare) + " is " + size[0] + "x" + size[1]);
-							}
+				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(player.getUUID()), "player not loaded"))
+				.thenExecute(() -> rotationButtons(helper, player))
+				.thenSucceed();
+	}
+
+	private static void rotationButtons(GameTestHelper helper, ServerPlayer player) {
+		for (Angle angle : Angle.values()) {
+			WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, angle);
+			if (gui.angle() != angle) helper.fail("the screen is at " + gui.angle() + ", wanted " + angle);
+			for (int slot : new int[]{WardrobeGui.ROTATE_LEFT, WardrobeGui.ROTATE_RIGHT}) {
+				if (isEmpty(gui, slot)) helper.fail("no rotation button at slot " + slot);
+				String name = gui.getGuiElement(slot).getItemStack().getHoverName().getString();
+				if (!name.toLowerCase(java.util.Locale.ROOT).contains("turn")) helper.fail("the button at " + slot + " reads \"" + name + "\"");
+			}
+			String lore = lore(gui.getGuiElement(WardrobeGui.ROTATE_RIGHT).getItemStack());
+			if (!lore.contains(angle.label)) helper.fail("the right-turn button does not say which side is showing: " + lore);
+			if (!lore.contains(angle.turned(1).label)) helper.fail("the right-turn button does not say which side it brings round: " + lore);
+		}
+		// Four steps either way come back to where they started, and no two sides are the same.
+		Angle at = Angle.FRONT;
+		for (int i = 0; i < 4; i++) at = at.turned(1);
+		if (at != Angle.FRONT) helper.fail("turning right four times does not come back to the front");
+		for (int i = 0; i < 4; i++) at = at.turned(-1);
+		if (at != Angle.FRONT) helper.fail("turning left four times does not come back to the front");
+		if (Angle.FRONT.turned(1) == Angle.FRONT.turned(-1)) helper.fail("turning left and right are the same move");
+	}
+
+	/** The hover tooltips are the front view's only: from a side they would point at the wrong part of the figure. */
+	@GameTest(maxTicks = 1200)
+	public void wardrobePreviewTooltipsAreTheFrontViewsOnly(GameTestHelper helper) throws IOException {
+		MinecraftServer server = helper.getLevel().getServer();
+		Path dir = Files.createTempDirectory("ovvar-wardrobes");
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		UUID owner = player.getUUID();
+		AtomicReference<Wardrobes.Outcome> outcome = new AtomicReference<>();
+		helper.startSequence()
+				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
+				.thenExecute(() -> guarded(server, () -> {
+					Wardrobes.use(server, new FileBackend(dir));
+					Wardrobes.fetch(owner);
+				}))
+				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
+				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElse(null), outcome::set))
+				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "setup outcome " + outcome.get()))
+				.thenExecute(() -> guarded(server, () -> {
+					WardrobeGui front = WardrobeGui.forTest(player, CHAPTER, Angle.FRONT);
+					int slot = WardrobeGui.previewSlot(BEER.spot());
+					if (isEmpty(front, slot)) helper.fail("no tooltip item at the beer's slot on the front view");
+					if (front.getGuiElement(slot).getGuiCallback() != GuiElement.EMPTY_CALLBACK) helper.fail("a preview item has a click callback");
+					for (Angle angle : new Angle[]{Angle.RIGHT, Angle.BACK, Angle.LEFT}) {
+						WardrobeGui turned = WardrobeGui.forTest(player, CHAPTER, angle);
+						for (int i = 9; i < 45; i++) {
+							int col = i % 9;
+							if (col >= 5 && !isEmpty(turned, i)) helper.fail("a tooltip item is left over the preview on the " + angle + " view");
 						}
 					}
-				})
-				// What a sew does (Looks.look -> Combos.request): ask the pack for the combination.
-				// Builds are batched behind a wall-clock deadline that a game test server ticks
-				// straight past, so the reload a player could ask for brings it forward to now.
-				.thenExecute(() -> {
-					Combos.request(Piece.TOP, Placement.combo(sewn), true);
-					Combos.reload(player);
-				})
-				// The art goes in while the pack is being written, the generation is counted once it
-				// is finished: the design is drawable when both have happened.
-				.thenWaitUntil(() -> assertThat(WardrobePreview.has(key) && Combos.isBuilt(Piece.TOP, Placement.combo(sewn), null),
-						"the preview for a newly asked-for combination never reached the pack"))
-				.thenExecute(() -> {
-					int[] size = WardrobePreview.builtSizes().get(WardrobePreview.texturePath(key));
-					if (size == null || size[0] != WardrobePreview.WIDTH || size[1] != WardrobePreview.HEIGHT) {
-						helper.fail("the combination's PNG is " + (size == null ? "missing" : size[0] + "x" + size[1]));
-					}
-					if (!WardrobePreview.texturePath(key).startsWith("assets/ovvar/textures/wardrobe/preview/")) {
-						helper.fail("the preview PNGs are not under textures/wardrobe/preview: " + WardrobePreview.texturePath(key));
-					}
-					// A player on the current pack: the title names the chapter's background and this design's doll.
-					if (!WardrobePreview.shown(CHAPTER, Piece.TOP, sewn, null).equals(key)) {
-						helper.fail("a player on the current pack is shown " + WardrobePreview.shown(CHAPTER, Piece.TOP, sewn, null) + ", wanted " + key);
-					}
-					String title = WardrobeGui.title(CHAPTER, wardrobe, Piece.TOP, null, 0).getString();
-					if (title.indexOf(WardrobeArt.chapterChar(CHAPTER)) < 0) helper.fail("the title lost the background glyph");
-					if (title.indexOf(WardrobePreview.glyphChar(key)) < 0) {
-						helper.fail("the title does not carry the preview glyph U+" + Integer.toHexString(WardrobePreview.glyphChar(key)));
-					}
-					// And a combination nothing ever asked the pack for falls back to the bare ovve,
-					// never to a missing-glyph box.
-					WardrobePreview.Key unknown = WardrobePreview.shown(CHAPTER, Piece.BOTTOM,
-							List.of(new Placement(Spot.LEG_FRONT_MID_L, Patches.get("sittning"))), null);
-					if (!unknown.bare()) helper.fail("an unbuilt combination is shown as " + unknown + ", wanted the bare ovve");
-				})
+					release(server);
+				}))
 				.thenSucceed();
 	}
 

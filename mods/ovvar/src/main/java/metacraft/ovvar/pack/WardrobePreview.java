@@ -1,14 +1,13 @@
 package metacraft.ovvar.pack;
 
-import com.google.gson.JsonArray;
-import com.google.gson.JsonObject;
-import eu.pb4.polymer.resourcepack.api.ResourcePackBuilder;
 import metacraft.ovvar.Ovvar;
 import metacraft.ovvar.content.Chapter;
+import metacraft.ovvar.content.Patches;
 import metacraft.ovvar.content.Piece;
 import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
 import metacraft.ovvar.datagen.Tex;
+import metacraft.ovvar.pack.WardrobeFont.Glyph;
 import net.minecraft.network.chat.Component;
 import org.jspecify.annotations.Nullable;
 
@@ -16,408 +15,343 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.io.UncheckedIOException;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 
 /**
- * The wardrobe screen's preview: a picture of the player's own garment, rendered server-side into
- * the resource pack and drawn in the screen's title next to {@link WardrobeArt}'s background.
+ * The wardrobe screen's preview: the player's whole ovve — top and trousers as one figure — drawn
+ * in the screen's title, from four sides, and turned by the buttons at the end of the tab row.
  *
  * <p>A vanilla client cannot draw an entity inside a chest screen, so the preview is a
- * <em>paper doll</em>: the humanoid model's front faces, cut out of the very equipment-layer
- * textures the client draws the garment with and composited in the very order
- * {@link EquipmentJson#layerTextures} lists them, laid out flat as a standing figure —
+ * <em>paper doll</em>: the humanoid model's faces, cut out of the very equipment-layer textures
+ * the client draws the garment with, laid out flat as a standing figure. Front and back show the
+ * arms beside the torso and the legs below it; a side shows the body's own side face with the
+ * sleeve beside it and the trouser leg below, which is where that side's cells are.
  *
- * <pre>
- *   [arm][  torso  ][arm]   the top's front faces, 4 + 8 + 4 skin px wide, 12 tall
- *        [leg][leg]         the trousers' front faces, 4 + 4 wide, 12 tall
- * </pre>
- *
- * The whole figure is drawn whichever half is being shown, so the screen always holds a figure and
- * not half of one; the half being shown is the one carrying the patches (there are no body cells on
- * the trousers — {@link Spot} puts all of {@link Piece#BOTTOM}'s cells on the legs — so nothing of
- * the other half is ever missing from a preview). The wearer's own left limbs are the mirror images
- * the armour model draws, and a left cell's art is pre-mirrored in its texture, so each side is
- * composited from its own set of placements and the left one flipped back.
+ * <p><b>It is built up in layers, not baked per design.</b> One glyph per (chapter, angle) draws
+ * the bare garment, and one small glyph per (patch, cell, angle) draws that patch exactly where it
+ * lands on the doll — cropped to its own art, so the glyph is a dozen pixels square, and placed by
+ * space advances and its ascent. The title stacks the bare ovve and then one glyph per sewn
+ * placement, so a design is composed at the moment the screen opens: the pack holds a fixed
+ * {@code chapters × 4 + Σ patches-per-cell × 1} glyphs, never grows with what anybody sews, and
+ * nothing has to be regenerated or pushed when a patch goes on. A cell is on exactly one face of
+ * one box, and a face is seen from exactly one of the four angles, so a cell has exactly one glyph
+ * per patch — and the cells you cannot see from an angle simply have none.
  *
  * <p>Sizes: the source textures hold {@link Spot#DETAIL} texels per skin pixel and the doll is
- * drawn at 3 screen px per skin pixel, so the assembled figure (32×48 texels) is resampled ×1.5 to
- * 48×72 px, shaded (darker on the viewer's right and on either arm, as if lit from the left),
- * seamed and outlined in the dark of its own cloth, and centred in a {@value #WIDTH}×{@value
- * #HEIGHT} glyph — exactly the preview panel, rows 1-4 and columns 5-8 of the screen plus its 1 px
- * border. One PNG per (chapter, half, combination); the empty combination is the bare garment.
- *
- * <p>Drawing it: the same negative-space trick as the background, one step further along the title.
- * {@link WardrobeArt#backgroundGlyph} leaves the cursor where it started (the title's own x, 8 px
- * into the container), so the preview is {@code [space +}{@value #FORWARD}{@code ][glyph][space
- * −}{@value #ADVANCE}{@code −}{@value #FORWARD}{@code ]} and ordinary text follows unmoved. The
- * vertical offset is the glyph's ascent: a bitmap glyph's top lands at {@code textY + 7 − ascent}
- * and a container's title is drawn at y 6, so the ascent is negative — it pushes the glyph down
- * into the panel.
- *
- * <p>Budget: {@value #MAX_GLYPHS} glyphs. Chapters × combinations grows quickly, so the codepoints
- * (a private-use range) are allocated in a fixed order — the bare garments first, then by
- * combination id and chapter — and the count is logged on every pack build. Anything past the
- * budget, and any combination the player's own pack does not hold yet, falls back to the bare
- * garment rather than a missing-glyph box.
+ * drawn at {@value #PX} screen px per skin pixel, so every face is resampled ×1.5 (which keeps
+ * every texel the patch art has, at the price of every other column being 2 px wide). The bare
+ * doll is shaded — the viewer's right darker, either arm darker again, a seam at the waist — and
+ * given a 1 px dark outline drawn on its own outermost pixels, so it reads as a figure and not as
+ * a strip of faces; a patch layer takes the same shading, and keeps off the outline's own pixels so
+ * a patch at the edge of a sleeve cannot break the figure's edge.
  */
 public final class WardrobePreview {
 	private WardrobePreview() {}
 
-	/** The preview panel: rows 1-4, columns 5-8 of a {@code GENERIC_9x6} screen, plus its 1 px border. */
-	public static final int WIDTH = 64, HEIGHT = 72;
-	/** Where the glyph's top-left corner goes, in container pixels (the panel is 72 px wide; the figure is centred in it). */
-	public static final int PANEL_X = 101, PANEL_Y = 35;
-	/** A container title is drawn at this x and y inside the container. */
-	private static final int TITLE_X = 8, TITLE_Y = 6;
+	/** The preview panel: rows 1-4, cols 5-8 of the screen, its cell ring included. */
+	public static final int PANEL_X = WardrobeFont.PREVIEW_PANEL_X, PANEL_Y = WardrobeFont.PANEL_Y;
+	public static final int PANEL_W = WardrobeFont.PREVIEW_PANEL_W, PANEL_H = WardrobeFont.PANEL_H;
 
-	/** The space that walks the cursor from the title's x to the glyph's, and the one that walks it back. */
-	public static final int FORWARD = PANEL_X - TITLE_X;
-	/** A bitmap glyph advances by its width plus one (hence {@link Tex#reachingRightEdge}). */
-	public static final int ADVANCE = WIDTH + 1;
-	public static final int BACK = -(FORWARD + ADVANCE);
-	/** {@code top = textY + 7 − ascent}: negative, because the panel is below the title. */
-	public static final int ASCENT = TITLE_Y + 7 - PANEL_Y;
+	// ---- the sides you can look from
 
-	public static final char FORWARD_CHAR = 'd', BACK_CHAR = 'e';
-	/** Codepoints for the previews: a private-use range, one per (chapter, half, combination). */
-	private static final char FIRST_GLYPH = '\uE000';
-	public static final int MAX_GLYPHS = 256;
+	/** Which way round the doll is turned. A cell is visible from exactly one of these. */
+	public enum Angle {
+		FRONT("Front"), RIGHT("Their right"), BACK("Back"), LEFT("Their left");
 
-	private static final String TEXTURE_DIR = "assets/" + Ovvar.MOD_ID + "/textures/wardrobe/preview/";
-	private static final String TEXTURE_REF = Ovvar.MOD_ID + ":wardrobe/preview/";
+		public final String label;
 
-	// ---- the figure's geometry, in texels of the 128x64 equipment layer textures
+		Angle(String label) {
+			this.label = label;
+		}
+
+		/** The next angle {@code turn} steps round (−1 = left, +1 = right). */
+		public Angle turned(int turn) {
+			Angle[] all = values();
+			return all[(ordinal() + turn + all.length) % all.length];
+		}
+	}
+
+	// ---- the figure's geometry
 
 	private static final int D = Spot.DETAIL;
-	/** The side faces of every box are rows 20-32 of the skin layout: 12 skin px tall. */
-	private static final int FACE_V = 20 * D, FACE_H = 12 * D;
-	/** Front faces: the body's at skin u 20, the right arm's at 44, the right leg's at 4. */
-	private static final int TORSO_U = 20 * D, ARM_U = 44 * D, LEG_U = 4 * D;
-	private static final int TORSO_W = 8 * D, LIMB_W = 4 * D;
-	/** 3 screen px per skin px: {@link Spot#DETAIL} texels become 3. */
+	/** Every box's side faces are skin rows 20-32: 12 px tall. */
+	private static final int FACE_ROW = 20, FACE_ROWS = 12;
+	private static final int FACE_V = FACE_ROW * D, FACE_H = FACE_ROWS * D;
+	/** Screen px per skin px. */
 	private static final int PX = 3;
-
-	// ---- and the figure's geometry on screen, in the finished glyph's own px
-
-	/** A part's size on screen: a limb 4 skin px across, the torso 8, every face 12 tall. */
-	private static final int ARM = LIMB_W / D * PX, TORSO = TORSO_W / D * PX, FACE = FACE_H / D * PX;
-	/**
-	 * Transparent px between the parts. Without it a front view of arms hanging at the sides is one
-	 * slab of cloth 16 skin px wide with an outline round the outside only, which reads as a texture
-	 * strip; with it every part gets its own outline and the figure reads as arms, body and legs.
-	 */
+	private static final int FACE = FACE_ROWS * PX;
+	/** A limb face is 4 skin px across, the body's front and back 8, the body's sides 4. */
+	private static final int LIMB = 4, TORSO = 8;
+	private static final int LIMB_PX = LIMB * PX, TORSO_PX = TORSO * PX;
+	/** Transparent px between the parts: what makes a flat set of faces read as arms, a body and legs. */
 	private static final int GAP = 1;
-	private static final int OUT_W = 2 * ARM + 2 * GAP + TORSO, OUT_H = 2 * FACE;
-	private static final int TORSO_X = ARM + GAP, LEGS_Y = FACE;
-	private static final int FIGURE_X = (WIDTH - OUT_W) / 2, FIGURE_Y = (HEIGHT - OUT_H) / 2;
+
+	/** The faces of each box, by the skin x their strip starts at (see {@link Spot}'s own note). */
+	private static final int BODY_RIGHT = 16, BODY_FRONT = 20, BODY_LEFT = 28, BODY_BACK = 32;
+	private static final int ARM_OUT = 40, ARM_FRONT = 44, ARM_BACK = 52;
+	private static final int LEG_OUT = 0, LEG_FRONT = 4, LEG_BACK = 12;
 
 	/** How far towards black the viewer's right half of the figure goes, as if lit from the left. */
 	private static final double SHADE = 0.15;
-	/** A limb is rounded away from the viewer: this much darker again than the torso beside it. */
+	/** A sleeve is a narrow box turning away from the viewer: this much darker again. */
 	private static final double LIMB_SHADE = 0.12;
 	/** How far towards black the silhouette's outline goes — the panel's cloth is the chapter colour too. */
 	private static final double OUTLINE = 0.78;
-	/** And the seams inside the figure (arm against torso, the waist, between the legs). */
+	/** And the seam at the waist, the one part boundary the gaps between the parts do not draw. */
 	private static final double SEAM = 0.5;
 
-	// ---- the glyph registry
-
-	/** A preview: one chapter's half with one combination of patches sewn on ({@code ""} = nothing). */
-	public record Key(Chapter chapter, Piece piece, String combo) implements Comparable<Key> {
-		private static final Comparator<Key> ORDER = Comparator.comparing(Key::combo).thenComparing(Key::chapter).thenComparing(Key::piece);
-
-		public boolean bare() {
-			return combo.isEmpty();
-		}
-
-		public Key bareKey() {
-			return new Key(chapter, piece, "");
-		}
-
-		@Override
-		public int compareTo(Key other) {
-			return ORDER.compare(this, other);
+	/**
+	 * One face of one box, laid flat: which half's texture it comes from, the face's skin x and
+	 * width, whose side of the body it is (which decides the cells that show on it), whether the
+	 * model draws it mirrored, where it goes in the glyph, and whether it is a sleeve.
+	 */
+	private record Part(Piece piece, int u, int w, Spot.Side side, boolean mirror, int x, int y, boolean sleeve) {
+		int widthPx() {
+			return w * PX;
 		}
 	}
 
-	/** Codepoint per preview, never reassigned: a glyph in a pack a player already has must keep its meaning. */
-	private static final Map<Key, Character> CHARS = new ConcurrentHashMap<>();
-	/** What the last pack build actually wrote (the budget may have cut the tail off). */
-	private static volatile Set<Key> written = Set.of();
-	/** Pack path → the PNG's size, for the tests: what went into the pack, without unzipping it. */
-	private static volatile Map<String, int[]> sizes = Map.of();
-
-	public static char glyphChar(Key key) {
-		Character c = CHARS.get(key);
-		if (c == null) throw new IllegalStateException("no preview glyph for " + key);
-		return c;
+	private static Part body(int u, int w, boolean mirror, int x, int y) {
+		return new Part(Piece.TOP, u, w, Spot.Side.BODY, mirror, x, y, false);
 	}
 
-	/** Has the last pack build got art for this preview? */
-	public static boolean has(Key key) {
-		return written.contains(key);
+	private static Part arm(int u, Spot.Side side, boolean mirror, int x) {
+		return new Part(Piece.TOP, u, LIMB, side, mirror, x, 0, true);
 	}
 
-	public static Set<Key> built() {
-		return written;
+	private static Part leg(int u, Spot.Side side, boolean mirror, int x) {
+		return new Part(Piece.BOTTOM, u, LIMB, side, mirror, x, FACE, false);
 	}
 
-	public static Map<String, int[]> builtSizes() {
-		return sizes;
+	/** Where a figure {@code w} px wide starts, centred in the panel. */
+	private static int centred(int w) {
+		return (PANEL_W - w) / 2;
 	}
 
-	public static String texturePath(Key key) {
-		return TEXTURE_DIR + name(key) + ".png";
-	}
-
-	private static String name(Key key) {
-		// The codepoint, not the combination id: a combination id is up to 33 "spot.patch" pairs long,
-		// well past what a file name may be.
-		return Integer.toHexString(glyphChar(key));
-	}
-
-	// ---- what the screen draws
-
-	public static Key key(Chapter chapter, Piece piece, List<Placement> placements) {
-		return new Key(chapter, piece, Placement.combo(placements).key());
-	}
+	private static final int WIDE = 2 * LIMB_PX + 2 * GAP + TORSO_PX, NARROW = 2 * LIMB_PX + GAP;
+	private static final int WIDE_X = centred(WIDE), NARROW_X = centred(NARROW);
 
 	/**
-	 * The preview the player should be shown for this design: their own combination's, or the bare
-	 * garment's when the pack <em>they</em> have does not hold it yet (the same generation rule the
-	 * garment itself follows, {@link Combos#isBuilt}) or the glyph budget ran out.
+	 * The parts of each angle. The model draws the wearer's left limbs as mirror images of the
+	 * right limbs' strips (and datagen mirrors a left cell's art to suit), so every left limb here
+	 * is drawn flipped; and the wearer's right is on the viewer's left from the front and on the
+	 * viewer's right from behind, which is why the two swap ends.
 	 */
-	public static Key shown(Chapter chapter, Piece piece, List<Placement> placements, @Nullable UUID player) {
-		Key key = key(chapter, piece, placements);
-		if (key.bare()) return key;
-		if (!has(key)) return key.bareKey();
-		if (!Combos.isBuilt(piece, Placement.combo(placements), player)) return key.bareKey();
-		return key;
+	private static List<Part> parts(Angle angle) {
+		int torsoX = WIDE_X + LIMB_PX + GAP, farArmX = torsoX + TORSO_PX + GAP;
+		int nearLegX = torsoX, farLegX = torsoX + LIMB_PX + GAP;
+		return switch (angle) {
+			case FRONT -> List.of(
+					arm(ARM_FRONT, Spot.Side.RIGHT, false, WIDE_X),
+					body(BODY_FRONT, TORSO, false, torsoX, 0),
+					arm(ARM_FRONT, Spot.Side.LEFT, true, farArmX),
+					leg(LEG_FRONT, Spot.Side.RIGHT, false, nearLegX),
+					leg(LEG_FRONT, Spot.Side.LEFT, true, farLegX));
+			case BACK -> List.of(
+					arm(ARM_BACK, Spot.Side.LEFT, true, WIDE_X),
+					body(BODY_BACK, TORSO, false, torsoX, 0),
+					arm(ARM_BACK, Spot.Side.RIGHT, false, farArmX),
+					leg(LEG_BACK, Spot.Side.LEFT, true, nearLegX),
+					leg(LEG_BACK, Spot.Side.RIGHT, false, farLegX));
+			// A side: the body's own side face, the sleeve beside it, the trouser leg below it —
+			// the cells of that side are all on the sleeve's and the leg's outer faces.
+			case RIGHT -> List.of(
+					body(BODY_RIGHT, LIMB, false, NARROW_X, 0),
+					arm(ARM_OUT, Spot.Side.RIGHT, false, NARROW_X + LIMB_PX + GAP),
+					leg(LEG_OUT, Spot.Side.RIGHT, false, NARROW_X));
+			case LEFT -> List.of(
+					arm(ARM_OUT, Spot.Side.LEFT, true, NARROW_X),
+					body(BODY_LEFT, LIMB, false, NARROW_X + LIMB_PX + GAP, 0),
+					leg(LEG_OUT, Spot.Side.LEFT, true, NARROW_X + LIMB_PX + GAP));
+		};
 	}
+
+	/** The face of its box a cell sits on, as {skin x, width}. */
+	private static int[] face(Spot spot) {
+		if (spot.u >= BODY_RIGHT && spot.u < ARM_OUT) {   // the body's strip: right 4, front 8, left 4, back 8
+			if (spot.u < BODY_FRONT) return new int[]{BODY_RIGHT, LIMB};
+			if (spot.u < BODY_LEFT) return new int[]{BODY_FRONT, TORSO};
+			if (spot.u < BODY_BACK) return new int[]{BODY_LEFT, LIMB};
+			return new int[]{BODY_BACK, TORSO};
+		}
+		int strip = spot.u < BODY_RIGHT ? 0 : ARM_OUT;    // a limb's strip: four 4-wide faces
+		return new int[]{strip + (spot.u - strip) / LIMB * LIMB, LIMB};
+	}
+
+	/** Does this part draw the cell {@code spot}? (The seat is on both legs' back faces.) */
+	private static boolean shows(Part part, Spot spot) {
+		int[] face = face(spot);
+		if (part.piece() != spot.piece || part.u() != face[0] || part.w() != face[1]) return false;
+		if (spot.side == Spot.Side.SEAT) return part.side() == Spot.Side.RIGHT || part.side() == Spot.Side.LEFT;
+		return part.side() == spot.side;
+	}
+
+	/** The angle a cell is seen from, or null if the doll never shows it (the inner faces). */
+	public static @Nullable Angle angleOf(Spot spot) {
+		for (Angle angle : Angle.values()) {
+			for (Part part : parts(angle)) {
+				if (shows(part, spot)) return angle;
+			}
+		}
+		return null;
+	}
+
+	// ---- the glyphs
 
 	/**
-	 * {@code [space to the panel][the preview glyph][space back]}, in {@link WardrobeArt#STYLE}, with
-	 * the cursor left exactly where it started — empty before the first pack build, when there is no
-	 * art to point at yet.
+	 * Every equipment layer texture this has read, by pack path. Declared before the block that
+	 * fills the glyph registry, which reads a good few of them.
 	 */
-	public static Component glyph(Key key) {
-		if (!has(key)) return Component.empty();
-		return Component.literal("" + FORWARD_CHAR + glyphChar(key) + BACK_CHAR).withStyle(WardrobeArt.STYLE);
-	}
+	private static final Map<String, Tex> CACHE = new LinkedHashMap<>();
 
-	// ---- building the art
 
-	/** Every preview the pack should hold: the bare garments, then one per (chapter, known combination). */
-	public static List<Key> wanted() {
-		List<Key> keys = new ArrayList<>();
+	private static final Map<Chapter, Map<Angle, Glyph>> BARE = new LinkedHashMap<>();
+	/** {@code patch id + "." + spot} → its glyph, for the one angle that shows the cell. */
+	private static final Map<String, Glyph> PATCHES = new LinkedHashMap<>();
+
+	static {
 		for (Chapter chapter : Chapter.values()) {
-			for (Piece piece : Piece.values()) keys.add(new Key(chapter, piece, ""));
-		}
-		for (Combos.KeyedCombo combo : Combos.known()) {
-			if (combo.combo().isEmpty()) continue;
-			for (Chapter chapter : Chapter.values()) keys.add(new Key(chapter, combo.piece(), combo.combo().key()));
-		}
-		keys.sort(null);
-		return keys;
-	}
-
-	/** Called from {@link WardrobeArt}'s pack-build hook, before the font JSON is written. */
-	static void build(ResourcePackBuilder builder) {
-		List<Key> keys = wanted();
-		Map<String, Tex> cache = new LinkedHashMap<>();
-		List<Key> made = new ArrayList<>();
-		Map<String, int[]> written = new LinkedHashMap<>();
-		int skipped = 0;
-		for (Key key : keys) {
-			if (!CHARS.containsKey(key)) {
-				if (CHARS.size() >= MAX_GLYPHS) { skipped++; continue; }
-				CHARS.put(key, (char) (FIRST_GLYPH + CHARS.size()));
+			Map<Angle, Glyph> byAngle = new LinkedHashMap<>();
+			for (Angle angle : Angle.values()) {
+				byAngle.put(angle, WardrobeFont.glyph("preview/" + chapter.id + "_" + angle.name().toLowerCase(java.util.Locale.ROOT),
+						PANEL_X, PANEL_Y, PANEL_W, PANEL_H, () -> bareArt(chapter, angle)));
 			}
-			Tex art = art(key, cache);
-			builder.addData(texturePath(key), art.png());
-			written.put(texturePath(key), new int[]{art.width, art.height});
-			made.add(key);
+			BARE.put(chapter, byAngle);
 		}
-		WardrobePreview.written = Set.copyOf(made);
-		WardrobePreview.sizes = Map.copyOf(written);
-		Ovvar.LOGGER.info("[ovvar] wardrobe previews: {} glyph(s) of {} ({} ovve(s) × half × combination){}",
-				made.size(), MAX_GLYPHS, Chapter.values().length, skipped == 0 ? "" : ", " + skipped + " past the budget (they show the bare ovve)");
-	}
-
-	/** The {@code bitmap} providers for {@code assets/ovvar/font/wardrobe.json}, one per preview. */
-	static List<JsonObject> providers() {
-		List<JsonObject> out = new ArrayList<>();
-		for (Key key : wanted()) {
-			if (!has(key)) continue;
-			JsonObject bitmap = new JsonObject();
-			bitmap.addProperty("type", "bitmap");
-			bitmap.addProperty("file", TEXTURE_REF + name(key) + ".png");
-			bitmap.addProperty("ascent", ASCENT);
-			bitmap.addProperty("height", HEIGHT);
-			JsonArray chars = new JsonArray();
-			chars.add(String.valueOf(glyphChar(key)));
-			bitmap.add("chars", chars);
-			out.add(bitmap);
-		}
-		return out;
-	}
-
-	// ---- the paper doll
-
-	public static Tex art(Chapter chapter, Piece piece, List<Placement> placements) {
-		return art(new Key(chapter, piece, Placement.combo(placements).key()), placements, new LinkedHashMap<>());
-	}
-
-	private static Tex art(Key key, Map<String, Tex> cache) {
-		return art(key, placements(key), cache);
-	}
-
-	private static List<Placement> placements(Key key) {
-		if (key.bare()) return List.of();
-		return Combos.Combo.KEY_CODEC.parse(com.mojang.serialization.JavaOps.INSTANCE, key.combo())
-				.getOrThrow(IllegalStateException::new).placements();
-	}
-
-	private static Tex art(Key key, List<Placement> placements, Map<String, Tex> cache) {
-		Tex figure = outlined(waisted(shaded(figure(key.chapter(), key.piece(), placements, cache))));
-		return Tex.blank(WIDTH, HEIGHT).blit(figure, 0, 0, OUT_W, OUT_H, FIGURE_X, FIGURE_Y).reachingRightEdge();
-	}
-
-	/**
-	 * The front faces of the humanoid model, cut out and laid out flat at screen size: arms and
-	 * torso in the top row of faces, the two legs under the torso, a {@value #GAP} px gap between
-	 * the parts.
-	 */
-	private static Tex figure(Chapter chapter, Piece piece, List<Placement> placements, Map<String, Tex> cache) {
-		// The armour model mirrors the wearer's left limbs off the right limbs' strips, and a left
-		// cell's art is mirrored in its own texture to suit that, so each side gets its own composite.
-		Tex right = body(chapter, piece, placements, Spot.Side.LEFT, cache);
-		Tex left = body(chapter, piece, placements, Spot.Side.RIGHT, cache);
-		// The wearer's right side is on the viewer's left, and their left limbs are flipped back.
-		Tex armR = face(right, ARM_U, LIMB_W, false), armL = face(left, ARM_U, LIMB_W, true);
-		Tex legR = face(right, LEG_U, LIMB_W, false), legL = face(left, LEG_U, LIMB_W, true);
-		Tex torso = face(right, TORSO_U, TORSO_W, false);
-		return Tex.blank(OUT_W, OUT_H)
-				.blit(armR, 0, 0, ARM, FACE, 0, 0)
-				.blit(torso, 0, 0, TORSO, FACE, TORSO_X, 0)
-				.blit(armL, 0, 0, ARM, FACE, TORSO_X + TORSO + GAP, 0)
-				.blit(legR, 0, 0, ARM, FACE, TORSO_X, LEGS_Y)
-				.blit(legL, 0, 0, ARM, FACE, TORSO_X + ARM + GAP, LEGS_Y);
-	}
-
-	/** One front face of a box, at screen size: the textures' {@link Spot#DETAIL} texels per skin px resampled to {@value #PX}. */
-	private static Tex face(Tex body, int u, int w, boolean mirror) {
-		Tex face = body.crop(u, FACE_V, w, FACE_H);
-		return (mirror ? face.flipX() : face).resampled(w / D * PX, FACE);
-	}
-
-	/**
-	 * Both halves' layer textures composited as the client stacks them — the trousers, then the top
-	 * over them — with the shown half's placements on, minus the cells of the side being dropped.
-	 */
-	private static Tex body(Chapter chapter, Piece piece, List<Placement> placements, Spot.Side drop, Map<String, Tex> cache) {
-		List<Placement> kept = placements.stream().filter(p -> p.spot().side != drop).toList();
-		Tex top = stack(Piece.TOP, EquipmentJson.layerTextures(chapter, Piece.TOP, false, piece == Piece.TOP ? kept : List.of()), cache);
-		Tex bottom = stack(Piece.BOTTOM, EquipmentJson.layerTextures(chapter, Piece.BOTTOM, false, piece == Piece.BOTTOM ? kept : List.of()), cache);
-		return bottom.composite(top);
-	}
-
-	private static Tex stack(Piece piece, List<String> textures, Map<String, Tex> cache) {
-		Tex out = null;
-		for (String texture : textures) {
-			Tex layer = read(piece, texture, cache);
-			out = out == null ? layer : out.composite(layer);
-		}
-		if (out == null) throw new IllegalStateException("no layers for the " + piece);
-		return out;
-	}
-
-	/** One equipment layer texture, as datagen wrote it into the jar. */
-	private static Tex read(Piece piece, String texture, Map<String, Tex> cache) {
-		String path = "assets/" + Ovvar.MOD_ID + "/textures/entity/equipment/" + piece.layer + "/"
-				+ texture.substring(texture.indexOf(':') + 1) + ".png";
-		return cache.computeIfAbsent(path, p -> {
-			try (InputStream in = WardrobePreview.class.getResourceAsStream("/" + p)) {
-				if (in == null) throw new IOException("missing " + p + " — run ./gradlew runDatagen");
-				return Tex.read(in);
-			} catch (IOException e) {
-				throw new UncheckedIOException(e);
+		for (Spot spot : Spot.values()) {
+			Angle angle = angleOf(spot);
+			if (angle == null) continue;
+			for (Patches.Patch patch : Patches.all()) {
+				if (!patch.fits(spot)) continue;
+				Placement placement = new Placement(spot, patch);
+				Tex art = patchArt(placement, angle);
+				int[] box = bounds(art);
+				if (box == null) continue;   // nothing of this patch shows on that face
+				Tex cropped = art.crop(box[0], box[1], box[2], box[3]);
+				PATCHES.put(key(placement), WardrobeFont.glyph("preview/patch/" + spot.id() + "_" + patch.id(),
+						PANEL_X + box[0], PANEL_Y + box[1], box[2], box[3], () -> cropped));
 			}
-		});
+		}
+		Ovvar.LOGGER.info("[ovvar] wardrobe preview: {} bare ovve glyph(s) ({} × {} angles) and {} patch glyph(s)",
+				Chapter.values().length * Angle.values().length, Chapter.values().length, Angle.values().length, PATCHES.size());
 	}
-
-	/** A cell's side in the finished glyph's px. */
-	public static final int CELL = Spot.SIZE * PX;
 
 	/**
-	 * Where a cell's art lands in the finished glyph, as its top-left px, or null when a front view
-	 * does not show that cell at all — the outer, inner and back faces of every box, and the seat,
-	 * are round the other side of the figure. The compositor does not use this (it moves whole
-	 * faces, not cells); it is here so that what is claimed about the layout can be sampled.
+	 * Registers every glyph (the class initialiser does the work; this is what makes sure it has
+	 * run before a pack is built rather than when the first screen opens).
 	 */
-	public static int @Nullable [] cellAt(Spot spot) {
-		int y = (spot.v - 20) * PX;
-		if (spot.side == Spot.Side.SEAT) return null;
-		if (spot.side == Spot.Side.BODY) {
-			if (spot.u < 20 || spot.u >= 20 + 8) return null;   // a side or the back of the body box
-			return glyph(TORSO_X + (spot.u - 20) * PX, y);
-		}
-		boolean arm = spot.piece == Piece.TOP;
-		int front = arm ? 44 : 4;                              // the front face of the arm strip, of the leg strip
-		if (spot.u < front || spot.u >= front + 4) return null;
-		int local = (spot.u - front) * PX;
-		if (!arm) y += LEGS_Y;
-		if (spot.side == Spot.Side.RIGHT) return glyph((arm ? 0 : TORSO_X) + local, y);
-		// The wearer's left limb is the mirror image, on the viewer's right.
-		int x0 = arm ? TORSO_X + TORSO + GAP : TORSO_X + ARM + GAP;
-		return glyph(x0 + ARM - local - CELL, y);
+	public static void init() {
+		// deliberately empty
 	}
 
-	private static int[] glyph(int x, int y) {
-		return new int[]{FIGURE_X + x, FIGURE_Y + y};
+	private static String key(Placement placement) {
+		return placement.key();
+	}
+
+	public static int bareGlyphCount() {
+		return Chapter.values().length * Angle.values().length;
+	}
+
+	public static int patchGlyphCount() {
+		return PATCHES.size();
+	}
+
+	public static int glyphCount() {
+		return bareGlyphCount() + patchGlyphCount();
+	}
+
+	public static Glyph bareGlyph(Chapter chapter, Angle angle) {
+		return BARE.get(chapter).get(angle);
+	}
+
+	/** The glyph that draws this placement on the doll, or null if the doll cannot show that cell. */
+	public static @Nullable Glyph patchGlyph(Placement placement) {
+		return PATCHES.get(key(placement));
+	}
+
+	/**
+	 * The whole preview for a design, ready to append to the title: the bare ovve from this angle,
+	 * then every placement this angle shows, each at its own place on the figure.
+	 */
+	public static Component glyphs(Chapter chapter, Angle angle, List<Placement> placements) {
+		List<Glyph> drawn = new ArrayList<>();
+		drawn.add(bareGlyph(chapter, angle));
+		for (Placement placement : placements) {
+			if (angleOf(placement.spot()) != angle) continue;
+			Glyph glyph = patchGlyph(placement);
+			if (glyph != null) drawn.add(glyph);
+		}
+		return WardrobeFont.drawn(drawn.toArray(new Glyph[0]));
+	}
+
+	// ---- drawing the art
+
+	/** The bare garment from one side: both halves' cloth, laid out, shaded, seamed and outlined. */
+	public static Tex bareArt(Chapter chapter, Angle angle) {
+		Tex cloth = cloth(chapter);
+		Tex canvas = Tex.blank(PANEL_W, PANEL_H);
+		List<Part> parts = parts(angle);
+		for (Part part : parts) canvas = blit(canvas, part, cloth);
+		return outlined(waisted(shaded(canvas, parts), parts));
+	}
+
+	/** One placement, on a transparent canvas the size of the panel, at the place the doll draws it. */
+	public static Tex patchArt(Placement placement, Angle angle) {
+		Tex canvas = Tex.blank(PANEL_W, PANEL_H);
+		List<Part> parts = parts(angle);
+		for (Part part : parts) {
+			if (!shows(part, placement.spot())) continue;
+			canvas = blit(canvas, part, placementTexture(placement, part));
+		}
+		return keptOffTheOutline(shaded(canvas, parts), parts);
+	}
+
+	/** One face of {@code layer}, mirrored if the model mirrors it, at screen size, onto the canvas. */
+	private static Tex blit(Tex canvas, Part part, Tex layer) {
+		Tex face = layer.crop(part.u() * D, FACE_V, part.w() * D, FACE_H);
+		if (part.mirror()) face = face.flipX();
+		face = face.resampled(part.widthPx(), FACE);
+		return canvas.blit(face, 0, 0, face.width, face.height, part.x(), part.y());
 	}
 
 	// ---- the passes that turn flat faces into something with a front and a side to it
 
-	/**
-	 * Lit from the viewer's left: the right half of the figure goes {@value #SHADE} towards black,
-	 * and either arm {@value #LIMB_SHADE} further — a limb is a narrow box turning away from the
-	 * viewer, and without it the shoulders and the torso read as one flat slab of cloth.
-	 */
-	private static Tex shaded(Tex figure) {
-		int[] px = figure.pixels();
-		for (int y = 0; y < figure.height; y++) {
-			for (int x = 0; x < figure.width; x++) {
-				int i = y * figure.width + x;
-				boolean arm = y < LEGS_Y && (x < TORSO_X || x >= TORSO_X + TORSO);
-				double dark = (x >= figure.width / 2 ? SHADE : 0) + (arm ? LIMB_SHADE : 0);
+	private static Tex shaded(Tex art, List<Part> parts) {
+		int[] px = art.pixels();
+		for (int y = 0; y < art.height; y++) {
+			for (int x = 0; x < art.width; x++) {
+				int i = y * art.width + x;
+				if (Tex.a(px[i]) == 0) continue;
+				double dark = x >= PANEL_W / 2 ? SHADE : 0;
+				for (Part part : parts) {
+					if (part.sleeve() && inside(part, x, y)) dark += LIMB_SHADE;
+				}
 				if (dark > 0) px[i] = darker(px[i], dark);
 			}
 		}
-		return Tex.of(figure.width, figure.height, px);
+		return Tex.of(art.width, art.height, px);
 	}
 
-	/** The one seam the gaps between the parts do not draw: the waist, where the trousers meet the top. */
-	private static Tex waisted(Tex figure) {
-		Tex out = figure;
-		for (int x = TORSO_X; x < TORSO_X + TORSO; x++) {
-			int p = out.get(x, LEGS_Y - 1);
-			if (Tex.a(p) != 0) out = out.with(x, LEGS_Y - 1, darker(p, SEAM));
+	/** The seam where the trousers meet the top: the torso's bottom row of px. */
+	private static Tex waisted(Tex art, List<Part> parts) {
+		Tex out = art;
+		for (Part part : parts) {
+			if (part.piece() != Piece.TOP || part.sleeve()) continue;
+			for (int x = part.x(); x < part.x() + part.widthPx(); x++) {
+				int p = out.get(x, FACE - 1);
+				if (Tex.a(p) != 0) out = out.with(x, FACE - 1, darker(p, SEAM));
+			}
 		}
 		return out;
 	}
 
-	/** A 1 px dark edge along the silhouette, drawn on the figure's own outermost pixels so it costs no room. */
-	private static Tex outlined(Tex figure) {
-		int[] px = figure.pixels();
+	/** A 1 px dark edge along the silhouette, drawn on the figure's own outermost px so it costs no room. */
+	private static Tex outlined(Tex art) {
+		int[] px = art.pixels();
 		int[] out = px.clone();
-		int w = figure.width, h = figure.height;
+		int w = art.width, h = art.height;
 		for (int y = 0; y < h; y++) {
 			for (int x = 0; x < w; x++) {
 				int i = y * w + x;
@@ -430,8 +364,83 @@ public final class WardrobePreview {
 		return Tex.of(w, h, out);
 	}
 
+	/**
+	 * A patch layer gives up the px the bare doll's outline owns — the ring around each part — so a
+	 * patch that hangs over the edge of a sleeve cannot cut the figure's own edge open.
+	 */
+	private static Tex keptOffTheOutline(Tex art, List<Part> parts) {
+		int[] px = art.pixels();
+		for (Part part : parts) {
+			for (int y = part.y(); y < part.y() + FACE; y++) {
+				for (int x = part.x(); x < part.x() + part.widthPx(); x++) {
+					boolean ring = x == part.x() || x == part.x() + part.widthPx() - 1 || y == part.y() || y == part.y() + FACE - 1;
+					if (ring) px[y * art.width + x] = 0;
+				}
+			}
+		}
+		return Tex.of(art.width, art.height, px);
+	}
+
+	private static boolean inside(Part part, int x, int y) {
+		return x >= part.x() && x < part.x() + part.widthPx() && y >= part.y() && y < part.y() + FACE;
+	}
+
 	/** {@code towards} of the way to black, alpha kept. */
 	private static int darker(int argb, double towards) {
 		return Tex.a(argb) == 0 ? argb : Tex.mix(argb, 0xFF000000, towards);
+	}
+
+	/** The smallest {x, y, w, h} holding every visible pixel, or null if there are none. */
+	private static int @Nullable [] bounds(Tex art) {
+		int x0 = art.width, y0 = art.height, x1 = -1, y1 = -1;
+		for (int y = 0; y < art.height; y++) {
+			for (int x = 0; x < art.width; x++) {
+				if (Tex.a(art.get(x, y)) == 0) continue;
+				x0 = Math.min(x0, x);
+				y0 = Math.min(y0, y);
+				x1 = Math.max(x1, x);
+				y1 = Math.max(y1, y);
+			}
+		}
+		return x1 < 0 ? null : new int[]{x0, y0, x1 - x0 + 1, y1 - y0 + 1};
+	}
+
+	// ---- the textures the client draws the garment with
+
+	/** Both halves' cloth on one texture, as the client stacks them: the trousers, then the top. */
+	private static Tex cloth(Chapter chapter) {
+		String key = "cloth/" + chapter.id;
+		Tex cached = CACHE.get(key);
+		if (cached != null) return cached;
+		// Not computeIfAbsent: reading the two halves puts them in this same map.
+		Tex top = read(Piece.TOP, EquipmentJson.baseTexture(chapter, Piece.TOP, false));
+		Tex bottom = read(Piece.BOTTOM, EquipmentJson.baseTexture(chapter, Piece.BOTTOM, false));
+		Tex cloth = bottom.composite(top);
+		CACHE.put(key, cloth);
+		return cloth;
+	}
+
+	/**
+	 * The placement's own layer texture — the one {@link EquipmentJson#layerTextures} names for it,
+	 * so the doll and the garment can never disagree about where a patch goes. The seat is two
+	 * textures, one per leg.
+	 */
+	private static Tex placementTexture(Placement placement, Part part) {
+		List<String> textures = EquipmentJson.textures(placement);
+		String texture = textures.size() == 1 ? textures.getFirst() : textures.get(part.side() == Spot.Side.RIGHT ? 0 : 1);
+		return read(placement.piece(), Ovvar.MOD_ID + ":" + texture);
+	}
+
+	private static Tex read(Piece piece, String texture) {
+		String path = "assets/" + Ovvar.MOD_ID + "/textures/entity/equipment/" + piece.layer + "/"
+				+ texture.substring(texture.indexOf(':') + 1) + ".png";
+		return CACHE.computeIfAbsent(path, p -> {
+			try (InputStream in = WardrobePreview.class.getResourceAsStream("/" + p)) {
+				if (in == null) throw new IOException("missing " + p + " — run ./gradlew runDatagen");
+				return Tex.read(in);
+			} catch (IOException e) {
+				throw new UncheckedIOException(e);
+			}
+		});
 	}
 }

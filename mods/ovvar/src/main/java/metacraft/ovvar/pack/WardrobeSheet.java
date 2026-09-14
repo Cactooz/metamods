@@ -2,10 +2,10 @@ package metacraft.ovvar.pack;
 
 import metacraft.ovvar.content.Chapter;
 import metacraft.ovvar.content.Patches;
-import metacraft.ovvar.content.Piece;
 import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
 import metacraft.ovvar.datagen.Tex;
+import metacraft.ovvar.pack.WardrobePreview.Angle;
 
 import java.awt.image.BufferedImage;
 import java.io.IOException;
@@ -16,13 +16,17 @@ import java.util.List;
 
 /**
  * A dev tool, not part of the game: the wardrobe screen as a client would draw it — the chapter
- * background, the paper doll exactly where its glyph's space advances and ascent put it, and a
- * marker per slot the screen fills — upscaled so it can be eyeballed without starting a client.
- * {@code ./gradlew :mods:ovvar:wardrobeSheet --offline} (see {@code build.gradle}); the same
- * one-off spirit as {@code tools/wardrobe_template.py}.
+ * background, the paper doll composed exactly as the title's glyphs compose it (the bare ovve for
+ * an angle, then one glyph per sewn placement, each at its own place), the empty-state notices, and
+ * a marker per slot the screen fills — upscaled so it can be eyeballed without starting a client.
+ * Below the screen, the same design from all four angles side by side.
+ *
+ * <p>{@code ./gradlew :mods:ovvar:wardrobeSheet --offline} writes it; {@code -Psheet=<path>},
+ * {@code -Pchapter=<id>} and {@code -PsheetState=empty} pick what it draws. The same one-off spirit
+ * as {@code tools/wardrobe_template.py}.
  *
  * <p>What it cannot show, being a compositor and not a client: that the client's own font renderer
- * agrees about the advances and the (negative) ascent, and that nothing of the screen's own chrome
+ * agrees about the advances and the (negative) ascents, and that nothing of the screen's own chrome
  * lands on top of the doll.
  */
 public final class WardrobeSheet {
@@ -35,39 +39,79 @@ public final class WardrobeSheet {
 	private static final int ITEM = 0x60FFFFFF, HOVER = 0x40FFD700;
 
 	public static void main(String[] args) throws IOException {
-		Path out = Path.of(args.length > 0 ? args[0] : "/tmp/wardrobe_v2_sheet.png");
+		Path out = Path.of(args.length > 0 ? args[0] : "/tmp/wardrobe_v3_sheet.png");
 		Chapter chapter = args.length > 1 ? Chapter.byId(args[1]) : Chapter.DATA;
-		Piece piece = args.length > 2 && args[2].equals(Piece.BOTTOM.id) ? Piece.BOTTOM : Piece.TOP;
-		List<Placement> sample = piece == Piece.TOP
-				? List.of(new Placement(Spot.FRONT_TOP_LEFT, Patches.get("beer")),
-						new Placement(Spot.FRONT_LOW_RIGHT, Patches.get("kth")),
-						new Placement(Spot.SLEEVE_FRONT_TOP_R, Patches.get("star")),
-						new Placement(Spot.SLEEVE_FRONT_MID_L, Patches.get("nolle")))
-				: List.of(new Placement(Spot.LEG_FRONT_TOP_R, Patches.get("heart")),
-						new Placement(Spot.LEG_FRONT_MID_L, Patches.get("gasque")));
+		boolean empty = args.length > 2 && args[2].equals("empty");
+		List<Placement> sewn = empty ? List.of() : List.of(
+				new Placement(Spot.FRONT_TOP_LEFT, Patches.get("beer")),
+				new Placement(Spot.FRONT_LOW_RIGHT, Patches.get("kth")),
+				new Placement(Spot.SLEEVE_FRONT_TOP_R, Patches.get("star")),
+				new Placement(Spot.SLEEVE_OUT_MID_R, Patches.get("nolle")),
+				new Placement(Spot.BACK_TOP_LEFT, Patches.get("gasque")),
+				new Placement(Spot.LEG_FRONT_TOP_R, Patches.get("heart")),
+				new Placement(Spot.LEG_OUT_MID_L, Patches.get("sittning")));
 
-		boolean empty = args.length > 3 && args[3].equals("empty");
-		Tex sheet = tex(WardrobeArt.tint(WardrobeArt.readTemplate(), WardrobeArt.colour(chapter)));
-		Tex doll = WardrobePreview.art(chapter, piece, empty ? List.of() : sample);
-		sheet = over(sheet, doll, WardrobePreview.PANEL_X, WardrobePreview.PANEL_Y);
+		// The screen itself, with the preview at the angle the screen opens on.
+		Tex screen = tex(WardrobeArt.tint(WardrobeArt.readTemplate(), WardrobeArt.colour(chapter)));
+		screen = preview(screen, chapter, Angle.FRONT, sewn, 0, 0);
 		if (empty) {
 			for (WardrobeFont.Glyph notice : List.of(WardrobeFont.NO_PATCHES, WardrobeFont.NOTHING_SEWN)) {
-				sheet = over(sheet, notice.art().get(), notice.x(), notice.top());
+				screen = draw(screen, notice.art().get(), notice.x(), notice.top());
 			}
 		}
-		for (int[] slot : slots()) sheet = box(sheet, SLOT0_X + slot[1] * PITCH, SLOT0_Y + slot[0] * PITCH, slot[2]);
+		for (int[] slot : slots()) screen = box(screen, SLOT0_X + slot[1] * PITCH, SLOT0_Y + slot[0] * PITCH, slot[2]);
 
+		// And the four angles in a row underneath, on the panel's own cloth, at panel size.
+		int panel = WardrobePreview.PANEL_W, gap = 4;
+		Tex strip = Tex.blank(Angle.values().length * (panel + gap) + gap, panel + 2 * gap);
+		Tex cloth = tex(WardrobeArt.tint(WardrobeArt.readTemplate(), WardrobeArt.colour(chapter)))
+				.crop(WardrobePreview.PANEL_X, WardrobePreview.PANEL_Y, panel, panel);
+		int x = gap;
+		for (Angle angle : Angle.values()) {
+			strip = strip.blit(cloth, 0, 0, panel, panel, x, gap);
+			Tex doll = Tex.blank(panel, panel);
+			for (WardrobeFont.Glyph glyph : composed(chapter, angle, sewn)) {
+				doll = draw(doll, glyph.art().get(), glyph.x() - WardrobePreview.PANEL_X, glyph.top() - WardrobePreview.PANEL_Y);
+			}
+			strip = strip.composite(Tex.blank(strip.width, strip.height).blit(doll, 0, 0, panel, panel, x, gap));
+			x += panel + gap;
+		}
+
+		Tex sheet = Tex.blank(Math.max(screen.width, strip.width), screen.height + strip.height)
+				.blit(screen, 0, 0, screen.width, screen.height, 0, 0)
+				.blit(strip, 0, 0, strip.width, strip.height, 0, screen.height);
 		Files.createDirectories(out.toAbsolutePath().getParent());
 		Files.write(out, sheet.scale(UPSCALE).png());
 		System.out.println("wrote " + out + " (" + sheet.width * UPSCALE + "x" + sheet.height * UPSCALE + ", "
-				+ chapter.id + " " + piece.id + ", " + sample.size() + " patches sewn)");
+				+ chapter.id + ", " + sewn.size() + " patches sewn, " + WardrobePreview.glyphCount() + " preview glyphs)");
+	}
+
+	/** The glyphs the title would carry for this design at this angle, in the order it carries them. */
+	private static List<WardrobeFont.Glyph> composed(Chapter chapter, Angle angle, List<Placement> sewn) {
+		List<WardrobeFont.Glyph> out = new ArrayList<>();
+		out.add(WardrobePreview.bareGlyph(chapter, angle));
+		for (Placement placement : sewn) {
+			if (WardrobePreview.angleOf(placement.spot()) != angle) continue;
+			WardrobeFont.Glyph glyph = WardrobePreview.patchGlyph(placement);
+			if (glyph != null) out.add(glyph);
+		}
+		return out;
+	}
+
+	private static Tex preview(Tex sheet, Chapter chapter, Angle angle, List<Placement> sewn, int dx, int dy) {
+		Tex out = sheet;
+		for (WardrobeFont.Glyph glyph : composed(chapter, angle, sewn)) {
+			out = draw(out, glyph.art().get(), glyph.x() + dx, glyph.top() + dy);
+		}
+		return out;
 	}
 
 	/** Every slot the screen fills, as {row, col, colour}: the doll must stay readable between them. */
 	private static List<int[]> slots() {
 		List<int[]> out = new ArrayList<>();
 		for (int col = 0; col < 3; col++) out.add(new int[]{0, col, ITEM});              // chapter tabs
-		out.add(new int[]{0, 8, ITEM});                                                   // the one piece toggle
+		out.add(new int[]{0, 7, ITEM});                                                   // turn it left
+		out.add(new int[]{0, 8, ITEM});                                                   // turn it right
 		for (int i = 0; i < 3; i++) out.add(new int[]{1 + i / 5, i % 5, ITEM});           // the patch collection
 		for (int col = 5; col < 9; col++) for (int row = 1; row < 5; row++) out.add(new int[]{row, col, HOVER});
 		for (int col : new int[]{0, 1, 2, 3, 7, 8}) out.add(new int[]{5, col, ITEM});      // the action row
@@ -79,9 +123,11 @@ public final class WardrobeSheet {
 		return Tex.of(w, h, image.getRGB(0, 0, w, h, null, 0, w));
 	}
 
-	private static Tex over(Tex under, Tex top, int x, int y) {
-		Tex padded = Tex.blank(under.width, under.height).blit(top, 0, 0, top.width, Math.min(top.height, under.height - y), x, y);
-		return under.composite(padded);
+	/** {@code top} composited over {@code under} at (x, y), clipped to it. */
+	private static Tex draw(Tex under, Tex top, int x, int y) {
+		int w = Math.min(top.width, under.width - x), h = Math.min(top.height, under.height - y);
+		if (w <= 0 || h <= 0) return under;
+		return under.composite(Tex.blank(under.width, under.height).blit(top, 0, 0, w, h, x, y));
 	}
 
 	private static Tex box(Tex sheet, int x, int y, int argb) {
