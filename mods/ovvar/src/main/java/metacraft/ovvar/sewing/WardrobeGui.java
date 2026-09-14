@@ -13,25 +13,33 @@ import metacraft.ovvar.content.Piece;
 import metacraft.ovvar.content.Placement;
 import metacraft.ovvar.content.Spot;
 import metacraft.ovvar.content.SpotPlacements;
+import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.pack.WardrobeArt;
+import metacraft.ovvar.pack.WardrobePreview;
 import metacraft.ovvar.store.OwnedSewing;
 import metacraft.ovvar.store.Stash;
 import metacraft.ovvar.store.StashConfig;
 import metacraft.ovvar.store.Wardrobe;
 import metacraft.ovvar.store.Wardrobes;
 import net.minecraft.ChatFormatting;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.network.chat.MutableComponent;
+import net.minecraft.resources.Identifier;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.world.entity.EquipmentSlot;
 import net.minecraft.world.inventory.MenuType;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.Items;
 
+import org.jspecify.annotations.Nullable;
+
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * {@code /ovvar stash} (replaces the old plain-chest StashGui): a font-drawn "swag-i-skogen" wardrobe, one
@@ -48,8 +56,11 @@ import java.util.Map;
  *	   since the boots-channel preview lives there; see the README);</li>
  *   <li>rows 1-4, cols 0-4: the patch collection, one slot per stashed patch kind, left/right
  *	   click exactly as the old StashGui did (take out / start a sewing session);</li>
- *   <li>rows 1-4, cols 5-8: the preview — a hover-only item (no callback) at the slot nearest
- *	   each sewn placement's spot, see {@link #previewSlot};</li>
+ *   <li>rows 1-4, cols 5-8: the preview — a picture of the player's own garment with their patches
+ *	   on it, rendered into the pack by {@link WardrobePreview} and drawn by the title's second
+ *	   glyph, with a hover-only item wearing the {@code ovvar:invisible} model at the slot nearest
+ *	   each sewn placement's spot ({@link #previewSlot}) so the picture shows through and only the
+ *	   "which patch is where" tooltip is left;</li>
  *   <li>row 5: deposit (col 1), show on mannequin (col 3), finish sewing (col 4, only mid-session),
  *	   help (col 7), close (col 8); cols 0 and 2 are reminder icons for the collection slots' own
  *	   take-out/sew-session gesture (there is no "selected patch" to act on otherwise — see the
@@ -70,6 +81,34 @@ public final class WardrobeGui extends SimpleGui {
 
 	private final Chapter chapter;
 	private final Piece piece;
+
+	/** Whose wardrobe screen is open, so a pack build can re-send its title (the glyphs changed under it). */
+	private static final Map<UUID, WardrobeGui> OPEN = new ConcurrentHashMap<>();
+
+	public static void init() {
+		// A container's title only travels in the packet that opens it, and the preview is part of
+		// the title, so a player whose client has just loaded a pack holding their newest design
+		// gets the screen opened again — at once, with the paper doll they were waiting for.
+		Combos.onPackLoaded(WardrobeGui::reopen);
+	}
+
+	private static void reopen(ServerPlayer player) {
+		WardrobeGui gui = OPEN.get(player.getUUID());
+		if (gui == null || !gui.isOpen()) return;
+		WardrobeGui next = new WardrobeGui(player, gui.chapter, gui.piece);
+		next.build();
+		next.open();
+	}
+
+	@Override
+	public void onOpen() {
+		OPEN.put(player.getUUID(), this);
+	}
+
+	@Override
+	public void onRemoved() {
+		OPEN.remove(player.getUUID(), this);
+	}
 
 	public static void open(ServerPlayer player) {
 		Chapter chapter = defaultChapter(player);
@@ -183,11 +222,34 @@ public final class WardrobeGui extends SimpleGui {
 		return wardrobe.design(chapter).flatMap(p -> p.forPiece(piece)).map(p -> p.asPlacementList().size()).orElse(0);
 	}
 
-	/** {@code [background glyph][stats text]}, per {@code docs/superpowers/specs/2026-09-12-ovvar-wardrobe-screen-design.md} §3. */
-	public static Component title(Chapter chapter, Wardrobe wardrobe, Piece piece) {
+	/** The placements the preview should draw: this chapter's, on the half being shown. */
+	public static List<Placement> shownPlacements(Wardrobe wardrobe, Chapter chapter, Piece piece) {
+		return wardrobe.design(chapter).flatMap(p -> p.forPiece(piece)).map(SpotPlacements::asPlacementList).orElse(List.of());
+	}
+
+	/** Which paper doll the screen draws — the bare garment when nothing is sewn on this half. */
+	public static WardrobePreview.Key previewKey(Chapter chapter, Wardrobe wardrobe, Piece piece, @Nullable UUID player) {
+		return WardrobePreview.shown(chapter, piece, shownPlacements(wardrobe, chapter, piece), player);
+	}
+
+	/** The title for a player: their own pack's generation decides which previews they can be shown. */
+	public static Component title(Chapter chapter, Wardrobe wardrobe, Piece piece, @Nullable UUID player) {
 		String stats = "earned " + earned(wardrobe) + " · sewn " + sewnCount(wardrobe, chapter, piece) + " · stash " + wardrobe.stashSize();
-		MutableComponent text = Component.literal(" " + chapter.name + " " + (piece == Piece.TOP ? "top" : "feet") + " · " + stats).withStyle(ChatFormatting.WHITE);
-		return Component.empty().append(WardrobeArt.backgroundGlyph(chapter)).append(text);
+		MutableComponent text = Component.literal(" " + chapter.name + " " + (piece == Piece.TOP ? "top" : "trousers") + " · " + stats).withStyle(ChatFormatting.WHITE);
+		return Component.empty()
+				.append(WardrobeArt.backgroundGlyph(chapter))
+				.append(WardrobePreview.glyph(previewKey(chapter, wardrobe, piece, player)))
+				.append(text);
+	}
+
+	/**
+	 * {@code [background glyph][preview glyph][stats text]}, per
+	 * {@code docs/superpowers/specs/2026-09-12-ovvar-wardrobe-screen-design.md} §3 and the paper
+	 * doll {@link WardrobePreview} adds to it. Both glyphs leave the cursor where they found it, so
+	 * the stats strip reads as ordinary text on the same line.
+	 */
+	public static Component title(Chapter chapter, Wardrobe wardrobe, Piece piece) {
+		return title(chapter, wardrobe, piece, null);
 	}
 
 	// ---- building the screen
@@ -204,7 +266,7 @@ public final class WardrobeGui extends SimpleGui {
 			return;
 		}
 		Wardrobe wardrobe = Wardrobes.current(player.getUUID());
-		setTitle(title(chapter, wardrobe, piece));
+		setTitle(title(chapter, wardrobe, piece, player.getUUID()));
 
 		buildTabs(player);
 		buildCollection(player, wardrobe);
@@ -298,19 +360,30 @@ public final class WardrobeGui extends SimpleGui {
 		}
 	}
 
-	/** Rows 1-4, cols 5-8: a hover-only item (no callback) at the slot nearest each sewn placement's spot. */
+	/**
+	 * Rows 1-4, cols 5-8: the paper doll is the title's second glyph, drawn behind these slots, so
+	 * every slot here carries nothing but a tooltip — an item with the {@code ovvar:invisible} model
+	 * (a transparent icon), no callback, at the slot nearest each sewn placement's spot.
+	 */
 	private void buildPreview(Wardrobe wardrobe) {
-		SpotPlacements sewn = wardrobe.design(chapter).flatMap(p -> p.forPiece(piece)).orElse(null);
-		if (sewn == null) return;
-		for (Placement placement : sewn.asPlacementList()) {
+		for (Placement placement : shownPlacements(wardrobe, chapter, piece)) {
 			int slot = previewSlot(placement.spot());
 			if (slot < 0) continue;
-			GuiElementBuilder element = GuiElementBuilder.from(new ItemStack(ModContent.patchItem(placement.patch())))
+			GuiElementBuilder element = GuiElementBuilder.from(invisible())
 					.setName(Component.literal(placement.patch().name()).withStyle(ChatFormatting.WHITE))
 					.addLoreLine(Component.literal(placement.patch().name() + " on " + placement.spot().label()).withStyle(ChatFormatting.GRAY));
 			setSlot(slot, element.build());
 		}
 	}
+
+	/** A stack that draws nothing: hover and it has a name and lore, look at it and the picture behind shows through. */
+	private static ItemStack invisible() {
+		ItemStack stack = new ItemStack(Items.PAPER);
+		stack.set(DataComponents.ITEM_MODEL, INVISIBLE_MODEL);
+		return stack;
+	}
+
+	private static final Identifier INVISIBLE_MODEL = ModContent.id("invisible");
 
 	private void buildActions(ServerPlayer player, Wardrobe wardrobe) {
 		boolean minigame = config().minigameServer();
@@ -336,7 +409,7 @@ public final class WardrobeGui extends SimpleGui {
 		ItemStack worn = player.getItemBySlot(EquipmentSlot.LEGS);
 		boolean canShow = !minigame && worn.getItem() instanceof OvveItem;
 		GuiElementBuilder mannequin = new GuiElementBuilder(Items.ARMOR_STAND)
-				.setName(Component.literal("Show on mannequin").withStyle(canShow ? ChatFormatting.AQUA : ChatFormatting.DARK_GRAY))
+				.setName(Component.literal("See it in 3D").withStyle(canShow ? ChatFormatting.AQUA : ChatFormatting.DARK_GRAY))
 				.addLoreLine(Component.literal(minigame ? "Not on this server" : worn.getItem() instanceof OvveItem
 						? "A mannequin wearing your ovve, in front of you" : "Wear an ovve first").withStyle(ChatFormatting.GRAY));
 		if (canShow) {

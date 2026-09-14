@@ -105,6 +105,10 @@ public final class GeneratedAssets implements DataProvider {
 		// The empty-slot silhouette is a GUI sprite, a different atlas than item textures, so copy it
 		// into one of ours for the icon to resolve.
 		png(assets.resolve("textures/item/empty_chest.png"), Vanilla.texture("gui/sprites/container/slot/chestplate"));
+		// A model that draws nothing at all: the wardrobe screen's preview slots must keep their
+		// tooltip (which patch is on which spot) while the paper doll behind them shows through, so
+		// their item wears this ovvar:invisible model instead of an icon.
+		item("invisible", Tex.blank(16, 16));
 		Tex icon = art("icon");
 		require(icon.width == 16 && icon.height == 16, "icon.png is not 16×16");
 

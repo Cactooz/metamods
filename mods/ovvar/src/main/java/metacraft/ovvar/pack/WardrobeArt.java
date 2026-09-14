@@ -77,6 +77,8 @@ public final class WardrobeArt {
 		for (Chapter chapter : Chapter.values()) {
 			builder.addData(TEXTURE_DIR + chapter.id + ".png", png(tint(template, colour(chapter))));
 		}
+		// The paper dolls first: the font lists a provider per preview the build actually wrote.
+		WardrobePreview.build(builder);
 		builder.addStringData(FONT_PATH, fontJson().toString());
 		Ovvar.LOGGER.info("[ovvar] wardrobe art: {} background(s), font {}", Chapter.values().length, FONT);
 	}
@@ -144,7 +146,10 @@ public final class WardrobeArt {
 		return out.toByteArray();
 	}
 
-	/** {@code assets/ovvar/font/wardrobe.json}: one {@code space} provider, one {@code bitmap} per chapter. */
+	/**
+	 * {@code assets/ovvar/font/wardrobe.json}: one {@code space} provider, one {@code bitmap} per
+	 * chapter background, then one per paper doll ({@link WardrobePreview#providers}).
+	 */
 	public static JsonObject fontJson() {
 		JsonObject root = new JsonObject();
 		JsonArray providers = new JsonArray();
@@ -154,6 +159,9 @@ public final class WardrobeArt {
 		JsonObject advances = new JsonObject();
 		advances.addProperty(String.valueOf(CORNER_CHAR), CORNER);
 		advances.addProperty(String.valueOf(RESET_CHAR), RESET);
+		// The preview panel: forward to its corner and back again, the same "abc" pattern one step along.
+		advances.addProperty(String.valueOf(WardrobePreview.FORWARD_CHAR), WardrobePreview.FORWARD);
+		advances.addProperty(String.valueOf(WardrobePreview.BACK_CHAR), WardrobePreview.BACK);
 		space.add("advances", advances);
 		providers.add(space);
 
@@ -168,6 +176,7 @@ public final class WardrobeArt {
 			bitmap.add("chars", chars);
 			providers.add(bitmap);
 		}
+		for (JsonObject preview : WardrobePreview.providers()) providers.add(preview);
 
 		root.add("providers", providers);
 		return root;

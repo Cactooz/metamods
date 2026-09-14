@@ -12,9 +12,13 @@ import java.util.List;
 import java.util.ArrayList;
 import java.util.Map;
 
-/** ARGB texture with the few operations the generator needs. Immutable; every op returns a copy. */
-final class Tex {
-	final int width, height;
+/**
+ * ARGB texture with the few operations the generator needs. Immutable; every op returns a copy.
+ * Public because the wardrobe screen's paper doll ({@link metacraft.ovvar.pack.WardrobePreview})
+ * composites the very textures datagen writes, with the very same operations.
+ */
+public final class Tex {
+	public final int width, height;
 	private final int[] argb;
 
 	private Tex(int width, int height, int[] argb) {
@@ -23,11 +27,11 @@ final class Tex {
 		this.argb = argb;
 	}
 
-	static Tex blank(int width, int height) {
+	public static Tex blank(int width, int height) {
 		return new Tex(width, height, new int[width * height]);
 	}
 
-	static Tex read(InputStream in) {
+	public static Tex read(InputStream in) {
 		try (in) {
 			BufferedImage img = ImageIO.read(in);
 			if (img == null) throw new IOException("not an image");
@@ -55,7 +59,7 @@ final class Tex {
 		}
 	}
 
-	byte[] png() {
+	public byte[] png() {
 		BufferedImage img = new BufferedImage(width, height, BufferedImage.TYPE_INT_ARGB);
 		img.setRGB(0, 0, width, height, argb, 0, width);
 		ByteArrayOutputStream out = new ByteArrayOutputStream();
@@ -67,19 +71,19 @@ final class Tex {
 		return out.toByteArray();
 	}
 
-	static int a(int p) { return (p >>> 24) & 0xFF; }
-	static int r(int p) { return (p >>> 16) & 0xFF; }
-	static int g(int p) { return (p >>> 8) & 0xFF; }
-	static int b(int p) { return p & 0xFF; }
+	public static int a(int p) { return (p >>> 24) & 0xFF; }
+	public static int r(int p) { return (p >>> 16) & 0xFF; }
+	public static int g(int p) { return (p >>> 8) & 0xFF; }
+	public static int b(int p) { return p & 0xFF; }
 	private static int clamp(int v) { return Math.max(0, Math.min(255, v)); }
 	private static int pack(int a, int r, int g, int b) { return (clamp(a) << 24) | (clamp(r) << 16) | (clamp(g) << 8) | clamp(b); }
 
-	int get(int x, int y) {
+	public int get(int x, int y) {
 		return argb[y * width + x];
 	}
 
 	/** Pixels of {@code src} at (sx, sy, w, h) copied onto a copy of this at (dx, dy); source alpha replaces, no blending. */
-	Tex blit(Tex src, int sx, int sy, int w, int h, int dx, int dy) {
+	public Tex blit(Tex src, int sx, int sy, int w, int h, int dx, int dy) {
 		if (sx + w > src.width || sy + h > src.height || dx + w > width || dy + h > height) {
 			throw new IllegalArgumentException("blit outside bounds: " + w + "x" + h + " from (" + sx + "," + sy + ") to (" + dx + "," + dy + ")");
 		}
@@ -95,14 +99,14 @@ final class Tex {
 
 
 	/** Copy with one texel replaced. */
-	Tex with(int x, int y, int argb) {
+	public Tex with(int x, int y, int argb) {
 		int[] out = this.argb.clone();
 		out[y * width + x] = argb;
 		return new Tex(width, height, out);
 	}
 
 	/** Copy with the rectangle (x, y, w, h) mirrored horizontally in place. */
-	Tex flipX(int x, int y, int w, int h) {
+	public Tex flipX(int x, int y, int w, int h) {
 		int[] out = argb.clone();
 		for (int yy = y; yy < y + h; yy++) {
 			for (int i = 0; i < w; i++) out[yy * width + x + i] = argb[yy * width + x + (w - 1 - i)];
@@ -111,19 +115,19 @@ final class Tex {
 	}
 
 	/** Copy with the whole image mirrored horizontally. */
-	Tex flipX() {
+	public Tex flipX() {
 		return flipX(0, 0, width, height);
 	}
 
 	/** Copy mirrored vertically. */
-	Tex flipY() {
+	public Tex flipY() {
 		int[] out = new int[argb.length];
 		for (int y = 0; y < height; y++) System.arraycopy(argb, (height - 1 - y) * width, out, y * width, width);
 		return new Tex(width, height, out);
 	}
 
 	/** Copy turned a quarter turn clockwise (something pointing right comes to point down). */
-	Tex rotated() {
+	public Tex rotated() {
 		int[] out = new int[argb.length];
 		for (int y = 0; y < height; y++) {
 			for (int x = 0; x < width; x++) out[x * height + (height - 1 - y)] = argb[y * width + x];
@@ -132,7 +136,7 @@ final class Tex {
 	}
 
 	/** {@code over} alpha-composited on top of this (same size). */
-	Tex composite(Tex over) {
+	public Tex composite(Tex over) {
 		if (over.width != width || over.height != height) throw new IllegalArgumentException("size mismatch");
 		int[] out = new int[argb.length];
 		for (int i = 0; i < argb.length; i++) {
@@ -152,7 +156,7 @@ final class Tex {
 	 * The website overlays mark "erase the skin here" with pure green. Armour has nothing to erase,
 	 * so those pixels become transparent. Matched loosely: a colour-managed PNG can decode 00FF00 as 01FE00.
 	 */
-	Tex withoutGreenKey() {
+	public Tex withoutGreenKey() {
 		int[] out = new int[argb.length];
 		for (int i = 0; i < argb.length; i++) {
 			int p = argb[i];
@@ -163,7 +167,7 @@ final class Tex {
 	}
 
 	/** Nearest-neighbour upscale by an integer factor. */
-	Tex scale(int factor) {
+	public Tex scale(int factor) {
 		int[] out = new int[argb.length * factor * factor];
 		int w = width * factor;
 		for (int y = 0; y < height * factor; y++) {
@@ -173,10 +177,35 @@ final class Tex {
 	}
 
 	/**
+	 * Nearest-neighbour resample to an exact size, for factors {@link #scale} cannot do: the paper
+	 * doll goes from the garment textures' 2 texels per skin pixel to 3 screen px per skin pixel,
+	 * a factor of 1.5, which keeps every patch texel the art has (a downscale to 1× would throw
+	 * half of them away) at the price of every other column being 2 px wide instead of 1.
+	 */
+	public Tex resampled(int w, int h) {
+		int[] out = new int[w * h];
+		for (int y = 0; y < h; y++) {
+			int sy = y * height / h;
+			for (int x = 0; x < w; x++) out[y * w + x] = argb[sy * width + x * width / w];
+		}
+		return new Tex(w, h, out);
+	}
+
+	/** The pixels, ARGB, row-major — a copy, for the few passes that are easier written on an array. */
+	public int[] pixels() {
+		return argb.clone();
+	}
+
+	public static Tex of(int width, int height, int[] argb) {
+		if (argb.length != width * height) throw new IllegalArgumentException("not " + width + "x" + height + " pixels");
+		return new Tex(width, height, argb.clone());
+	}
+
+	/**
 	 * Replace the hue/saturation of every visible pixel with {@code target}'s, keeping this pixel's
 	 * relative lightness. Turns the purple IT ovve into the silicon-blue one without repainting it.
 	 */
-	Tex tinted(int target) {
+	public Tex tinted(int target) {
 		float[] t = java.awt.Color.RGBtoHSB(r(target), g(target), b(target), null);
 		int[] out = new int[argb.length];
 		for (int i = 0; i < argb.length; i++) {
@@ -194,7 +223,7 @@ final class Tex {
 	}
 
 	/** Copy with every texel's HSB brightness multiplied by {@code factor} (clamped). */
-	Tex brightened(float factor) {
+	public Tex brightened(float factor) {
 		int[] out = new int[argb.length];
 		for (int i = 0; i < argb.length; i++) {
 			int p = argb[i];
@@ -207,41 +236,41 @@ final class Tex {
 	}
 
 	/** HSB brightness of a colour, 0–1. */
-	static float brightness(int rgb) {
+	public static float brightness(int rgb) {
 		return java.awt.Color.RGBtoHSB(r(rgb), g(rgb), b(rgb), null)[2];
 	}
 
 	/** Every distinct fully opaque colour (ARGB, alpha 255), in first-seen order. */
-	List<Integer> opaqueColours() {
+	public List<Integer> opaqueColours() {
 		List<Integer> out = new ArrayList<>();
 		for (int p : argb) if (a(p) == 255 && !out.contains(p)) out.add(p);
 		return out;
 	}
 
 	/** {@code a} mixed towards {@code b} by {@code t} (0 = a, 1 = b), alpha from {@code a}. */
-	static int mix(int a, int b, double t) {
+	public static int mix(int a, int b, double t) {
 		return pack(a(a), (int) Math.round(r(a) + (r(b) - r(a)) * t), (int) Math.round(g(a) + (g(b) - g(a)) * t), (int) Math.round(b(a) + (b(b) - b(a)) * t));
 	}
 
 	/** Most frequent opaque colour, for deriving a chapter's colour from its overlay. */
-	int dominant() {
+	public int dominant() {
 		Map<Integer, Integer> counts = new HashMap<>();
 		for (int p : argb) if (a(p) == 255) counts.merge(p & 0xFFFFFF, 1, Integer::sum);
 		return counts.entrySet().stream().max(Map.Entry.comparingByValue())
 				.orElseThrow(() -> new IllegalStateException("no opaque pixels")).getKey();
 	}
 
-	boolean isEmpty() {
+	public boolean isEmpty() {
 		return Arrays.stream(argb).allMatch(p -> a(p) == 0);
 	}
 
 	/** The rectangle (x, y, w, h) as its own texture. */
-	Tex crop(int x, int y, int w, int h) {
+	public Tex crop(int x, int y, int w, int h) {
 		return blank(w, h).blit(this, x, y, w, h, 0, 0);
 	}
 
 	/** This at the top of a texture {@code h} tall, transparent below (or this, if already that tall). */
-	Tex padBottom(int h) {
+	public Tex padBottom(int h) {
 		return h <= height ? this : blank(width, h).blit(this, 0, 0, width, height, 0, 0);
 	}
 
@@ -250,7 +279,7 @@ final class Tex {
 	 * one piece of cloth in every chapter's colour. (Unlike {@link #tinted}, which scales
 	 * saturation, this works on grey art too.)
 	 */
-	Tex colourised(int target) {
+	public Tex colourised(int target) {
 		float[] t = java.awt.Color.RGBtoHSB(r(target), g(target), b(target), null);
 		int[] out = new int[argb.length];
 		for (int i = 0; i < argb.length; i++) {
@@ -263,7 +292,7 @@ final class Tex {
 	}
 
 	/** Copy with a horizontal line of {@code argb} from (x, y), {@code length} px long. */
-	Tex line(int x, int y, int length, int argb) {
+	public Tex line(int x, int y, int length, int argb) {
 		int[] out = this.argb.clone();
 		for (int i = 0; i < length; i++) out[y * width + x + i] = argb;
 		return new Tex(width, height, out);
@@ -274,7 +303,7 @@ final class Tex {
 	 * right edge for the label arithmetic in SewingFont to hold. Copy with the bottom-right pixel
 	 * made just barely visible if the last column is empty.
 	 */
-	Tex reachingRightEdge() {
+	public Tex reachingRightEdge() {
 		for (int y = 0; y < height; y++) if (a(get(width - 1, y)) != 0) return this;
 		return with(width - 1, height - 1, 0x01000000);
 	}
@@ -284,7 +313,7 @@ final class Tex {
 	 * point) at (x, y) in {@code argb}, with the usual shadow. Only ASCII; the width is what the
 	 * client would measure. Returns the copy and its width via {@code widthOut[0]}.
 	 */
-	Tex stampText(Tex ascii, String text, int x, int y, int argb, boolean shadowed) {
+	public Tex stampText(Tex ascii, String text, int x, int y, int argb, boolean shadowed) {
 		Tex out = this;
 		int shadow = 0xFF000000 | ((r(argb) / 4) << 16) | ((g(argb) / 4) << 8) | (b(argb) / 4);
 		for (int pass = shadowed ? 0 : 1; pass < 2; pass++) {
@@ -308,7 +337,7 @@ final class Tex {
 	}
 
 	/** What {@link #stampText} advances by: the vanilla widths of {@code text}. */
-	static int textWidth(Tex ascii, String text) {
+	public static int textWidth(Tex ascii, String text) {
 		int w = 0;
 		for (char c : text.toCharArray()) {
 			if (c == ' ') { w += 4; continue; }

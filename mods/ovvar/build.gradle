@@ -51,6 +51,28 @@ tasks.register('patcherJar', Jar) {
 	manifest { attributes 'Main-Class': 'metacraft.ovvar.shaderpatcher.Patcher' }
 }
 
+// The game tests run inside a server: JAVA_TOOL_OPTIONS="-Dfabric-api.gametest=true" ./gradlew
+// :mods:ovvar:runServer. A dev server already running here holds ./run's world lock, so -PrunDir=<dir>
+// (absolute or relative) sends a test run to a world of its own instead of asking for that one back.
+loom {
+	runs {
+		server {
+			runDir = project.findProperty('runDir') ?: 'run'
+		}
+	}
+}
+
+// A dev tool: the wardrobe screen composited to a PNG (WardrobeSheet), so the paper doll can be
+// looked at without starting a client. Needs runDatagen to have run (it reads the generated
+// equipment textures off the runtime classpath).
+tasks.register('wardrobeSheet', JavaExec) {
+	group = 'ovvar'
+	description = 'Writes the wardrobe screen (background + paper doll + slot markers) to -Psheet=<path>.'
+	classpath = sourceSets.main.runtimeClasspath
+	mainClass = 'metacraft.ovvar.pack.WardrobeSheet'
+	args = [project.findProperty('sheet') ?: '/tmp/wardrobe_v2_sheet.png', project.findProperty('chapter') ?: 'data', project.findProperty('piece') ?: 'top']
+}
+
 processResources {
 	// The jar and its README ride along in the mod's resources (an implicit dependency on patcherJar).
 	from(tasks.named('patcherJar')) { into 'assets/ovvar/shaderpatcher' }

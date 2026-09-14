@@ -81,13 +81,27 @@ public final class EquipmentJson {
 		return new GsonBuilder().setPrettyPrinting().create().toJson(root);
 	}
 
-	public static String json(Chapter chapter, Piece piece, boolean nercabbad, List<Placement> placements) {
-		JsonArray layers = new JsonArray();
-		layers.add(layer(baseTexture(chapter, piece, nercabbad), false));
+	/**
+	 * The opaque layers of a half with a set of placements, bottom first, as {@code ovvar:}-prefixed
+	 * texture names: the chapter's cloth, then one texture per placement (two for the seat). The
+	 * dyeable preview layer, which only the shader draws, is not one of them. This is the whole of
+	 * "where a patch goes on the cloth"; {@link #json} turns it into the equipment definition a
+	 * client draws and {@link WardrobePreview} composites the same list into a picture server-side,
+	 * so the two can never disagree about a placement's texture or the order they stack in.
+	 */
+	public static List<String> layerTextures(Chapter chapter, Piece piece, boolean nercabbad, List<Placement> placements) {
+		List<String> out = new ArrayList<>();
+		out.add(baseTexture(chapter, piece, nercabbad));
 		for (Placement p : placements) {
 			if (p.piece() != piece) throw new IllegalArgumentException(p + " is not on the " + piece);
-			for (String t : textures(p)) layers.add(layer(Ovvar.MOD_ID + ":" + t, false));
+			for (String t : textures(p)) out.add(Ovvar.MOD_ID + ":" + t);
 		}
+		return out;
+	}
+
+	public static String json(Chapter chapter, Piece piece, boolean nercabbad, List<Placement> placements) {
+		JsonArray layers = new JsonArray();
+		for (String texture : layerTextures(chapter, piece, nercabbad, placements)) layers.add(layer(texture, false));
 		layers.add(layer(Ovvar.MOD_ID + ":" + previewTexture(piece), true));
 		JsonObject byType = new JsonObject();
 		byType.add(piece.layer, layers);

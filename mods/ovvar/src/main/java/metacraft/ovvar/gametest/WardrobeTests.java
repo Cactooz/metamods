@@ -20,7 +20,9 @@ import metacraft.ovvar.store.Wardrobe;
 import metacraft.ovvar.store.WardrobeBackend;
 import metacraft.ovvar.store.Wardrobes;
 import metacraft.ovvar.content.Piece;
+import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.pack.WardrobeArt;
+import metacraft.ovvar.pack.WardrobePreview;
 import metacraft.ovvar.sewing.WardrobeGui;
 import metacraft.ovvar.sewing.WardrobeMannequin;
 import metacraft.ovvar.sewing.StashSession;
@@ -694,14 +696,28 @@ public final class WardrobeTests {
 		if (advances.get("a").getAsInt() != -8 || advances.get("c").getAsInt() != -169) {
 			helper.fail("space advances are not {a: -8, c: -169}: " + advances);
 		}
-		int bitmaps = 0;
+		// And the pair that walks the cursor to the preview panel and back, leaving it where it was.
+		int forward = advances.get(String.valueOf(WardrobePreview.FORWARD_CHAR)).getAsInt();
+		int back = advances.get(String.valueOf(WardrobePreview.BACK_CHAR)).getAsInt();
+		if (forward + WardrobePreview.ADVANCE + back != 0) {
+			helper.fail("the preview's advances do not cancel out: " + forward + " + " + WardrobePreview.ADVANCE + " + " + back);
+		}
+		int backgrounds = 0, previews = 0;
 		for (JsonElement provider : font.getAsJsonArray("providers")) {
 			JsonObject o = provider.getAsJsonObject();
 			if (!o.get("type").getAsString().equals("bitmap")) continue;
-			bitmaps++;
-			if (o.get("height").getAsInt() != WardrobeArt.HEIGHT) helper.fail("bitmap provider height is not " + WardrobeArt.HEIGHT + ": " + o);
+			boolean preview = o.get("file").getAsString().contains("/preview/");
+			if (preview) {
+				previews++;
+				if (o.get("height").getAsInt() != WardrobePreview.HEIGHT) helper.fail("preview provider height is not " + WardrobePreview.HEIGHT + ": " + o);
+				if (o.get("ascent").getAsInt() != WardrobePreview.ASCENT) helper.fail("preview provider ascent is not " + WardrobePreview.ASCENT + ": " + o);
+			} else {
+				backgrounds++;
+				if (o.get("height").getAsInt() != WardrobeArt.HEIGHT) helper.fail("bitmap provider height is not " + WardrobeArt.HEIGHT + ": " + o);
+			}
 		}
-		if (bitmaps != Chapter.values().length) helper.fail("expected one background per chapter (" + Chapter.values().length + "), font has " + bitmaps);
+		if (backgrounds != Chapter.values().length) helper.fail("expected one background per chapter (" + Chapter.values().length + "), font has " + backgrounds);
+		if (previews != WardrobePreview.built().size()) helper.fail("the font lists " + previews + " previews, the pack holds " + WardrobePreview.built().size());
 
 		var template = WardrobeArt.readTemplate();
 		if (template.getWidth() != WardrobeArt.WIDTH || template.getHeight() != WardrobeArt.HEIGHT) {
@@ -714,6 +730,109 @@ public final class WardrobeTests {
 			}
 		}
 		helper.succeed();
+	}
+
+	// ---- the preview: a rendered picture of the player's own ovve
+
+	/**
+	 * Every paper doll is exactly the preview panel's glyph size, and the compositor puts a patch
+	 * where the layout says it does: a beer patch (8×8 texels, one cell exactly) sewn on the chest's
+	 * top left changes the pixels of that cell and of no other.
+	 */
+	@GameTest
+	public void wardrobePreviewDrawsEveryOvveAtTheGlyphSize(GameTestHelper helper) {
+		for (Chapter chapter : Chapter.values()) {
+			for (Piece piece : Piece.values()) {
+				var art = WardrobePreview.art(chapter, piece, List.of());
+				if (art.width != WardrobePreview.WIDTH || art.height != WardrobePreview.HEIGHT) {
+					helper.fail(chapter + " " + piece + " preview is " + art.width + "x" + art.height
+							+ ", wanted " + WardrobePreview.WIDTH + "x" + WardrobePreview.HEIGHT);
+				}
+			}
+		}
+		var bare = WardrobePreview.art(CHAPTER, Piece.TOP, List.of());
+		var sewn = WardrobePreview.art(CHAPTER, Piece.TOP, List.of(BEER));
+		if (sewn.width != WardrobePreview.WIDTH || sewn.height != WardrobePreview.HEIGHT) helper.fail("a sewn preview is not the glyph size");
+		int[] on = WardrobePreview.cellAt(BEER.spot());
+		int[] off = WardrobePreview.cellAt(Spot.FRONT_TOP_RIGHT);
+		if (on == null || off == null) helper.fail("the chest's top cells are not in the front view");
+		int middle = WardrobePreview.CELL / 2;
+		int sample = sewn.get(on[0] + middle, on[1] + middle);
+		if (sample == bare.get(on[0] + middle, on[1] + middle)) {
+			helper.fail("the beer patch did not change the chest's top left cell at (" + on[0] + "," + on[1] + ")");
+		}
+		if (sewn.get(off[0] + middle, off[1] + middle) != bare.get(off[0] + middle, off[1] + middle)) {
+			helper.fail("the beer patch changed the cell beside the one it was sewn on");
+		}
+		// The patch's own art, not the cloth: the beer patch is white foam over yellow beer, and the
+		// bare ovve is the chapter's one colour, so the sample is nothing the cloth could have been.
+		if (WardrobePreview.CELL != 12) helper.fail("a cell is " + WardrobePreview.CELL + " px, the sample positions assume 12");
+		helper.succeed();
+	}
+
+	/**
+	 * The previews ride the pack: the build the server does at startup writes one per chapter and
+	 * half, at the glyph's size, under {@code textures/wardrobe/preview/}; and asking for a
+	 * combination the pack does not hold — the very thing a sew does — gets that combination's
+	 * previews into the next build, after which the title carries the background glyph and this
+	 * combination's own preview glyph.
+	 */
+	@GameTest(maxTicks = 1200)
+	public void wardrobePreviewsRideThePackBuild(GameTestHelper helper) {
+		List<Placement> sewn = List.of(BEER);
+		WardrobePreview.Key key = WardrobePreview.key(CHAPTER, Piece.TOP, sewn);
+		Wardrobe wardrobe = Wardrobe.NONE.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElseThrow();
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		helper.startSequence()
+				.thenWaitUntil(() -> assertThat(!WardrobePreview.built().isEmpty(), "the resource pack was never built, so there is no preview art"))
+				.thenExecute(() -> {
+					for (Chapter chapter : Chapter.values()) {
+						for (Piece piece : Piece.values()) {
+							WardrobePreview.Key bare = new WardrobePreview.Key(chapter, piece, "");
+							if (!WardrobePreview.has(bare)) helper.fail("no bare preview in the pack for " + chapter + " " + piece);
+							int[] size = WardrobePreview.builtSizes().get(WardrobePreview.texturePath(bare));
+							if (size == null) helper.fail("no PNG in the pack at " + WardrobePreview.texturePath(bare));
+							else if (size[0] != WardrobePreview.WIDTH || size[1] != WardrobePreview.HEIGHT) {
+								helper.fail(WardrobePreview.texturePath(bare) + " is " + size[0] + "x" + size[1]);
+							}
+						}
+					}
+				})
+				// What a sew does (Looks.look -> Combos.request): ask the pack for the combination.
+				// Builds are batched behind a wall-clock deadline that a game test server ticks
+				// straight past, so the reload a player could ask for brings it forward to now.
+				.thenExecute(() -> {
+					Combos.request(Piece.TOP, Placement.combo(sewn), true);
+					Combos.reload(player);
+				})
+				// The art goes in while the pack is being written, the generation is counted once it
+				// is finished: the design is drawable when both have happened.
+				.thenWaitUntil(() -> assertThat(WardrobePreview.has(key) && Combos.isBuilt(Piece.TOP, Placement.combo(sewn), null),
+						"the preview for a newly asked-for combination never reached the pack"))
+				.thenExecute(() -> {
+					int[] size = WardrobePreview.builtSizes().get(WardrobePreview.texturePath(key));
+					if (size == null || size[0] != WardrobePreview.WIDTH || size[1] != WardrobePreview.HEIGHT) {
+						helper.fail("the combination's PNG is " + (size == null ? "missing" : size[0] + "x" + size[1]));
+					}
+					if (!WardrobePreview.texturePath(key).startsWith("assets/ovvar/textures/wardrobe/preview/")) {
+						helper.fail("the preview PNGs are not under textures/wardrobe/preview: " + WardrobePreview.texturePath(key));
+					}
+					// A player on the current pack: the title names the chapter's background and this design's doll.
+					if (!WardrobePreview.shown(CHAPTER, Piece.TOP, sewn, null).equals(key)) {
+						helper.fail("a player on the current pack is shown " + WardrobePreview.shown(CHAPTER, Piece.TOP, sewn, null) + ", wanted " + key);
+					}
+					String title = WardrobeGui.title(CHAPTER, wardrobe, Piece.TOP, null).getString();
+					if (title.indexOf(WardrobeArt.chapterChar(CHAPTER)) < 0) helper.fail("the title lost the background glyph");
+					if (title.indexOf(WardrobePreview.glyphChar(key)) < 0) {
+						helper.fail("the title does not carry the preview glyph U+" + Integer.toHexString(WardrobePreview.glyphChar(key)));
+					}
+					// And a combination nothing ever asked the pack for falls back to the bare ovve,
+					// never to a missing-glyph box.
+					WardrobePreview.Key unknown = WardrobePreview.shown(CHAPTER, Piece.BOTTOM,
+							List.of(new Placement(Spot.LEG_FRONT_MID_L, Patches.get("sittning"))), null);
+					if (!unknown.bare()) helper.fail("an unbuilt combination is shown as " + unknown + ", wanted the bare ovve");
+				})
+				.thenSucceed();
 	}
 
 	private static boolean isEmpty(WardrobeGui gui, int slot) {

@@ -146,11 +146,58 @@ row 4   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][
 row 5   [take out][deposit][sew hint][mannequin][finish][ · ][ · ][help][close]
 ```
 
+The right block is a **picture of the player's own ovve**, not a list of icons: `WardrobePreview`
+renders a paper doll of their garment into the resource pack and the title draws it there. A vanilla
+client cannot draw an entity inside a chest screen, so the doll is the humanoid model's front faces —
+each arm (4×12 skin px), the torso (8×12) and each leg (4×12) — cut out of the very equipment-layer
+textures the client draws the garment with, composited in the very order `EquipmentJson.layerTextures`
+lists them (which is also the order the equipment definition stacks them, so the two cannot disagree
+about where a patch goes), and laid out flat:
+
+```
+[arm][  torso  ][arm]      the top's front faces
+     [leg][leg]            the trousers' front faces
+```
+
+The whole figure is drawn whichever half is on show — `Spot` puts every `Piece.BOTTOM` cell on the
+legs, so no preview is ever missing a part — and the half on show is the one carrying the patches.
+The wearer's left limbs are the mirror images the armour model draws and a left cell's art is
+pre-mirrored in its own texture, so each side is composited from its own set of placements and the
+left one flipped back. The source textures hold 2 texels per skin px and the doll is drawn at 3 px
+per skin px, so each face is resampled ×1.5 (which keeps every texel the patch art has, at the price
+of every other column being 2 px wide), then: 1 px transparent gaps between the parts, the viewer's
+right 15% towards black and either arm 12% further (a limb is a box turning away from you), a seam
+at the waist, and a 1 px dark outline drawn *on* the silhouette's own outermost pixels so it costs no
+room. Without the gaps and the outline a front view of arms hanging at the sides is one flat slab of
+cloth and reads as a texture strip; with them it reads as a figure. There is no head: the garment's
+art has none.
+
+One 64×72 PNG per (chapter, half, combination) — exactly the preview panel, rows 1-4 and cols 5-8
+plus its 1 px border — written in the same pack build that writes that combination's equipment
+definition, off the same `Combos.known()` set, so a design's preview can never lag its equipment
+asset. Drawing it is the background's trick one step further along the title: a `space` pair walks
+the cursor to the panel's corner and back (`d`: +93, `e`: −158, which with the glyph's own advance of
+65 cancels out), and the vertical offset is the glyph's *negative* ascent — a bitmap glyph's top
+lands at `textY + 7 − ascent` and a container title is drawn at y 6, so an ascent of −22 pushes the
+glyph down into the panel. The codepoints are a private-use range, allocated in a fixed order (the
+bare garments first, then by combination id and chapter) and never reassigned, so a glyph in a pack
+a player already has keeps its meaning; the count is logged on every build. Past the 256-glyph
+budget, and for any combination the player's *own* pack does not hold yet (the same generation rule
+`Combos.isBuilt` applies to the garment itself), the screen falls back to the bare ovve rather than a
+missing-glyph box. A container's title only travels in the packet that opens it, so when a player's
+client loads a pack holding their newest design (`Combos.onPackLoaded`) their open wardrobe is
+opened again with the doll they were waiting for.
+
+The preview slots themselves therefore carry no icon at all: an item wearing the `ovvar:invisible`
+model (a transparent 16×16) with a name and one lore line, no click handler, at the slot nearest
+each sewn placement's spot — the picture shows through and all that is left of the slot is its
+"\<patch\> on \<spot\>" tooltip. `./gradlew :mods:ovvar:wardrobeSheet` composites the whole screen
+to a PNG (`WardrobeSheet`, a dev tool) so the doll can be looked at without starting a client.
+
 The left block (cols 0-4, rows 1-4) is the patch collection — the stash, one slot per kind, left
 and right click exactly as before (take out / start a session); a wardrobe with more than 20 kinds
-gives up the last slot to a "+N more" marker instead of a 21st kind. The right block (cols 5-8,
-rows 1-4) is the preview: a hover-only item (no click handler) at the slot nearest every sewn spot,
-`WardrobeGui.previewSlot`, so hovering shows "\<patch\> on \<spot\>". The mapping is hand-written
+gives up the last slot to a "+N more" marker instead of a 21st kind. Which slot of the right block a
+placement's tooltip sits on is `WardrobeGui.previewSlot`, and the mapping is hand-written
 in `WardrobeGui.PREVIEW_CELL`: a front view of the wearer, column 0 their left, column 3 their
 right, the two middle columns the body; several of the garment's 33 spots share a cell on
 purpose (16 preview slots is not enough for one each), so the last placement drawn to a cell wins
@@ -162,12 +209,13 @@ The container title carries the background: `WardrobeArt` tints the single greys
 (`art/ovvar/wardrobe_template.png`) to the chapter's colour and draws it as one `bitmap` glyph in
 the `ovvar:wardrobe` font, the same negative-space trick as the sewing dialog
 (`SewingFont`) and better-pets' `pet_gui` — a `space` provider moves the cursor to the corner,
-the glyph draws the whole 176×126 background, another space moves the cursor back so the ordinary
-stats text (`earned N · sewn N · stash N`, white) can follow on the same line. 176×126 is exactly
+the glyph draws the whole 176×126 background, another space moves the cursor back, the preview's own
+pair of spaces and glyph draw the paper doll and come back too, and the ordinary stats text
+(`earned N · sewn N · stash N`, white) follows on the same line. 176×126 is exactly
 the `GENERIC_9x6` container's own six 18px rows below its header (`18 + 18*6`), not a px more, so
 the glyph never paints opaque cloth or a stitch line over the player's own inventory below it.
 
-"Show on mannequin" (col 3) reuses the `/ovvar showcase` mannequin builder
+"See it in 3D" (col 3, once "Show on mannequin") reuses the `/ovvar showcase` mannequin builder
 (`ModCommands.buildMannequin`) through `WardrobeMannequin`, which adds the guardrails a
 gamemaster-only command does not need: refused outright on a minigame server; one per player (a
 second click discards the first, tracked by holding the entity, not by re-finding it in the
@@ -282,14 +330,18 @@ The file backend is fine for one server or a shared mount; a network of servers 
 `Start Server.command` runs an offline dev server on localhost with the pack auto-hosted;
 `Start Vanilla Client.command` launches a plain vanilla client that joins it. Give yourself an
 ovve with `/ovvar give data all` or from the Ovvar creative tab. `Run Tests.command` runs the
-game tests (`OvvarGameTests`): every cell aimed at on stands at rest, posed and turned, and the
+game tests — `JAVA_TOOL_OPTIONS="-Dfabric-api.gametest=true" ./gradlew :mods:ovvar:runServer`,
+with `-PrunDir=<dir>` when a dev server already holds `./run`'s world lock — (`OvvarGameTests`): every cell aimed at on stands at rest, posed and turned, and the
 sneak far-face rule, checked against `StandAim.cell`, the independent cell → point mapping; and
 the stitching minigame played through with the clicks its dialog sends (stale clicks ignored,
 sewn on the last pull, nothing sewn after cutting the thread). `WardrobeTests` runs the store
 (both backends, the compare-and-set cache, one patch in one place) and the ownership rules: a
 foreign ovve is refused by the equip checks and evicted by the tick, a stranger's sew and unpick
 change neither the store nor the ovve, the owner's own still work, `rebind` and `allow` still do
-what they say, and the MOTD names this server and its mode.
+what they say, and the MOTD names this server and its mode. It also runs the wardrobe screen: the
+title's glyphs and font, the tab row, every paper doll's size and the cell a patch lands on, that
+asking the pack for a combination gets its preview into the same build, and what each mode does to
+the action row.
 
 ## Adding a chapter
 
