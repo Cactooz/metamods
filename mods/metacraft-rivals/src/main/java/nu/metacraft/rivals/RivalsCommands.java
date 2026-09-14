@@ -208,15 +208,23 @@ public final class RivalsCommands {
 		return given;
 	}
 
+	/**
+	 * What is painted in this level. With arena bounds set the arena is swept for paint blocks rather than
+	 * read off the tracking, so paint that was standing before the last restart is counted too.
+	 */
 	private static int score(CommandSourceStack source) {
 		ServerLevel level = source.getLevel();
-		Map<PaintColor, Integer> counts = PaintTally.of(level).count(level);
+		Optional<BoundingBox> bounds = Arena.of(level).box();
+		Map<PaintColor, Integer> counts = bounds.map(box -> PaintTally.of(level).count(level, box))
+				.orElseGet(() -> PaintTally.of(level).count(level));
 		int total = 0;
 		for (int n : counts.values()) total += n;
 		// Per level, unlike the bossbars, which sum every level; name it so the two cannot be confused.
 		source.sendSuccess(() -> Component.literal("Paint in " + level.dimension().identifier() + ":"), false);
 		if (total == 0) {
-			source.sendSuccess(() -> Component.literal("Nothing painted"), false);
+			source.sendSuccess(() -> Component.literal(bounds.isPresent()
+					? "Nothing painted"
+					: "Nothing painted (no arena bounds: only paint placed since the server started is known)"), false);
 			return 0;
 		}
 		for (PaintColor color : PaintColor.values()) {
@@ -231,7 +239,9 @@ public final class RivalsCommands {
 	/**
 	 * Clear the paint. With arena bounds set this clears only what is inside them — between rounds the
 	 * arena is what wants wiping, and paint a player put on their own house outside it is not the reset's
-	 * business. With no bounds it is every cell the painter has touched in this level, as before.
+	 * business — and it sweeps the arena itself, so paint left standing by a restart goes with the rest.
+	 * With no bounds it is every cell the painter has touched in this level, as before, which after a
+	 * restart is nothing: the reply says so rather than leaving a game master to wonder.
 	 */
 	private static int reset(CommandSourceStack source) {
 		ServerLevel level = source.getLevel();
@@ -240,7 +250,8 @@ public final class RivalsCommands {
 				.orElseGet(() -> PaintTally.of(level).reset(level));
 		String where = box.isPresent() ? " inside the arena" : "";
 		if (removed == 0) {
-			source.sendSuccess(() -> Component.literal("Nothing painted" + where), false);
+			source.sendSuccess(() -> Component.literal("Nothing painted" + where + (box.isPresent() ? ""
+					: " (no arena bounds: only paint placed since the server started is known)")), false);
 		} else {
 			source.sendSuccess(() -> Component.literal("Removed " + removed + " paint blocks" + where)
 					.withStyle(ChatFormatting.YELLOW), true);

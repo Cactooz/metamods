@@ -371,7 +371,11 @@ dedicated Rivals server wants.
 
   While bounds are set, **paint outside them is refused** — `Painter.paintFace` and
   `PaintDisplays.paint`, so a paint block and a display quad are fenced in alike — and `/rivals reset`
-  clears only what is inside them, leaving whatever is painted outside the arena where it is. The test is
+  clears only what is inside them, leaving whatever is painted outside the arena where it is. Inside the
+  bounds it **sweeps the arena itself** rather than reading the tracking, so a restart cannot hide old
+  paint: it walks the chunk sections the box covers, skipping the ones whose palette holds no paint, and
+  loads any chunk in the box that is not loaded. (The tracking is memory only; before the sweep, a reset
+  after a restart answered "Nothing painted" and left thousands of paint blocks to be cleared by hand.) The test is
   on the **surface** block rather than on the cell the paint goes in: a wall standing on the box's own
   edge paints into the cell beyond it, and testing the cell would have left the arena's own boundary wall
   unpaintable from the inside. `show` is per viewer, the way every paint burst is, and its step grows with
@@ -707,7 +711,10 @@ dedicated Rivals server wants.
 - Score: bossbars show each colour's share of painted faces across all levels — paint blocks and
   surviving display quads alike — counted once a second from the cells the painter has touched (in
   memory; a restart forgets them). `/rivals score` counts only the level it is run in, and names
-  that level in its reply.
+  that level in its reply — and **with arena bounds set it sweeps the arena itself** for paint blocks
+  instead of trusting the tracking, so a score taken after a restart is honest about paint that was
+  already standing. Without bounds there is nothing to sweep but the whole level, so the reply says
+  that only paint placed since the server started is known.
 
 ## Play
 

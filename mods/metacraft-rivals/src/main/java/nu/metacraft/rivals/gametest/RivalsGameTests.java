@@ -424,6 +424,55 @@ public final class RivalsGameTests {
 		helper.succeed();
 	}
 
+	/**
+	 * Paint that nothing is tracking — the state a restart leaves, since the blocks are saved with the chunk
+	 * and the tally is memory only — is still found and removed when there are bounds to sweep. Before this,
+	 * {@code /rivals reset} after a restart answered "Nothing painted" over a painted arena and left it
+	 * standing, and {@code /rivals score} counted none of it.
+	 *
+	 * <p>The box is this test's own structure and nothing else, so the sweep cannot reach into a test
+	 * ticking beside it. Counts are read as deltas across the placement for the usual reason: {@code count}
+	 * folds in the whole level's display quads.
+	 */
+	@GameTest
+	public void resetSweepsTheArenaForUntrackedPaint(GameTestHelper helper) {
+		ServerLevel level = helper.getLevel();
+		BlockPos floor = new BlockPos(2, 1, 2);
+		BlockPos wall = new BlockPos(4, 1, 4);
+		helper.setBlock(floor, Blocks.STONE);
+		helper.setBlock(wall, Blocks.STONE);
+		BlockPos dataCell = helper.absolutePos(floor.above());
+		BlockPos itCell = helper.absolutePos(wall.above());
+		AABB area = helper.getBounds();
+		BoundingBox box = BoundingBox.fromCorners(
+				BlockPos.containing(area.minX, area.minY, area.minZ),
+				BlockPos.containing(area.maxX, area.maxY, area.maxZ));
+		PaintTally tally = new PaintTally();
+		Map<PaintColor, Integer> before = tally.count(level, box);
+		// Straight into the world, past the tally: the blocks are in the chunk and no cell is tracked, which
+		// is exactly what the server comes back up to.
+		level.setBlock(dataCell, PaintBlocks.connected(PaintColor.DATA).defaultBlockState()
+				.setValue(ConnectedPaintBlock.FACE, Direction.DOWN), Block.UPDATE_ALL);
+		level.setBlock(itCell, PaintBlocks.splat(PaintColor.IT).defaultBlockState()
+				.setValue(MultifaceBlock.getFaceProperty(Direction.DOWN), true), Block.UPDATE_ALL);
+		helper.assertValueEqual(tally.cells(), 0, "nothing is tracked, as after a restart");
+
+		// A score with bounds sweeps the arena, so it sees them.
+		Map<PaintColor, Integer> after = tally.count(level, box);
+		helper.assertValueEqual(after.get(PaintColor.DATA) - before.get(PaintColor.DATA), 1,
+				"the untracked DATA face is counted");
+		helper.assertValueEqual(after.get(PaintColor.IT) - before.get(PaintColor.IT), 1,
+				"and the untracked IT face too");
+		// And a reset with the same bounds takes them out and says how many.
+		int removed = tally.reset(level, box);
+		helper.assertValueEqual(removed, 2, "both untracked blocks were swept away");
+		helper.assertTrue(helper.getBlockState(floor.above()).isAir(), "the DATA cell is air");
+		helper.assertTrue(helper.getBlockState(wall.above()).isAir(), "and so is the IT cell");
+		Map<PaintColor, Integer> empty = tally.count(level, box);
+		helper.assertValueEqual(empty.get(PaintColor.DATA) - before.get(PaintColor.DATA), 0, "nothing left to count");
+		helper.succeed();
+	}
+
 	/** A vanilla block by its bare registry path, so a test can name one the Blocks fields only collect. */
 	private static Block vanilla(String path) {
 		Block block = BuiltInRegistries.BLOCK.getValue(Identifier.withDefaultNamespace(path));
