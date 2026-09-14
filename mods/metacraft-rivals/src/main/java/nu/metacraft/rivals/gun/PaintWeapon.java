@@ -344,41 +344,52 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	}
 
 	/**
-	 * The special, on F: a splat bomb, a slow lob that splashes a wide patch of paint where it lands and
-	 * hurts everyone from another team standing in it, for most of a tank and a four-second wait of its
-	 * own. Three of the four weapons throw one.
+	 * The special, on F: whichever of the three {@link Special}s the thrower picked, for that special's
+	 * own ink and its own wait. Three of the four weapons throw one, and all three throw the same one —
+	 * the special belongs to the player rather than to the gun, which is why it is picked in a screen of
+	 * its own and remembered in {@link SpecialChoice}.
 	 *
 	 * <p>The charger does not, and says so rather than doing nothing: its charge <em>is</em> its special,
-	 * it reads none of the {@code special_*} tuning ({@link WeaponTuning#applies}), and somebody pressing
-	 * F with one in hand has asked a fair question.
+	 * and somebody pressing F with one in hand has asked a fair question.
 	 */
 	public boolean special(ServerLevel level, Player player, ItemStack gun) {
+		return special(level, player, gun, Special.SPLAT_BOMB);
+	}
+
+	/**
+	 * The same, told which special to throw. Split out so the pick is one lookup in one place and
+	 * everything below it is about the throw — and so a test can name the special instead of arranging
+	 * for a player to have picked it.
+	 */
+	public boolean special(ServerLevel level, Player player, ItemStack gun, Special chosen) {
 		Optional<PaintColor> ready = ready(level, player, gun); // team, refill, squid
 		if (ready.isEmpty()) return false;
 		PaintColor color = ready.get();
-		WeaponTuning tuning = WeaponTuning.get(weapon);
 		if (weapon == Weapon.CHARGER) {
 			actionBar(player, Component.literal("The charger carries no bomb — left click fires the line")
 					.withStyle(ChatFormatting.GRAY));
 			return false;
 		}
+		SpecialTuning tuning = SpecialTuning.get(chosen);
 		long now = level.getServer().getTickCount();
-		int wait = tuning.intValue(Param.SPECIAL_COOLDOWN);
+		int wait = tuning.intValue(SpecialTuning.Param.COOLDOWN);
 		Long readyAt = SPECIAL_READY.get(player.getUUID());
 		if (readyAt != null && now < readyAt && readyAt - now <= wait) {
-			actionBar(player, Component.literal("Splat bomb in " + ((readyAt - now + 19) / 20) + "s")
+			// Named, because the wait is the special's own: a player who has picked the burst bomb should
+			// be told about a burst bomb, and what it costs them to have picked it is what they read here.
+			actionBar(player, Component.literal(chosen.displayName + " in " + ((readyAt - now + 19) / 20) + "s")
 					.withStyle(ChatFormatting.GRAY));
 			return false;
 		}
-		int cost = tuning.intValue(Param.SPECIAL_INK);
+		int cost = tuning.intValue(SpecialTuning.Param.INK);
 		if (Ink.get(gun) < cost) {
 			outOfInk(level, player, gun);
 			return false;
 		}
-		splatBomb(level, player, color, tuning);
-		// The bomb's own wait, not the weapon's: seventy ink of a hundred is not a shooter's shot, and
-		// Splatcraft gives splat_bomb.json an ink_recovery_cooldown of its own for exactly that reason.
-		spend(level, gun, cost, tuning.intValue(Param.SPECIAL_REFILL_DELAY));
+		throwSpecial(level, player, color, chosen, tuning);
+		// The special's own wait, not the weapon's: most of a tank out at once is not a shooter's shot,
+		// and Splatcraft gives every sub an ink_recovery_cooldown of its own for exactly that reason.
+		spend(level, gun, cost, tuning.intValue(SpecialTuning.Param.REFILL_DELAY));
 		SPECIAL_READY.put(player.getUUID(), now + wait);
 		if (player instanceof ServerPlayer serverPlayer) InkHud.show(serverPlayer);
 		return true;
@@ -392,19 +403,23 @@ public final class PaintWeapon extends Item implements PolymerItem {
 	}
 
 	/**
-	 * Lob the bomb: a big slow blob thrown above the crosshair, with the blast and the wide splat radius
-	 * on it, and no bounce — it is meant to land where it was aimed and go off there.
+	 * Throw the bomb: one blob carrying the special's blast, its splat radius and its own flight, and no
+	 * bounce — what a bomb does when it meets something is its {@link Special.Mode}'s business, not a
+	 * bounce's. The three differ only in these numbers and in that mode: a slow high lob that lands and
+	 * waits, a fast flat one that bursts on contact, or a low one thrown to reach the floor and slide.
 	 */
-	private void splatBomb(ServerLevel level, Player player, PaintColor color, WeaponTuning tuning) {
-		PaintBall bomb = new PaintBall(level, player, color, 0, tuning.intValue(Param.SPECIAL_LIFETIME));
+	private void throwSpecial(ServerLevel level, Player player, PaintColor color, Special chosen, SpecialTuning tuning) {
+		PaintBall bomb = new PaintBall(level, player, color, 0, tuning.intValue(SpecialTuning.Param.LIFETIME));
 		bomb.setWeapon(weapon);
-		bomb.setSplatRadius(tuning.intValue(Param.SPECIAL_RADIUS));
-		bomb.setDamage(tuning.floatValue(Param.SPECIAL_DAMAGE));
-		bomb.setGravity(tuning.value(Param.SPECIAL_GRAVITY));
-		bomb.setBlast(tuning.value(Param.SPECIAL_BLAST), tuning.floatValue(Param.SPECIAL_EDGE_DAMAGE), Weapon.SPECIAL_CORE);
-		bomb.setBlobScale(Weapon.SPECIAL_SCALE);
-		bomb.shootFromRotation(player, player.getXRot() + Weapon.SPECIAL_PITCH, player.getYRot(), 0.0f,
-				tuning.floatValue(Param.SPECIAL_VELOCITY), 0.0f);
+		bomb.setSpecial(chosen);
+		bomb.setSplatRadius(tuning.intValue(SpecialTuning.Param.RADIUS));
+		bomb.setDamage(tuning.floatValue(SpecialTuning.Param.DAMAGE));
+		bomb.setGravity(tuning.value(SpecialTuning.Param.GRAVITY));
+		bomb.setBlast(tuning.value(SpecialTuning.Param.BLAST), tuning.floatValue(SpecialTuning.Param.EDGE_DAMAGE),
+				tuning.value(SpecialTuning.Param.CORE));
+		bomb.setBlobScale(tuning.floatValue(SpecialTuning.Param.SCALE));
+		bomb.shootFromRotation(player, player.getXRot() + tuning.floatValue(SpecialTuning.Param.PITCH), player.getYRot(),
+				0.0f, tuning.floatValue(SpecialTuning.Param.VELOCITY), 0.0f);
 		level.addFreshEntity(bomb);
 		level.playSound(null, player.getX(), player.getY(), player.getZ(), SoundEvents.SNOWBALL_THROW,
 				SoundSource.PLAYERS, 0.9f, 0.5f);

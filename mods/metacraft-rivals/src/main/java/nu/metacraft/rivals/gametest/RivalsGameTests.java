@@ -97,6 +97,8 @@ import nu.metacraft.rivals.gun.Weapon;
 import nu.metacraft.rivals.gun.WeaponChoice;
 import nu.metacraft.rivals.gun.WeaponDialog;
 import nu.metacraft.rivals.gun.WeaponLock;
+import nu.metacraft.rivals.gun.Special;
+import nu.metacraft.rivals.gun.SpecialTuning;
 import nu.metacraft.rivals.gun.WeaponPicks;
 import nu.metacraft.rivals.gun.WeaponSelector;
 import nu.metacraft.rivals.gun.WeaponTuning;
@@ -3794,6 +3796,165 @@ public final class RivalsGameTests {
 	}
 
 	/**
+	 * The burst bomb is the opposite bargain: it goes off on the first thing it touches, so it is thrown
+	 * at a body rather than at a place. Aimed at a wall two blocks ahead it is gone within a couple of
+	 * ticks, with the paint on the face it struck rather than on the floor under it, and it never starts
+	 * a fuse at all.
+	 */
+	@GameTest(maxTicks = 40)
+	public void theBurstBombBurstsOnImpact(GameTestHelper helper) {
+		stoneFloor(helper, 7);
+		for (int y = 2; y <= 5; y++) {
+			for (int z = 1; z <= 5; z++) helper.setBlock(new BlockPos(5, y, z), Blocks.STONE);
+		}
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		ItemStack gun = player.getItemInHand(InteractionHand.MAIN_HAND);
+		Vec3 at = helper.absoluteVec(new Vec3(2.5, 2.0, 3.5));
+		player.setPos(at.x, at.y, at.z);
+		player.setYRot(-90.0f); // down the +x axis, into the wall
+		player.setXRot(0.0f);
+		helper.assertTrue(((PaintWeapon) gun.getItem()).special(helper.getLevel(), player, gun, Special.BURST_BOMB),
+				"the burst bomb is thrown");
+		helper.assertValueEqual(Ink.get(gun), Ink.MAX - Special.BURST_INK,
+				"for its own forty ink, not the splat bomb's seventy");
+		List<PaintBall> balls = helper.getEntities(PaintBall.TYPE, new BlockPos(3, 3, 3), 6.0);
+		helper.assertValueEqual(balls.size(), 1, "one bomb");
+		PaintBall bomb = balls.getFirst();
+		helper.assertTrue(bomb.isBomb(), "it is a bomb");
+		helper.assertValueEqual(bomb.special(), Special.BURST_BOMB, "and it knows which one");
+		helper.assertValueEqual(bomb.blast(), Special.BURST_BLAST, "the burst bomb's smaller blast");
+		// Well inside the splat bomb's fuse, which is the point: there is no wait on this one.
+		helper.runAfterDelay(8, () -> {
+			helper.assertTrue(bomb.isRemoved(), "it bursts on the wall rather than falling to the floor");
+			helper.assertValueEqual(bomb.fuse(), -1, "and never started a fuse");
+			int painted = 0;
+			for (int y = 2; y <= 5; y++) {
+				for (int z = 1; z <= 5; z++) {
+					if (isPaint(helper.getBlockState(new BlockPos(4, y, z)), PaintColor.DATA)) painted++;
+				}
+			}
+			helper.assertTrue(painted >= 1, "leaving paint on the face it struck, got " + painted);
+			helper.succeed();
+		});
+	}
+
+	/**
+	 * The curling bomb is thrown to cover ground: it slides along the floor painting a line under itself,
+	 * comes off walls instead of stopping in corners, and bursts at the end of the slide. Put onto the
+	 * floor here rather than thrown across the structure, because a slide is a dozen blocks long and the
+	 * test lives in eight; the throw itself is the special dialog's test.
+	 */
+	@GameTest(maxTicks = 100)
+	public void theCurlingBombSlidesAndPaintsALine(GameTestHelper helper) {
+		stoneFloor(helper, 7);
+		// A box, so a long slide stays inside an eight-block structure: it reflects off the walls.
+		for (int y = 2; y <= 3; y++) {
+			for (int i = 0; i <= 6; i++) {
+				helper.setBlock(new BlockPos(i, y, 0), Blocks.STONE);
+				helper.setBlock(new BlockPos(i, y, 6), Blocks.STONE);
+				helper.setBlock(new BlockPos(0, y, i), Blocks.STONE);
+				helper.setBlock(new BlockPos(6, y, i), Blocks.STONE);
+			}
+		}
+		ServerLevel level = helper.getLevel();
+		SpecialTuning tuning = SpecialTuning.get(Special.CURLING_BOMB);
+		PaintBall bomb = new PaintBall(level, null, PaintColor.DATA, 0, tuning.intValue(SpecialTuning.Param.LIFETIME));
+		bomb.setSpecial(Special.CURLING_BOMB);
+		bomb.setSplatRadius(tuning.intValue(SpecialTuning.Param.RADIUS));
+		bomb.setDamage(tuning.floatValue(SpecialTuning.Param.DAMAGE));
+		bomb.setGravity(tuning.value(SpecialTuning.Param.GRAVITY));
+		bomb.setBlast(tuning.value(SpecialTuning.Param.BLAST), tuning.floatValue(SpecialTuning.Param.EDGE_DAMAGE),
+				tuning.value(SpecialTuning.Param.CORE));
+		Vec3 at = helper.absoluteVec(new Vec3(1.5, 2.6, 3.5));
+		bomb.setPos(at.x, at.y, at.z);
+		bomb.setDeltaMovement(0.6, -0.1, 0.0); // thrown low, down the +x axis
+		level.addFreshEntity(bomb);
+		helper.assertValueEqual(bomb.slide(), -1, "it is not sliding yet: it has not found a floor");
+		helper.runAfterDelay(6, () -> {
+			helper.assertTrue(bomb.slide() > 0, "it landed and is sliding: " + bomb.slide());
+			helper.assertValueEqual(bomb.getDeltaMovement().y, 0.0, "flat on the floor, not falling");
+		});
+		// Mid-slide, before the burst adds its own 5x5: the line is the slide's own work.
+		helper.runAfterDelay(20, () -> {
+			helper.assertTrue(!bomb.isRemoved(), "it is still sliding at twenty ticks");
+			helper.assertTrue(lineCells(helper) >= 3, "painting a line as it goes, got " + lineCells(helper) + " cells");
+		});
+		helper.runAfterDelay(tuning.intValue(SpecialTuning.Param.SLIDE_TICKS) + 20, () -> {
+			helper.assertTrue(bomb.isRemoved(), "and it bursts at the end of the slide");
+			helper.assertTrue(lineCells(helper) >= 3, "leaving the line behind it");
+			helper.succeed();
+		});
+	}
+
+	/** Painted cells on the floor of the curling bomb's box, which is the line it left. */
+	private static int lineCells(GameTestHelper helper) {
+		int painted = 0;
+		for (int x = 1; x <= 5; x++) {
+			for (int z = 1; z <= 5; z++) {
+				if (isPaint(helper.getBlockState(new BlockPos(x, 2, z)), PaintColor.DATA)) painted++;
+			}
+		}
+		return painted;
+	}
+
+	/**
+	 * The specials have a tuning sheet of their own, keyed by special rather than by weapon: what F
+	 * throws belongs to the thrower, so a splat bomb is the same splat bomb out of a roller as out of a
+	 * shooter. Every default is inside its own range, the three columns are the numbers each special was
+	 * written with, and the two numbers only one special reads are offered to that one only.
+	 */
+	@GameTest
+	public void theSpecialsAreTuned(GameTestHelper helper) {
+		for (Special special : Special.values()) {
+			SpecialTuning tuning = SpecialTuning.get(special);
+			for (SpecialTuning.Param param : SpecialTuning.Param.values()) {
+				// A default outside its own bounds would be a number the command could never type back.
+				helper.assertTrue(param.holds(tuning.defaultValue(param)), special.commandId() + " " + param.id
+						+ " default " + tuning.defaultValue(param) + " is within " + param.range());
+			}
+			helper.assertValueEqual(Special.byId(special.commandId()).orElse(null), special,
+					special.commandId() + " answers to its own id");
+			helper.assertTrue(SpecialTuning.paramList(special).contains("ink"),
+					special.commandId() + " shows what it costs");
+		}
+		// The splat bomb's column is the numbers it has always had, in a new place.
+		SpecialTuning splat = SpecialTuning.get(Special.SPLAT_BOMB);
+		helper.assertValueEqual(splat.value("ink"), (double) Weapon.SPECIAL_INK, "the splat bomb's ink is unmoved");
+		helper.assertValueEqual(splat.value("cooldown"), (double) Weapon.SPECIAL_COOLDOWN, "and its wait");
+		helper.assertValueEqual(splat.value("refill_delay"), (double) Weapon.SPECIAL_REFILL_DELAY, "and its refill delay");
+		helper.assertValueEqual(splat.value("fuse"), (double) Weapon.SPECIAL_FUSE, "and its fuse");
+		helper.assertValueEqual(splat.value("blast"), Weapon.SPECIAL_BLAST, "and its blast");
+		helper.assertValueEqual(splat.value("damage"), (double) Weapon.SPECIAL_DAMAGE, "and its damage");
+		// And the two new columns are the cheaper, smaller bargains the table promises.
+		SpecialTuning burst = SpecialTuning.get(Special.BURST_BOMB);
+		helper.assertValueEqual(burst.value("ink"), (double) Special.BURST_INK, "the burst bomb costs forty");
+		helper.assertValueEqual(burst.value("cooldown"), (double) Special.BURST_COOLDOWN, "and waits two seconds");
+		helper.assertValueEqual(burst.value("damage"), (double) Special.BURST_DAMAGE, "25 at the centre");
+		helper.assertValueEqual(burst.value("edge_damage"), (double) Special.BURST_EDGE_DAMAGE, "down to 5");
+		helper.assertValueEqual(burst.value("blast"), Special.BURST_BLAST, "over two blocks");
+		SpecialTuning curling = SpecialTuning.get(Special.CURLING_BOMB);
+		helper.assertValueEqual(curling.value("ink"), (double) Special.CURLING_INK, "the curling bomb costs 55");
+		helper.assertValueEqual(curling.value("cooldown"), (double) Special.CURLING_COOLDOWN, "and waits 70 ticks");
+		helper.assertValueEqual(curling.value("slide_ticks"), (double) Special.CURLING_SLIDE_TICKS, "and slides 40");
+		// The two numbers only one special has: a burst bomb has no fuse, and nothing but the curling bomb slides.
+		helper.assertTrue(SpecialTuning.applies(Special.SPLAT_BOMB, SpecialTuning.Param.FUSE), "the splat bomb has a fuse");
+		helper.assertFalse(SpecialTuning.applies(Special.BURST_BOMB, SpecialTuning.Param.FUSE),
+				"the burst bomb has none: it is gone on contact");
+		helper.assertTrue(SpecialTuning.applies(Special.CURLING_BOMB, SpecialTuning.Param.SLIDE_TICKS),
+				"the curling bomb slides");
+		helper.assertFalse(SpecialTuning.applies(Special.SPLAT_BOMB, SpecialTuning.Param.FRICTION),
+				"and nothing else does");
+		// Moved and put back, which is what /rivals tune special does to it.
+		double was = curling.set(SpecialTuning.Param.SLIDE_TICKS, 12.0);
+		helper.assertValueEqual(was, (double) Special.CURLING_SLIDE_TICKS, "set reports what it was");
+		helper.assertValueEqual(curling.changed().size(), 1, "and the sheet knows one number has moved");
+		curling.reset();
+		helper.assertTrue(SpecialTuning.allDefault(), "reset puts it back");
+		helper.succeed();
+	}
+
+	/**
 	 * The shooter is a held-use weapon: the press starts using it and fires at once, and every tick the
 	 * button stays down goes through {@code onUseTick}, which fires again as soon as the item cooldown is
 	 * up. That is the whole point of the change — a vanilla client repeats a held right click only every
@@ -4868,12 +5029,12 @@ public final class RivalsGameTests {
 							weapon.commandId() + " must show and take " + shared.id + ": every weapon reads it");
 				}
 			}
-			// The splat bomb waits its own rather than the weapon it was thrown from — seventy ink of a
-			// hundred is not a shooter's shot — so the charger, which has no bomb, does not take it.
-			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("special_refill_delay"),
-					(double) Weapon.SPECIAL_REFILL_DELAY, "the bomb's own refill delay");
-			helper.assertFalse(WeaponTuning.applies(Weapon.CHARGER, Param.SPECIAL_REFILL_DELAY),
-					"the charger throws no bomb, so it has no bomb's wait to tune");
+			// The special's numbers are no longer a weapon's: what F throws is the thrower's own pick, so
+			// they live in SpecialTuning, keyed by special, and no weapon shows or takes one.
+			for (Param param : Param.values()) {
+				helper.assertFalse(param.id.startsWith("special_"),
+						"the special's numbers moved to /rivals tune special: " + param.id);
+			}
 			helper.assertValueEqual(WeaponTuning.get(Weapon.SHOOTER).value("splat_radius"), (double) Painter.RADIUS, "shooter splat radius");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("count"), (double) Weapon.ROLLER_FLICK_BALLS, "roller flick drops");
 			helper.assertValueEqual(WeaponTuning.get(Weapon.ROLLER).value("fan_yaw"), (double) Weapon.ROLLER_FAN_YAW, "roller flick fan");

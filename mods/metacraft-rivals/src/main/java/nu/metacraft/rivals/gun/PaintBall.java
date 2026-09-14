@@ -95,6 +95,17 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private static final double BOUNCE_LIFT = 0.05;
 	/** How much speed a landed bomb keeps off a face: enough to settle, not enough to travel. */
 	private static final double BOMB_RESTITUTION = 0.3;
+	/** How far above the floor a sliding curling bomb is held, so its own ray never strikes the floor. */
+	private static final double CURL_LIFT = 0.05;
+	/** Where the slide's floor probe starts, above the ball, and how far down it looks. */
+	private static final double CURL_PROBE = 0.1;
+	private static final double CURL_FLOOR_REACH = 1.5;
+	/** Below this horizontal speed a slide has stopped being one, and the bomb bursts where it lies. */
+	private static final double CURL_STOP = 0.02;
+	/** Grains of paint thrown off the slide each tick. */
+	private static final int CURL_PARTICLES = 2;
+	/** Grains thrown up by a blast. */
+	private static final int BLAST_PARTICLES = 24;
 	/**
 	 * What a bounce throws off by default: how many droplets, how long each lives, and how they leave.
 	 * These are the defaults {@link WeaponTuning} is built from; what a bounce actually throws is the
@@ -126,6 +137,14 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	private float decayedDamage = Weapon.SHOOTER.damage;
 	/** Ticks left of a landed bomb's fuse, or −1 for a bomb that has not landed (and for every other ball). */
 	private int fuse = -1;
+	/**
+	 * Which special this ball is, when it is one at all — read only while {@link #isBomb}, so an ordinary
+	 * shot carries the splat bomb here and never looks at it. {@link Special#mode} is the whole of what
+	 * this ball branches on: a fuse that counts down where it landed, a burst on contact, or a slide.
+	 */
+	private Special special = Special.SPLAT_BOMB;
+	/** Ticks left of a curling bomb's slide, or −1 for one that is not sliding (and for everything else). */
+	private int slide = -1;
 	/** The bomb's blast at its edge, and how far the edge is. */
 	private float edgeDamage = 0.0f;
 	private double core = Weapon.SPECIAL_CORE;
@@ -311,6 +330,25 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		return blast > 0;
 	}
 
+	/**
+	 * Which special this ball is. Only read while {@link #isBomb}; {@link PaintWeapon#special} sets it
+	 * along with the numbers off that special's {@link SpecialTuning}, and the ball comes back to the
+	 * sheet at the landing for the ones a landing needs — the fuse, the slide — so a bomb in the air
+	 * obeys today's numbers rather than the ones its thrower's tank was full of.
+	 */
+	public Special special() {
+		return special;
+	}
+
+	public void setSpecial(Special special) {
+		this.special = special;
+	}
+
+	/** Ticks left of a curling bomb's slide, or −1 when it is not sliding. For the tests. */
+	public int slide() {
+		return slide;
+	}
+
 	/** The holder carrying the blob display, or null before the first tick and after removal. */
 	public @Nullable ElementHolder blobHolder() {
 		return blob;
@@ -373,7 +411,10 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 			detonate(serverLevel, position());
 			return;
 		}
-		if (lifetime > 0 && age >= lifetime) expire(serverLevel);
+		if (slide >= 0 && !slideOn(serverLevel)) return;
+		// A slide that has started governs its own end: a curling bomb thrown down a long corridor must
+		// not be cut short by the lifetime, which is there for one that never finds a floor at all.
+		if (lifetime > 0 && age >= lifetime && slide < 0) expire(serverLevel);
 	}
 
 	/** The display that players actually see: a dyed blob model glued to this entity, gliding a tick behind. */
@@ -471,6 +512,65 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	}
 
 	/**
+	 * A curling bomb meeting a block: the floor is what it was thrown to find, and a wall is what it
+	 * comes off. Landing turns the throw into a slide — gravity off, the fall thrown away, the horizontal
+	 * speed kept — and a wall reflects that speed across the struck face, so a bomb down a corridor
+	 * carries on painting instead of stopping in a corner. A ceiling hit before the slide has started
+	 * reflects in full, because that one is still a throw.
+	 */
+	private void curl(ServerLevel level, BlockHitResult hit) {
+		Vec3 v = getDeltaMovement();
+		if (hit.getDirection() == Direction.UP) {
+			setPos(hit.getLocation().add(0, CURL_LIFT, 0));
+			setNoGravity(true);
+			setDeltaMovement(v.x, 0.0, v.z);
+			if (slide < 0) slide = Math.max(1, SpecialTuning.get(special).intValue(SpecialTuning.Param.SLIDE_TICKS));
+			level.playSound(null, getX(), getY(), getZ(), SoundEvents.SLIME_BLOCK_STEP, SoundSource.PLAYERS, 0.7f, 1.4f);
+			return;
+		}
+		Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getUnitVec3i());
+		Vec3 reflected = v.subtract(normal.scale(2 * v.dot(normal)));
+		setDeltaMovement(slide >= 0 ? new Vec3(reflected.x, 0.0, reflected.z) : reflected);
+		setPos(hit.getLocation().add(normal.scale(BOUNCE_LIFT)));
+		impact = IMPACT_HOLD + IMPACT_BLEND;
+		impactNormal = normal;
+		level.playSound(null, getX(), getY(), getZ(), SoundEvents.SLIME_BLOCK_STEP, SoundSource.PLAYERS, 0.6f, 1.1f);
+	}
+
+	/**
+	 * One tick of the slide: the cell under the bomb painted, the bomb set back down on whatever floor
+	 * that ray found, and its speed taken down by {@code friction}. The floor is found by a short ray
+	 * straight down rather than assumed to be the block below — the same thing the roller's roll does —
+	 * so a curling bomb goes down a stair and over a slab leaving its line on the surface it actually
+	 * crossed. Off the end of a floor it stops sliding and falls, and lands again wherever it lands.
+	 *
+	 * <p>Returns whether the ball is still there, so the tick loop can stop at a bomb that just burst.
+	 */
+	private boolean slideOn(ServerLevel level) {
+		Vec3 from = position().add(0, CURL_PROBE, 0);
+		BlockHitResult down = level.clip(new ClipContext(from, from.subtract(0, CURL_FLOOR_REACH, 0),
+				ClipContext.Block.COLLIDER, ClipContext.Fluid.NONE, this));
+		if (down.getType() != HitResult.Type.BLOCK) {
+			slide = -1;
+			setNoGravity(false);
+			return true;
+		}
+		Painter.paintFace(level, down.getBlockPos(), down.getDirection(), color);
+		Painter.burst(level, Painter.crumbs(color), position(), CURL_PARTICLES, 0.15, 0.05, 0.15, 0.02);
+		setPos(getX(), down.getLocation().y + CURL_LIFT, getZ());
+		Vec3 v = getDeltaMovement();
+		double friction = SpecialTuning.get(special).value(SpecialTuning.Param.FRICTION);
+		setDeltaMovement(v.x * friction, 0.0, v.z * friction);
+		// Out of slide, or down to a crawl: a bomb that has stopped moving has finished sliding, and
+		// waiting for the taper to reach zero would leave it sitting there for nothing.
+		if (--slide <= 0 || v.horizontalDistanceSqr() < CURL_STOP * CURL_STOP) {
+			detonate(level, position());
+			return false;
+		}
+		return true;
+	}
+
+	/**
 	 * The splat bomb going off: the paint where it lies, the bang, and a hit on everyone from another
 	 * team in the blast. Called when the fuse runs out and when the bomb's own lifetime does, because a
 	 * bomb that never finds a floor should still go off rather than vanish.
@@ -481,7 +581,23 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 		if (down.getType() == HitResult.Type.BLOCK) {
 			Painter.splash(level, down.getLocation(), down.getBlockPos(), down.getDirection(), color, random, splatRadius, this);
 		}
+		blast(level, at);
+	}
+
+	/**
+	 * The same, for a bomb that went off <em>on</em> a face rather than over a floor: the paint goes on
+	 * what it struck. That is what a burst bomb thrown at a wall has to do — the floor under the wall is
+	 * not where the player aimed — and it is the one thing the downward clip cannot say.
+	 */
+	private void detonateOn(ServerLevel level, BlockHitResult hit) {
+		Painter.splash(level, hit.getLocation(), hit.getBlockPos(), hit.getDirection(), color, random, splatRadius, this);
+		blast(level, hit.getLocation());
+	}
+
+	/** The bang: the blast, the grains it throws up, and the end of the ball. */
+	private void blast(ServerLevel level, Vec3 at) {
 		hurtNearby(level, at);
+		Painter.burst(level, Painter.crumbs(color), at, BLAST_PARTICLES, 0.4, 0.3, 0.4, 0.08);
 		discard();
 	}
 
@@ -524,14 +640,42 @@ public final class PaintBall extends Snowball implements PolymerEntity {
 	 */
 	@Override
 	protected void onHit(HitResult result) {
-		// A splat bomb is not a contact grenade. Splatoon's bounces where it is thrown and counts down on
-		// the ground, which is what makes it a thing you can run away from — and what makes throwing one
-		// at someone's feet a decision about where they will be in a second, not about where they are.
-		// Hitting a player does not arm it either; it rolls off them.
+		// What a bomb does with a hit is the whole of what separates the three specials, and it is this
+		// one branch: a burst bomb is gone on contact, a curling bomb takes the hit as a floor to slide
+		// along or a wall to come off, and a splat bomb — Splatoon's, and this module's since round 7 —
+		// is not a contact grenade at all. It bounces where it is thrown and counts down on the ground,
+		// which is what makes it a thing you can run away from, and what makes throwing one at someone's
+		// feet a decision about where they will be in a second rather than about where they are. Hitting
+		// a player does not arm that one either; it rolls off them.
 		if (isBomb() && level() instanceof ServerLevel bombLevel) {
+			if (special.mode == Special.Mode.IMPACT) {
+				if (result instanceof BlockHitResult hit && !hit.isWorldBorderHit()) {
+					super.onHitBlock(hit);
+					detonateOn(bombLevel, hit);
+					return;
+				}
+				if (result instanceof EntityHitResult) {
+					// On the body: the paint goes on the floor under it, the blast catches whoever else is
+					// standing there, and the one who was hit is inside the core of it.
+					detonate(bombLevel, position());
+					return;
+				}
+				super.onHit(result);
+				return;
+			}
+			if (special.mode == Special.Mode.CURL) {
+				if (result instanceof BlockHitResult hit && !hit.isWorldBorderHit()) {
+					super.onHitBlock(hit);
+					curl(bombLevel, hit);
+					return;
+				}
+				if (result instanceof EntityHitResult) return; // it slides past feet; the end of the slide decides
+				super.onHit(result);
+				return;
+			}
 			if (result instanceof BlockHitResult hit && !hit.isWorldBorderHit()) {
 				super.onHitBlock(hit);
-				land(WeaponTuning.get(weapon).intValue(WeaponTuning.Param.SPECIAL_FUSE));
+				land(SpecialTuning.get(special).intValue(SpecialTuning.Param.FUSE));
 				Vec3 normal = Vec3.atLowerCornerOf(hit.getDirection().getUnitVec3i());
 				Vec3 v = getDeltaMovement();
 				setDeltaMovement(v.subtract(normal.scale(2 * v.dot(normal))).scale(BOMB_RESTITUTION));

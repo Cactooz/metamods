@@ -132,28 +132,7 @@ public final class WeaponTuning {
 		 */
 		CHARGE_DAMAGE_MIN("charge_damage_min", 0.0, 40.0),
 		CHARGE_DAMAGE_PARTIAL("charge_damage_partial", 0.0, 40.0),
-		CHARGE_DAMAGE_FULL("charge_damage_full", 0.0, 40.0),
-		/** The splat bomb: ink one throw costs, and the wait between two of them. Rounded. */
-		SPECIAL_INK("special_ink", 0.0, 100.0),
-		SPECIAL_COOLDOWN("special_cooldown", 0.0, 600.0),
-		/**
-		 * The splat bomb's own post-throw wait before own paint refills the tank — the bomb's
-		 * {@code ink_recovery_cooldown} rather than the weapon it was thrown from, because seventy ink
-		 * out of a hundred wants a beat of its own before it starts coming back. Rounded.
-		 */
-		SPECIAL_REFILL_DELAY("special_refill_delay", 0.0, 200.0),
-		/** How far the bomb's splash reaches: 3 is 7×7. Rounded. */
-		SPECIAL_RADIUS("special_radius", 0.0, 6.0),
-		/** Hearts at the centre of the blast, at its edge, and how far the edge is. */
-		SPECIAL_DAMAGE("special_damage", 0.0, 40.0),
-		SPECIAL_EDGE_DAMAGE("special_edge_damage", 0.0, 40.0),
-		SPECIAL_BLAST("special_blast", 0.0, 16.0),
-		/** Ticks between the bomb landing and going off. Rounded. */
-		SPECIAL_FUSE("special_fuse", 0.0, 200.0),
-		/** How the bomb is thrown, and how long it lives if it hits nothing. */
-		SPECIAL_VELOCITY("special_velocity", 0.0, 10.0),
-		SPECIAL_GRAVITY("special_gravity", -1.0, 1.0),
-		SPECIAL_LIFETIME("special_lifetime", 1.0, 400.0);
+		CHARGE_DAMAGE_FULL("charge_damage_full", 0.0, 40.0);
 
 		/** What a player types and what the json is keyed by. */
 		public final String id;
@@ -215,16 +194,18 @@ public final class WeaponTuning {
 	private static final List<Param> EVERY_WEAPON = List.of(Param.INK, Param.COOLDOWN, Param.REFILL_DELAY, Param.KICK);
 
 	/**
-	 * Does this parameter mean anything for this weapon? The charger throws no ball and no splat bomb, so
-	 * none of those numbers reach it; nothing but the roller rolls, and nothing but the charger charges.
+	 * Does this parameter mean anything for this weapon? The charger throws no ball, so none of a ball's
+	 * numbers reach it; nothing but the roller rolls, and nothing but the charger charges.
 	 * {@link #EVERY_WEAPON} belongs to all four. Only used for what the commands offer and accept —
 	 * {@link #value} answers for any of them.
+	 *
+	 * <p>The special is not here at all any more: what F throws is the thrower's own pick rather than the
+	 * weapon's, so its numbers live in {@link SpecialTuning}, keyed by {@link Special}.
 	 */
 	public static boolean applies(Weapon weapon, Param param) {
 		boolean charge = CHARGE_ONLY.contains(param);
 		boolean roll = ROLL_ONLY.contains(param);
-		// The charger's list is a whitelist, so the splat bomb's parameters fall outside it by
-		// construction: it has no bomb, and its left click fires the line instead.
+		// The charger's list is a whitelist, so anything new falls outside it by construction.
 		if (weapon == Weapon.CHARGER) {
 			return charge || EVERY_WEAPON.contains(param);
 		}
@@ -311,17 +292,6 @@ public final class WeaponTuning {
 			values.put(Param.CHARGE_DAMAGE_MIN, (double) Weapon.CHARGE_BASE_DAMAGE);
 			values.put(Param.CHARGE_DAMAGE_PARTIAL, (double) Weapon.CHARGE_PARTIAL_DAMAGE);
 			values.put(Param.CHARGE_DAMAGE_FULL, (double) Weapon.CHARGE_FULL_DAMAGE);
-			values.put(Param.SPECIAL_INK, (double) Weapon.SPECIAL_INK);
-			values.put(Param.SPECIAL_COOLDOWN, (double) Weapon.SPECIAL_COOLDOWN);
-			values.put(Param.SPECIAL_REFILL_DELAY, (double) Weapon.SPECIAL_REFILL_DELAY);
-			values.put(Param.SPECIAL_RADIUS, (double) Weapon.SPECIAL_RADIUS);
-			values.put(Param.SPECIAL_DAMAGE, (double) Weapon.SPECIAL_DAMAGE);
-			values.put(Param.SPECIAL_EDGE_DAMAGE, (double) Weapon.SPECIAL_EDGE_DAMAGE);
-			values.put(Param.SPECIAL_BLAST, Weapon.SPECIAL_BLAST);
-			values.put(Param.SPECIAL_FUSE, (double) Weapon.SPECIAL_FUSE);
-			values.put(Param.SPECIAL_VELOCITY, (double) Weapon.SPECIAL_VELOCITY);
-			values.put(Param.SPECIAL_GRAVITY, Weapon.SPECIAL_GRAVITY);
-			values.put(Param.SPECIAL_LIFETIME, (double) Weapon.SPECIAL_LIFETIME);
 			switch (weapon) {
 				case SHOOTER -> {
 					values.put(Param.BOUNCES, (double) Weapon.SHOOTER_BOUNCES);

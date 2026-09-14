@@ -8,6 +8,7 @@ import nu.metacraft.rivals.gun.PaintBall;
 import nu.metacraft.rivals.gun.PaintWeapon;
 import nu.metacraft.rivals.gun.Recoil;
 import nu.metacraft.rivals.gun.Roll;
+import nu.metacraft.rivals.gun.SpecialTuning;
 import nu.metacraft.rivals.gun.WeaponSelector;
 import nu.metacraft.rivals.gun.WeaponTuning;
 import nu.metacraft.rivals.paint.PaintBlocks;
@@ -42,6 +43,7 @@ public class Rivals implements ModInitializer {
 		PaintWeapon.init();
 		Roll.init();
 		WeaponTuning.load();
+		SpecialTuning.load();
 		RivalsPack.init();
 		RivalsCommands.register();
 		ScoreBars.init();
