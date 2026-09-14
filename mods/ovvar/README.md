@@ -20,9 +20,11 @@ look is an equipment asset cut from the skin overlays on metacraft.se/style.
 
 Patches are items (`ovvar:patch_<id>`) and go on any 4×4-texel cell of the ovve (`Spot.java`: every
 face you see of the body, sleeves and legs — not the inner faces — keeping off the collar, the
-belt, the hands and the cuffs: 32 cells, plus a seat cell that takes a two-cell-wide 8×4 patch
-across it — the catalogue holds none at the moment). The catalogue is ITK and Nyckeln'26, both
-cell-sized, both drawn by Kexana (`Patches.java`). Sewing: put the ovve on
+belt, the hands and the cuffs: 32 cells, plus the seat, which takes a two-cell-wide 8×4 patch
+across it). The catalogue holds ITK, Nyckeln'26, METAcraft Rivals '26, IT and Data
+(`Patches.java`): ITK, IT and Data are 12×12 and hang over their neighbours (IT is a redraw of
+the PolymITer set's 16×16), Rivals is the seat patch — the two chapters' colours with a creeper
+and a VS either side of the cut — and Nyckeln'26 is Kexana's cell-sized 8×8. Sewing: put the ovve on
 an armour stand, hold a patch, look at the stand — the patch shows washed out on the cell you aim
 at (a ghosted sprite, see below), the action bar
 names it, right-click sews it on; sneak to aim at the far face of the part you look at
@@ -64,7 +66,8 @@ otherwise). The cell under the needle carries the click. Datagen builds the glyp
 `art/ovvar/sewing/`: `cloth.png` (22×22, recoloured in every chapter's colour), `needle.png`
 (26×9, pointing right; mirrored and turned for the other directions), `thread.png` (3×3),
 `stitch_in.png`, `stitch_out.png` and `hole.png` (5×5), `band.png` (154×22, the text is stamped
-on), plus each patch's art scaled up (4×4 at 20×, the seat patch at 12×). It also
+on), plus each patch's art scaled up whole to fit 96 px (an 8×8 at 12×, a 12×12 at 8×, the
+16×8 seat patch at 6×). It also
 traces each patch's outline from its opaque texels into `ovvar/outlines.json` (`Outline`), which
 `Seam` spreads the holes along at runtime. Replace the PNGs and `runDatagen`; the
 `sewingLabelsFitTheirButtons` game test checks every label of every seam still measures what the
@@ -311,5 +314,6 @@ MakeUp Ultra Fast, Solas, Photon, Super Duper Vanilla.
 
 ## Credits
 
-Patch art: ITK and Nyckeln'26 by Kexana. The ovve garment art is original to this mod, cut from
-the chapter skin overlays on metacraft.se/style.
+Patch art: Nyckeln'26 by Kexana; IT (a 12×12 redraw of the PolymITer set's patch), ITK,
+METAcraft Rivals '26 and Data by Froosty11 (the last three are placeholders until redrawn). The ovve garment art is original to this mod, cut from the chapter skin overlays on
+metacraft.se/style.

@@ -213,15 +213,27 @@ public final class OvvarGameTests {
 	public void stitchesScaleWithTheOutline(GameTestHelper helper) {
 		record Case(String patch, int base, int expected) {}
 		List<Case> cases = List.of(
-				new Case("itk", 6, 6),        // 8×8 square, 32 texels: the baseline
-				new Case("nyckeln", 6, 6),    // 30 texels: 5.625 rounds up
-				new Case("itk", 1, 1));       // never below one
+				new Case("itk", 6, 9),        // 12×12, 48 texels: 9 exactly
+				new Case("nyckeln", 6, 6),    // 8×8, 30 texels: 5.625 rounds up
+				new Case("rivals", 6, 9),     // the 16×8 seat patch, 50 texels: 9.375 rounds down
+				new Case("itk", 12, 16),      // 18 capped at the dialog's most
+				new Case("nyckeln", 1, 1));   // never below one
 		List<String> wrong = new ArrayList<>();
 		for (Case c : cases) {
 			int got = Seam.stitchesFor(Patches.get(c.patch), c.base);
 			if (got != c.expected) wrong.add(c.patch + " at base " + c.base + ": expected " + c.expected + ", got " + got);
 		}
 		if (!wrong.isEmpty()) helper.fail("stitch counts off: " + wrong);
+		// A game started on an oversize patch sews with the scaled count, and its dialog says so.
+		ArmorStand stand = stand(helper, 0, REST, REST, REST, REST);
+		stand.setItemSlot(EquipmentSlot.LEGS, new ItemStack(ModContent.ovve(Chapter.values()[0])));
+		ServerPlayer player = sewer(helper, stand);
+		Patches.Patch itk = Patches.get("itk");
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModContent.patchItem(itk)));
+		SewingGame.start(player, stand, new Placement(Spot.FRONT_TOP_LEFT, itk), itk);
+		String json = Dialog.DIRECT_CODEC.encodeStart(JsonOps.INSTANCE, SewingGame.dialog(player))
+				.getOrThrow(message -> new IllegalStateException("dialog does not encode: " + message)).toString();
+		if (!json.contains("Stitch 1 of " + Seam.stitchesFor(itk, OvvarConfig.get().stitches()))) helper.fail("the ITK dialog does not offer the scaled count: " + json);
 		helper.succeed();
 	}
 
