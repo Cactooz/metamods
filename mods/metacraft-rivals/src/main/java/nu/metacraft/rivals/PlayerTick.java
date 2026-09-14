@@ -55,7 +55,9 @@ import java.util.UUID;
  * instead of having it overwritten by the server's stale idea of where it was going.
  * The size and speed come from {@link SquidState}'s attribute modifiers rather than potion effects,
  * so they are exact and do not show up in the client's effect list; only invisibility is still a
- * potion effect, because there is no attribute for it. Entering squid form from a stand is a dive: a
+ * potion effect, because there is no attribute for it — and because it has a duration where the
+ * modifiers do not, it is taken off explicitly on the tick the form ends, so the player reappears with
+ * the Pirkko rather than up to three quarters of a second after it. Entering squid form from a stand is a dive: a
  * horizontal shove along the player's look direction and a quiet splash, gated by a short per-player
  * cooldown so it fires once per dive rather than every tick spent in the paint. A swimming squid
  * leaves a wake — a burst of ink at its feet every tick it is actually moving, a soft swim
@@ -70,6 +72,17 @@ import java.util.UUID;
  */
 public final class PlayerTick {
 	private static final int EFFECT_TICKS = 15;
+	/**
+	 * Invisibility's own, much shorter, duration.
+	 *
+	 * <p>It is the one effect whose lifetime anybody can see: the squid disappears the tick the form
+	 * ends, so any invisibility outliving the form is a player who is simply not there. {@link #exitForm}
+	 * takes it off on that tick, which is the fix; this is the belt to that braces, for the tick the
+	 * player is never given — a disconnect mid-jump, a crash, a tick the loop does not reach. Six ticks
+	 * refreshed at three is the shortest pair that still keeps {@link #keep} from re-adding the effect
+	 * (and vanilla from resending its packet) every single tick.
+	 */
+	private static final int INVISIBILITY_TICKS = 6;
 	/**
 	 * Standing in your own ink refills the tank, at Splatoon 1's own rates on a 100-unit tank: ten
 	 * seconds on your feet, three as a squid ({@code InkTankItem.inventoryTick} gives 0.5 and 1.667 a
@@ -162,8 +175,9 @@ public final class PlayerTick {
 		// would ever take the state off them: the UUID would stay in the squid set, and a rejoin would
 		// report a squid whose attributes died with the old entity. Same tidy-up the spectator branch does.
 		ServerPlayConnectionEvents.DISCONNECT.register((handler, server) -> {
-			SquidState.exit(handler.getPlayer());
-			SquidDisplay.hide(handler.getPlayer());
+			// Including the invisibility: a potion effect is saved with the player, so a logout mid-swim
+			// that left it on would have them rejoin invisible for the rest of its duration.
+			exitForm(handler.getPlayer());
 			SquidState.clearEnemyInk(handler.getPlayer());
 			LAST_DIVE.remove(handler.getPlayer().getUUID());
 			LAST_POS.remove(handler.getPlayer().getUUID());
@@ -250,22 +264,49 @@ public final class PlayerTick {
 	}
 
 	/**
-	 * Refresh {@code effect} to its full duration only when it is missing, weaker, or running low;
+	 * Refresh {@code effect} to {@code ticks} only when it is missing, weaker, or run below half of them;
 	 * re-adding it every tick regardless would make vanilla resend the effect packet every tick.
+	 *
+	 * <p>Ambient and invisible, which is also how {@link #exitForm} recognises the effects as ours: a
+	 * player who drank an invisibility potion and then went for a swim keeps their potion when the swim
+	 * ends, because a brewed one is not ambient.
 	 */
-	private static void keep(Player player, Holder<MobEffect> effect, int amplifier) {
+	private static void keep(Player player, Holder<MobEffect> effect, int amplifier, int ticks) {
 		MobEffectInstance current = player.getEffect(effect);
-		if (current == null || current.getAmplifier() < amplifier || current.getDuration() < EFFECT_TICKS / 2) {
-			player.addEffect(new MobEffectInstance(effect, EFFECT_TICKS, amplifier, true, false, false));
+		if (current == null || current.getAmplifier() < amplifier || current.getDuration() < ticks / 2) {
+			player.addEffect(new MobEffectInstance(effect, ticks, amplifier, true, false, false));
 		}
+	}
+
+	/**
+	 * Stop being a squid: the attribute modifiers, the Pirkko everyone else was watching, and the
+	 * invisibility that only the form ever asked for — all on the one tick.
+	 *
+	 * <p>The invisibility is the point. Squid form's size and speed are attribute modifiers, taken off
+	 * the instant the form ends, but invisibility has no attribute and so it is a potion effect with a
+	 * duration; {@link SquidState#exit} never touched it, and {@link #keep} had left it at up to fifteen
+	 * ticks. So the figure vanished and the player stayed invisible for up to three quarters of a second
+	 * after — not a squid and not a player, just a hole in the floor, which is the one thing squid form
+	 * must not leave behind. Now the effect ends with the form.
+	 *
+	 * <p>Only if it is ours: {@link #keep} adds it ambient, and nothing brewed is. Safe to call for a
+	 * player who is not a squid, which is what every path here does — the {@code wasSquid} check is only
+	 * so a player who is not one is not made to pay for an effect lookup every tick.
+	 */
+	private static void exitForm(Player player) {
+		boolean wasSquid = SquidState.isSquid(player);
+		SquidState.exit(player);
+		SquidDisplay.hide(player);
+		if (!wasSquid) return;
+		MobEffectInstance invisibility = player.getEffect(MobEffects.INVISIBILITY);
+		if (invisibility != null && invisibility.isAmbient()) player.removeEffect(MobEffects.INVISIBILITY);
 	}
 
 	public static void tick(Player player, long now) {
 		// A spectator flies through the paint blocks they are standing in; giving them squid form,
 		// slowness or damage for it is noise, and their gun (if any) is not usable anyway.
 		if (player.isSpectator()) {
-			SquidState.exit(player);
-			SquidDisplay.hide(player);
+			exitForm(player);
 			SquidState.clearEnemyInk(player);
 			InkOnScreen.clear(player);
 			LAST_POS.remove(player.getUUID());
@@ -298,7 +339,7 @@ public final class PlayerTick {
 		if (squid) {
 			SquidState.enter(player);
 			if (!wasSquid) diveSurge(player, now);
-			keep(player, MobEffects.INVISIBILITY, 0);
+			keep(player, MobEffects.INVISIBILITY, 0, INVISIBILITY_TICKS);
 			// How far the player actually moved since last tick. Measured, not read off
 			// getDeltaMovement(): for a real player the server's delta is not the client's motion, and
 			// both the wake and the climb packet are built from this.
@@ -330,12 +371,11 @@ public final class PlayerTick {
 				SquidState.clearCling(player);
 			}
 		} else {
-			SquidState.exit(player);
-			SquidDisplay.hide(player);
+			exitForm(player);
 			LAST_POS.remove(player.getUUID());
 		}
 		if (inEnemy) {
-			keep(player, MobEffects.SLOWNESS, 1);
+			keep(player, MobEffects.SLOWNESS, 1, EFFECT_TICKS);
 			SquidState.applyEnemyInk(player);
 			// Wading through it splashes it up the visor: not more ink — how much there is is how much
 			// health is gone — but this team's ink, which is what the visor is coloured with.

@@ -678,8 +678,13 @@ dedicated Rivals server wants.
   cosmetic buff: half size, +80% movement speed with the vanilla sneak penalty lifted (net faster
   than sprinting), a big ~2.5-block hop with a floatier fall and no fall damage from it, and a
   taller step (seven attribute modifiers, not potion effects, so they're exact and don't show up
-  in the client's effect list), plus vanilla invisibility — all reapplied every tick so they fade
-  within a second of leaving the paint or standing back up — and the gun refuses to fire while
+  in the client's effect list), plus vanilla invisibility — **which now ends on the same tick the
+  form does**: the modifiers come off the instant it ends, but invisibility has no attribute, so it
+  is a potion effect with a duration, and the old fifteen ticks left you invisible for up to three
+  quarters of a second after Pirkko had already gone — neither squid nor player, just a hole in the
+  floor. It is taken off explicitly on the way out now (only if it is ours: a brewed invisibility is
+  not ambient and is left alone), and the duration is down to six ticks refreshed at three, so even a
+  tick the loop never reaches can only leave a few ticks of it — and the gun refuses to fire while
   it's active. Diving into squid form from a stand gives a snappy horizontal surge and a quiet
   splash. Squid form also holds beside a wall face painted in your own colour even with no paint
   underfoot, so a climb off the floor paint doesn't drop you mid-wall: pushing into that wall

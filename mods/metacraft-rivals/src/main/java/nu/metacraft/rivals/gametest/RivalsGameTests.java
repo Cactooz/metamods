@@ -3417,6 +3417,69 @@ public final class RivalsGameTests {
 	}
 
 	/**
+	 * The invisibility ends with the form, on the same tick. Squid form's size and speed are attribute
+	 * modifiers and come off the instant it ends, but invisibility has no attribute, so it is a potion
+	 * effect with a duration — and the user's report was the gap that left: the Pirkko vanished and the
+	 * player stayed invisible for up to three quarters of a second after, neither squid nor player, just a
+	 * hole in the floor. Both ways out are checked, standing up and running out of ink, and so is the one
+	 * invisibility that must survive: a brewed one, which is not ambient and was never ours to take.
+	 */
+	@GameTest
+	public void squidFormTakesItsInvisibilityWithIt(GameTestHelper helper) {
+		stoneFloor(helper, 5); // floor at y=1
+		Player player = gunner(helper);
+		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
+		Painter.paintFace(helper.getLevel(), helper.absolutePos(new BlockPos(4, 1, 4)), Direction.UP, PaintColor.DATA);
+		Vec3 inTheInk = helper.absoluteVec(new Vec3(4.5, 2.0, 4.5));
+		player.setPos(inTheInk.x, inTheInk.y, inTheInk.z);
+		helper.getLevel().addFreshEntity(player); // a display rides an entity the level knows about
+		player.setShiftKeyDown(true);
+		PlayerTick.tick(player, 0);
+		helper.assertTrue(PlayerTick.isSquid(player), "squid form on");
+		MobEffectInstance invisibility = player.getEffect(MobEffects.INVISIBILITY);
+		helper.assertTrue(invisibility != null, "and invisible with it");
+		// Short enough that even a tick the loop never reaches cannot leave much of it: it used to be 15,
+		// which is the three quarters of a second the user saw.
+		helper.assertTrue(invisibility.getDuration() <= 6,
+				"for a handful of ticks, not most of a second, got " + invisibility.getDuration());
+		helper.assertTrue(invisibility.isAmbient() && !invisibility.isVisible(),
+				"ambient and quiet, which is how the exit tells ours from a brewed one");
+		helper.assertTrue(SquidDisplay.holderOf(player) != null, "and a Pirkko riding the player");
+		// Standing back up. On the very next tick: no form, no figure, no invisibility.
+		player.setShiftKeyDown(false);
+		PlayerTick.tick(player, 1);
+		helper.assertTrue(!PlayerTick.isSquid(player), "standing up ends the form on the next tick");
+		helper.assertTrue(SquidDisplay.holderOf(player) == null, "and the Pirkko goes with it");
+		helper.assertTrue(!player.hasEffect(MobEffects.INVISIBILITY),
+				"and so does the invisibility, on that same tick");
+		// The other way out: still shifting, but the ink is gone and the grace has run out.
+		player.setShiftKeyDown(true);
+		PlayerTick.tick(player, 2);
+		helper.assertTrue(PlayerTick.isSquid(player) && player.hasEffect(MobEffects.INVISIBILITY), "a squid again");
+		Vec3 high = helper.absoluteVec(new Vec3(4.5, 7.0, 4.5)); // out of reach of the ink below
+		player.setPos(high.x, high.y, high.z);
+		PlayerTick.tick(player, 20); // past SQUID_GRACE
+		helper.assertTrue(!PlayerTick.isSquid(player), "out of ink, out of the form");
+		helper.assertTrue(SquidDisplay.holderOf(player) == null, "no figure left over");
+		helper.assertTrue(!player.hasEffect(MobEffects.INVISIBILITY), "and no invisibility left over either");
+		// A potion, though, is the player's own. keep() leaves a longer one alone on the way in, and the
+		// exit must leave it alone on the way out: it is not ambient, so it was never squid form's.
+		player.setPos(inTheInk.x, inTheInk.y, inTheInk.z);
+		player.addEffect(new MobEffectInstance(MobEffects.INVISIBILITY, 600, 0, false, true, true));
+		PlayerTick.tick(player, 21);
+		helper.assertTrue(PlayerTick.isSquid(player), "a squid with a potion on");
+		player.setShiftKeyDown(false);
+		PlayerTick.tick(player, 22);
+		helper.assertTrue(!PlayerTick.isSquid(player), "the form ends");
+		MobEffectInstance brewed = player.getEffect(MobEffects.INVISIBILITY);
+		helper.assertTrue(brewed != null && !brewed.isAmbient() && brewed.getDuration() > 6,
+				"but a brewed invisibility is the player's own and stays: " + brewed);
+		player.removeEffect(MobEffects.INVISIBILITY);
+		player.discard();
+		helper.succeed();
+	}
+
+	/**
 	 * Squid form holds over the ink, not only in it. A jump or a ledge takes the paint out from under a
 	 * squid's feet for a few ticks, and dropping the form (with the invisibility) for that is what the
 	 * user saw as "you go out of invisibility because you were away from ink too long". Ink anywhere in
