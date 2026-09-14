@@ -158,8 +158,10 @@ public final class GeneratedAssets implements DataProvider {
 				Tex art = arts.get(patch.id());
 				String dir = "textures/entity/equipment/" + spot.piece.layer + "/";
 				if (spot == Spot.SEAT) {
-					Tex r = Tex.blank(W, H).blit(art, 0, 0, Spot.PX, Spot.PX, spot.u * D, spot.v * D);
-					Tex l = Tex.blank(W, H).blit(art, Spot.PX, 0, Spot.PX, Spot.PX, spot.u * D, spot.v * D).flipX(spot.u * D, spot.v * D, Spot.PX, Spot.PX);
+					// The art is drawn as seen from behind, so its left half sits on the wearer's LEFT leg
+					// (the viewer's left when looking at the seat) and the right half on the right leg.
+					Tex r = Tex.blank(W, H).blit(art, Spot.PX, 0, Spot.PX, Spot.PX, spot.u * D, spot.v * D);
+					Tex l = Tex.blank(W, H).blit(art, 0, 0, Spot.PX, Spot.PX, spot.u * D, spot.v * D).flipX(spot.u * D, spot.v * D, Spot.PX, Spot.PX);
 					png(assets.resolve(dir + "patch/seat/" + patch.id() + "_r.png"), sided(r, spot, Spot.Side.RIGHT));
 					png(assets.resolve(dir + "patch/seat/" + patch.id() + "_l.png"), sided(l, spot, Spot.Side.LEFT));
 					placementTextures += 2;

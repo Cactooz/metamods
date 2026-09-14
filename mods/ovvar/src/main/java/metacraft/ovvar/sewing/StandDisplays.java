@@ -216,8 +216,9 @@ public final class StandDisplays {
 			at = new StandAim.CellPoint(r.centre().add(l.centre()).scale(0.5), r.normal().add(l.normal()).normalize(), r.up().add(l.up()).normalize());
 			spot = Spot.LEG_BACK_TOP_R;
 		} else {
-			// The seat bent: one half on each leg's back face, centred on that cell like any patch.
-			if (spot == Spot.SEAT) spot = piece.x0() == 0 ? Spot.LEG_BACK_TOP_R : Spot.LEG_BACK_TOP_L;
+			// The seat bent: one half on each leg's back face, centred on that cell like any patch. The
+			// art is seen from behind, so its left half is the wearer's left leg.
+			if (spot == Spot.SEAT) spot = piece.x0() == 0 ? Spot.LEG_BACK_TOP_L : Spot.LEG_BACK_TOP_R;
 			at = StandAim.cell(stand, spot);
 		}
 		double inflate = Spot.inflate(spot.piece), a = Spot.pixel(spot.u, inflate) / 2;   // sixteenths per art pixel
