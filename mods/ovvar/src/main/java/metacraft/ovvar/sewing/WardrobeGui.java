@@ -405,6 +405,10 @@ public final class WardrobeGui extends SimpleGui {
 					.setName(Component.literal(patch.name()).withStyle(ChatFormatting.WHITE))
 					.addLoreLine(Component.literal(count + " in the stash").withStyle(ChatFormatting.GRAY))
 					.addLoreLine(Component.literal(patch.seat() ? "Goes across the seat" : "Goes anywhere on an ovve").withStyle(ChatFormatting.DARK_GRAY));
+			// Whoever drew it, credited here as well as on the item itself (PatchItem): the stash is
+			// where a player looks at their patches, and the screen that replaced StashGui owes the
+			// credit that one carried.
+			if (patch.artist() != null) element.addLoreLine(Component.literal("Art by " + patch.artist()).withStyle(ChatFormatting.GRAY));
 			String take = "take one out (sew it on a stand, or trade it)", sew = "sew it on your ovve here";
 			if (canTake) element.addLoreLine(Component.literal((leftTakes ? "Left" : "Right") + "-click: " + take).withStyle(ChatFormatting.YELLOW));
 			if (canSew) element.addLoreLine(Component.literal((leftTakes ? "Right" : "Left") + "-click: " + sew).withStyle(ChatFormatting.YELLOW));

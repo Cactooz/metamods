@@ -70,8 +70,10 @@ public final class WardrobeArt {
 
 	public static void init() {
 		// Touching the class registers its glyphs (the bare ovvar from four sides, and every patch
-		// on every cell it can be seen on) with WardrobeFont, well before any pack is built.
-		WardrobePreview.init();
+		// on every cell it can be seen on) with WardrobeFont, well before any pack is built. Not
+		// during datagen: those glyphs are composited out of the very equipment textures datagen is
+		// about to write, so the class cannot be initialised before the run that writes them.
+		if (!Ovvar.DATAGEN) WardrobePreview.init();
 		PolymerResourcePackUtils.RESOURCE_PACK_CREATION_EVENT.register(WardrobeArt::build);
 	}
 

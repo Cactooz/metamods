@@ -20,7 +20,9 @@ look is an equipment asset cut from the skin overlays on metacraft.se/style.
 
 Patches are items (`ovvar:patch_<id>`) and go on any 4×4-texel cell of the ovve (`Spot.java`: every
 face you see of the body, sleeves and legs — not the inner faces — keeping off the collar, the
-belt, the hands and the cuffs: 32 cells, plus the seat for the 8×4 chapter patch). Sewing: put the ovve on
+belt, the hands and the cuffs: 32 cells, plus a seat cell that takes a two-cell-wide 8×4 patch
+across it — the catalogue holds none at the moment). The catalogue is ITK and Nyckeln'26, both
+cell-sized, both drawn by Kexana (`Patches.java`). Sewing: put the ovve on
 an armour stand, hold a patch, look at the stand — the patch shows washed out on the cell you aim
 at (a ghosted sprite, see below), the action bar
 names it, right-click sews it on; sneak to aim at the far face of the part you look at
@@ -41,7 +43,7 @@ on-stand flag, so nothing draws the patches twice.
 With the stitching minigame on (`config/ovvar.json`: `sewing_minigame`, `stitches`; default on,
 6 stitches for a cell-sized patch — a longer outline, a bigger patch or an intricate edge, takes
 proportionally more, up to 16) the right-click opens a dialog instead: the patch lies on the ovve's cloth and the
-seam goes around its edge, following the shape of the art (a heart is sewn around its lobes). The
+seam goes around its edge, following the shape of the art (a notched edge is sewn into its notch). The
 holes come in pairs — one on the cloth just outside the edge where the thread comes out, one on
 the patch just inside where it goes in — so each pair is a stitch over the edge, and the thread
 runs under the cloth to the next pair (`Seam.Style.WHIP`; `ZIGZAG` draws every run on top like a
@@ -190,8 +192,9 @@ garment, and one small glyph per (patch, cell) draws that patch exactly where it
 cropped to its own art, so the glyph is a dozen pixels square, and placed by space advances and its
 own ascent. The title stacks the bare ovve and then one glyph per sewn placement, so a design is
 composed at the moment the screen opens. A cell sits on exactly one face of one box and a face is
-seen from exactly one of the four angles, so that is **6 × 4 = 24 bare glyphs plus 257 patch glyphs,
-fixed**, however much anybody sews: nothing is regenerated and no pack is pushed when a patch goes
+seen from exactly one of the four angles, so that is **6 × 4 = 24 bare glyphs plus one per (patch,
+cell the doll can show) — 64 for today's two patches — fixed**, however much anybody sews: nothing
+is regenerated and no pack is pushed when a patch goes
 on. (v2 keyed the art by patch combination instead, which grew with every design, spent a glyph
 budget and needed a pack build and a loading screen each time somebody sewed something.) `Combos` is
 therefore back to what it was before v2, doing equipment definitions and nothing else.
@@ -531,3 +534,8 @@ mirrored overalls without patches — nothing breaks. Shaderpack users run `Ovva
 own entity program (the texture-coordinate and vertex-colour varyings are shadowed, so the pack's
 code needs no changes). Patched cleanly: BSL, Bliss, Complementary Reimagined and Unbound,
 MakeUp Ultra Fast, Solas, Photon, Super Duper Vanilla.
+
+## Credits
+
+Patch art: ITK and Nyckeln'26 by Kexana. The ovve garment art is original to this mod, cut from
+the chapter skin overlays on metacraft.se/style.

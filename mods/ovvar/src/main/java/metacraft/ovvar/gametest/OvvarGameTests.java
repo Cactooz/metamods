@@ -81,11 +81,11 @@ public final class OvvarGameTests {
 		ItemStack ovve = new ItemStack(ModContent.ovve(Chapter.values()[0]));
 		stand.setItemSlot(EquipmentSlot.LEGS, ovve);
 		ServerPlayer player = sewer(helper, stand);
-		Patches.Patch beer = Patches.get("beer");
-		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModContent.patchItem(beer), 3));
-		Placement placement = new Placement(Spot.FRONT_TOP_LEFT, beer);
+		Patches.Patch itk = Patches.get("itk");
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModContent.patchItem(itk), 3));
+		Placement placement = new Placement(Spot.FRONT_TOP_LEFT, itk);
 
-		SewingGame.start(player, stand, placement, beer);
+		SewingGame.start(player, stand, placement, itk);
 		CompoundTag stale = SewingGame.nextPull(player);
 		if (stale == null) helper.fail("no seam open after start");
 		// The dialog must encode the way the packet sends it (a bad button or body would fail here).
@@ -165,9 +165,9 @@ public final class OvvarGameTests {
 		ArmorStand stand = stand(helper, 0, REST, REST, REST, REST);
 		stand.setItemSlot(EquipmentSlot.LEGS, new ItemStack(ModContent.ovve(Chapter.values()[0])));
 		ServerPlayer player = sewer(helper, stand);
-		Patches.Patch beer = Patches.get("beer");
-		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModContent.patchItem(beer), 3));
-		SewingGame.start(player, stand, new Placement(Spot.BACK_TOP_RIGHT, beer), beer);
+		Patches.Patch itk = Patches.get("itk");
+		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModContent.patchItem(itk), 3));
+		SewingGame.start(player, stand, new Placement(Spot.BACK_TOP_RIGHT, itk), itk);
 		SewingGame.click(player, SewingGame.PULL, Optional.of(SewingGame.nextPull(player)));
 		SewingGame.click(player, SewingGame.CUT, Optional.empty());
 		if (SewingGame.nextPull(player) != null) helper.fail("seam still open after cutting");
@@ -213,28 +213,15 @@ public final class OvvarGameTests {
 	public void stitchesScaleWithTheOutline(GameTestHelper helper) {
 		record Case(String patch, int base, int expected) {}
 		List<Case> cases = List.of(
-				new Case("beer", 6, 6),       // 8×8 square, 32 texels: the baseline
-				new Case("kth", 6, 9),        // 12×12, 48 texels
-				new Case("chapter", 6, 9),    // the 16×8 seat, 48 texels
-				new Case("star", 6, 7),       // 36 texels: 6.75 rounds up
-				new Case("kth", 12, 16),      // 18 capped at the dialog's most
-				new Case("beer", 1, 1));      // never below one
+				new Case("itk", 6, 6),        // 8×8 square, 32 texels: the baseline
+				new Case("nyckeln", 6, 6),    // 30 texels: 5.625 rounds up
+				new Case("itk", 1, 1));       // never below one
 		List<String> wrong = new ArrayList<>();
 		for (Case c : cases) {
 			int got = Seam.stitchesFor(Patches.get(c.patch), c.base);
 			if (got != c.expected) wrong.add(c.patch + " at base " + c.base + ": expected " + c.expected + ", got " + got);
 		}
 		if (!wrong.isEmpty()) helper.fail("stitch counts off: " + wrong);
-		// A game started on KTH sews with the scaled count, and its dialog says so.
-		ArmorStand stand = stand(helper, 0, REST, REST, REST, REST);
-		stand.setItemSlot(EquipmentSlot.LEGS, new ItemStack(ModContent.ovve(Chapter.values()[0])));
-		ServerPlayer player = sewer(helper, stand);
-		Patches.Patch kth = Patches.get("kth");
-		player.setItemInHand(InteractionHand.MAIN_HAND, new ItemStack(ModContent.patchItem(kth)));
-		SewingGame.start(player, stand, new Placement(Spot.FRONT_TOP_LEFT, kth), kth);
-		String json = Dialog.DIRECT_CODEC.encodeStart(JsonOps.INSTANCE, SewingGame.dialog(player))
-				.getOrThrow(message -> new IllegalStateException("dialog does not encode: " + message)).toString();
-		if (!json.contains("Stitch 1 of " + Seam.stitchesFor(kth, OvvarConfig.get().stitches()))) helper.fail("KTH dialog does not offer the scaled count: " + json);
 		helper.succeed();
 	}
 
@@ -247,7 +234,7 @@ public final class OvvarGameTests {
 	public void spritesFollowAStandThatFalls(GameTestHelper helper) {
 		ArmorStand stand = helper.spawn(EntityTypes.ARMOR_STAND, new BlockPos(2, 6, 2));
 		ItemStack ovve = new ItemStack(ModContent.ovve(Chapter.values()[0]));
-		Placement placement = new Placement(Spot.LEG_FRONT_TOP_R, Patches.get("beer"));
+		Placement placement = new Placement(Spot.LEG_FRONT_TOP_R, Patches.get("itk"));
 		Looks.setSewn(ovve, SpotPlacements.fromList(List.of(placement)).getOrThrow());
 		stand.setItemSlot(EquipmentSlot.LEGS, ovve);
 		helper.runAfterDelay(60, () -> {

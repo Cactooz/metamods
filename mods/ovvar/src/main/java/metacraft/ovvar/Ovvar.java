@@ -25,6 +25,12 @@ import org.slf4j.LoggerFactory;
 public class Ovvar implements ModInitializer {
 	public static final String MOD_ID = "ovvar";
 	public static final Logger LOGGER = LoggerFactory.getLogger(MOD_ID);
+	/**
+	 * Is this the datagen run rather than a server? Anything that reads a generated asset has to
+	 * keep out of the run that writes it — {@link metacraft.ovvar.content.ModContent} checks the
+	 * same property before demanding the assets exist.
+	 */
+	public static final boolean DATAGEN = System.getProperty("fabric-api.datagen") != null;
 
 	@Override
 	public void onInitialize() {

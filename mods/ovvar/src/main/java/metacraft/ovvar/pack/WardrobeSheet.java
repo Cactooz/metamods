@@ -43,14 +43,16 @@ public final class WardrobeSheet {
 		Path out = Path.of(args.length > 0 ? args[0] : "/tmp/wardrobe_v3_sheet.png");
 		Chapter chapter = args.length > 1 ? Chapter.byId(args[1]) : Chapter.DATA;
 		boolean empty = args.length > 2 && args[2].equals("empty");
+		// The catalogue's two patches, spread over cells the four angles show between them.
+		Patches.Patch itk = Patches.get("itk"), nyckeln = Patches.get("nyckeln");
 		List<Placement> sewn = empty ? List.of() : List.of(
-				new Placement(Spot.FRONT_TOP_LEFT, Patches.get("beer")),
-				new Placement(Spot.FRONT_LOW_RIGHT, Patches.get("kth")),
-				new Placement(Spot.SLEEVE_FRONT_TOP_R, Patches.get("star")),
-				new Placement(Spot.SLEEVE_OUT_MID_R, Patches.get("nolle")),
-				new Placement(Spot.BACK_TOP_LEFT, Patches.get("gasque")),
-				new Placement(Spot.LEG_FRONT_TOP_R, Patches.get("heart")),
-				new Placement(Spot.LEG_OUT_MID_L, Patches.get("sittning")));
+				new Placement(Spot.FRONT_TOP_LEFT, itk),
+				new Placement(Spot.FRONT_LOW_RIGHT, nyckeln),
+				new Placement(Spot.SLEEVE_FRONT_TOP_R, nyckeln),
+				new Placement(Spot.SLEEVE_OUT_MID_R, itk),
+				new Placement(Spot.BACK_TOP_LEFT, nyckeln),
+				new Placement(Spot.LEG_FRONT_TOP_R, itk),
+				new Placement(Spot.LEG_OUT_MID_L, nyckeln));
 
 		// The screen itself, with the preview at the angle the screen opens on.
 		Tex screen = tex(WardrobeArt.tint(WardrobeArt.readTemplate(), WardrobeArt.colour(chapter)));
@@ -92,6 +94,16 @@ public final class WardrobeSheet {
 		Files.write(out, sheet.scale(UPSCALE).png());
 		System.out.println("wrote " + out + " (" + sheet.width * UPSCALE + "x" + sheet.height * UPSCALE + ", "
 				+ chapter.id + ", " + sewn.size() + " patches sewn, " + WardrobePreview.glyphCount() + " preview glyphs)");
+		// Each sample placement's glyph, with its size and where it goes: a glyph much bigger than a
+		// cell at screen scale (4 skin px, so 12 px) would mean a face crop is picking up art that
+		// wrapped round a corner onto the face next to it.
+		for (Placement placement : sewn) {
+			WardrobeFont.Glyph glyph = WardrobePreview.patchGlyph(placement);
+			if (glyph != null) {
+				System.out.println("  " + placement.key() + " (" + WardrobePreview.angleOf(placement.spot()) + "): "
+						+ glyph.width() + "x" + glyph.height() + " at (" + glyph.x() + "," + glyph.top() + ")");
+			}
+		}
 	}
 
 	/** The glyphs the title would carry for this design at this angle, in the order it carries them. */
