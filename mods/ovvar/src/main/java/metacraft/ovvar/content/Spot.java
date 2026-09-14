@@ -134,6 +134,17 @@ public enum Spot implements StringRepresentable {
 		this.side = side;
 	}
 
+	/**
+	 * Where a seat patch's art is cut for one leg: the x its half starts at. Seat art is drawn as
+	 * seen from behind — the only way anybody sees a seat — so the art's left half is the wearer's
+	 * LEFT leg, which is the viewer's left from behind, and its right half their right leg. Datagen
+	 * cuts the two placement textures with this; the wardrobe preview reads it to know which half of
+	 * the art a leg carries.
+	 */
+	public static int seatHalf(Side side) {
+		return side == Side.LEFT ? 0 : PX;
+	}
+
 	/** The cells a seat patch covers, which a seat patch and a plain patch fight over. */
 	public static final java.util.List<Spot> SEAT_CELLS = java.util.List.of(LEG_BACK_TOP_R, LEG_BACK_TOP_L);
 

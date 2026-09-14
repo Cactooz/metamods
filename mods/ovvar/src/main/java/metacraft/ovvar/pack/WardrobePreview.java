@@ -249,45 +249,69 @@ public final class WardrobePreview {
 	 * hangs over the cell's edges, and datagen wraps what hangs over <em>round the box</em> (round the
 	 * part's strip, as the shader samples it), so the columns that land past the end of the cell's own
 	 * face are drawn on the neighbouring face — a face the doll draws from another angle, or not at
-	 * all — and the rows that leave the box's side rows are dropped altogether. So the reference is the
-	 * art windowed to the columns and rows that land on this cell's face, mirrored exactly as the art
-	 * is: datagen pre-mirrors a left limb's art because the model mirrors that limb, and the doll
-	 * mirrors it for the same reason, which puts the art back the way it was drawn.
+	 * all — and the rows that leave the box's side rows are dropped altogether. Nor does a face draw
+	 * all of the texels it does keep: {@link #keptOffTheOutline} takes the ring the figure's outline
+	 * owns off the patch layer, and the resample gives the far column and the bottom row of a face a
+	 * single screen pixel each, which is that ring's.
 	 *
-	 * <p>The seat is one patch across both legs' back faces: datagen cuts it in half, the right leg's
-	 * half first, and the halves read across the figure in the order the view puts the legs — from
-	 * behind, the wearer's left leg is on the viewer's left, so the left leg's half reads first. That
-	 * is the picture as the textures draw it, and not a claim that datagen cuts the art the way round
-	 * the artist meant: {@code _r} takes the art's own left half and the wearer's right leg is on the
-	 * viewer's right from behind, so the seat reads with the art's halves swapped.
+	 * <p>The seat is one patch across both legs' back faces, so it is a part each. Seat art is drawn as
+	 * seen from behind — the only way anybody sees a seat — so it reads across the figure the way it
+	 * was drawn: the art's left half on the leg at the viewer's left, which from behind is the
+	 * wearer's left leg, and that is the leg {@link Spot#seatHalf} gives it. The reference takes the
+	 * half that belongs where each leg is, rather than reading the cut back off {@code seatHalf}: a
+	 * cut that put a half on the wrong leg would otherwise agree with itself and pass.
 	 */
 	public static Tex shownArt(Spot spot, Patches.Patch patch, Tex art) {
 		Angle angle = angleOf(spot);
 		if (angle == null) return Tex.blank(art.width, art.height);
-		if (spot == Spot.SEAT) {
-			int[] right = cellRect(angle, Spot.SEAT_CELLS.getFirst()), left = cellRect(angle, Spot.SEAT_CELLS.getLast());
-			boolean rightFirst = right != null && left != null && right[0] <= left[0];
-			int half = art.width / 2;
-			return Tex.blank(art.width, art.height)
-					.blit(art, rightFirst ? 0 : half, 0, half, art.height, 0, 0)
-					.blit(art, rightFirst ? half : 0, 0, half, art.height, half, 0);
+		List<Part> drawn = new ArrayList<>();
+		for (Part part : parts(angle)) if (shows(part, spot)) drawn.add(part);
+		if (drawn.isEmpty()) return Tex.blank(art.width, art.height);
+		drawn.sort(java.util.Comparator.comparingInt(Part::x));
+		int slice = art.width / drawn.size();   // the seat is a half per leg; every other cell is one piece
+		Tex out = Tex.blank(art.width, art.height);
+		for (int i = 0; i < drawn.size(); i++) {
+			// Each part takes the slice of the art that belongs where it is: the art in its own order
+			// across the figure. That is the whole of what the convention says, so it is what the
+			// reference says too, rather than reading the cut back off {@link Spot#seatHalf} — a cut
+			// that put a half on the wrong leg would then agree with itself and pass.
+			Tex piece = onThePart(spot, patch, drawn.get(i), art.crop(i * slice, 0, slice, art.height));
+			out = out.blit(piece, 0, 0, piece.width, piece.height, i * slice, 0);
 		}
-		Tex baked = spot.side == Spot.Side.LEFT ? art.flipX() : art;
+		return out;
+	}
+
+	/** One part's share of a patch's art: the columns and rows of it that part's face really draws. */
+	private static Tex onThePart(Spot spot, Patches.Patch patch, Part part, Tex piece) {
+		// Datagen pre-mirrors the art of a limb the model mirrors, and the doll mirrors that limb for
+		// the same reason — so the art is windowed in the mirrored order and put back afterwards.
+		Tex baked = part.mirror() ? piece.flipX() : piece;
 		int x = spot.u * D + patch.offsetX(), y = spot.v * D + (Spot.PX - baked.height) / 2;
 		int strip = Spot.stripStart(spot) * D, stripWidth = Spot.stripWidth(spot) * D;
-		int[] face = face(spot);
-		int faceStart = face[0] * D, faceEnd = faceStart + face[1] * D;
+		int texels = part.w() * D;
 		Tex out = Tex.blank(baked.width, baked.height);
 		for (int ax = 0; ax < baked.width; ax++) {
-			int column = strip + Math.floorMod(x + ax - strip, stripWidth);
-			if (column < faceStart || column >= faceEnd) continue;
+			int column = strip + Math.floorMod(x + ax - strip, stripWidth) - part.u() * D;
+			if (column < 0 || column >= texels) continue;   // it landed on the face next door
+			if (!drawnAcross(part.mirror() ? texels - 1 - column : column, texels, part.widthPx())) continue;
 			for (int ay = 0; ay < baked.height; ay++) {
-				int row = y + ay;
-				if (row < FACE_V || row >= FACE_V + FACE_H) continue;
+				int row = y + ay - FACE_V;
+				if (row < 0 || row >= FACE_H || !drawnAcross(row, FACE_H, FACE)) continue;
 				out = out.with(ax, ay, baked.get(ax, ay));
 			}
 		}
-		return spot.side == Spot.Side.LEFT ? out.flipX() : out;
+		return part.mirror() ? out.flipX() : out;
+	}
+
+	/**
+	 * Does a face's texel at this position along it reach the screen, or does the figure's outline own
+	 * the only pixel it gets? A face is resampled to more px than it has texels, so most texels get
+	 * two of them — but the last position along gets one, and that one is the ring
+	 * {@link #keptOffTheOutline} takes off every patch layer.
+	 */
+	private static boolean drawnAcross(int position, int texels, int px) {
+		for (int at = 1; at < px - 1; at++) if (at * texels / px == position) return true;
+		return false;
 	}
 
 	/** A layer texture opaque over exactly one cell's own texels and transparent everywhere else. */
