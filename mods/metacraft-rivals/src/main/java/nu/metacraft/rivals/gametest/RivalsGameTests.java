@@ -5,6 +5,7 @@ import com.mojang.datafixers.util.Pair;
 import com.mojang.serialization.JsonOps;
 import eu.pb4.polymer.core.api.block.PolymerBlock;
 import eu.pb4.polymer.virtualentity.api.ElementHolder;
+import eu.pb4.polymer.virtualentity.api.elements.ItemDisplayElement;
 import com.google.gson.JsonArray;
 import com.google.gson.JsonElement;
 import com.google.gson.JsonObject;
@@ -55,6 +56,7 @@ import net.minecraft.world.entity.player.Inventory;
 import net.minecraft.world.entity.player.Player;
 import net.minecraft.world.inventory.ContainerInput;
 import net.minecraft.world.inventory.Slot;
+import net.minecraft.world.item.ItemDisplayContext;
 import net.minecraft.world.item.ItemStack;
 import net.minecraft.world.item.ItemUseAnimation;
 import net.minecraft.world.item.component.Consumable;
@@ -73,6 +75,8 @@ import net.minecraft.world.level.block.StairBlock;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.block.state.properties.BlockStateProperties;
 import net.minecraft.world.level.levelgen.structure.BoundingBox;
+import org.joml.Quaternionf;
+import org.joml.Vector3f;
 import net.minecraft.world.phys.AABB;
 import net.minecraft.world.phys.EntityHitResult;
 import net.minecraft.world.phys.Vec3;
@@ -3256,13 +3260,13 @@ public final class RivalsGameTests {
 	}
 
 	/**
-	 * Others see a squid, not a floating nothing: a team-coloured blob rides the player's feet while the
-	 * form is on, and goes down with it. The blob's own player is never sent it, which is a per-viewer
-	 * thing a server-side test cannot see; what it can see is that the holder exists, carries one
-	 * element, is attached, and is destroyed on the way out.
+	 * Others see a squid, not a floating nothing: a team-coloured Pirkko rides the player's feet while the
+	 * form is on, and goes down with it. Her own player is never sent her, which is a per-viewer thing a
+	 * server-side test cannot see; what it can see is that the holder exists, carries one element, is
+	 * attached, and is destroyed on the way out.
 	 */
 	@GameTest
-	public void squidShowsABlobToOthers(GameTestHelper helper) {
+	public void squidShowsPirkkoToOthers(GameTestHelper helper) {
 		helper.setBlock(new BlockPos(4, 2, 4), Blocks.STONE);
 		Player player = gunner(helper); // stands at relative (4, 3, 4), the cell above that stone
 		helper.getLevel().getScoreboard().addPlayerToTeam(player.getScoreboardName(), team(helper, PaintColor.DATA));
@@ -3272,33 +3276,144 @@ public final class RivalsGameTests {
 		PlayerTick.tick(player, 0);
 		helper.assertTrue(PlayerTick.isSquid(player), "squid form on");
 		ElementHolder holder = SquidDisplay.holderOf(player);
-		helper.assertTrue(holder != null, "a blob rides the squid");
-		helper.assertValueEqual(holder.getElements().size(), 1, "one blob element");
+		helper.assertTrue(holder != null, "a Pirkko rides the squid");
+		helper.assertValueEqual(holder.getElements().size(), 1, "one display element");
 		helper.assertTrue(holder.getAttachment() != null, "attached to the player");
 		// The squid's own player is never sent it: the holder refuses to start watching them, which is a
 		// per-viewer thing a game test has no second connection to see, so the rule is asked directly.
-		helper.assertTrue(SquidDisplay.hiddenFrom(player, player.getUUID()), "the squid never sees its own blob");
+		helper.assertTrue(SquidDisplay.hiddenFrom(player, player.getUUID()), "the squid never sees its own Pirkko");
 		helper.assertTrue(!SquidDisplay.hiddenFrom(player, UUID.randomUUID()), "everybody else does");
-		// Lying still in its own ink is how a squid hides, so the blob is not drawn at all. The first tick
+		// Lying still in its own ink is how a squid hides, so the figure is not drawn at all. The first tick
 		// has no measured movement, which is exactly that case.
 		helper.assertTrue(!SquidDisplay.isShown(player), "a still squid in its own ink shows nothing");
-		// A second tick with the squid moved along keeps the one blob rather than making another, and
+		// A second tick with the squid moved along keeps the one figure rather than making another, and
 		// shows it: anything that leaves a wake is worth seeing.
 		Vec3 stepped = player.position().add(0.3, 0, 0);
 		player.setPos(stepped.x, stepped.y, stepped.z);
 		PlayerTick.tick(player, 1);
-		helper.assertTrue(SquidDisplay.holderOf(player) == holder, "the same blob, turned rather than replaced");
-		helper.assertTrue(SquidDisplay.isShown(player), "a swimming squid is a blob");
+		helper.assertTrue(SquidDisplay.holderOf(player) == holder, "the same figure, turned rather than replaced");
+		helper.assertTrue(SquidDisplay.isShown(player), "a swimming squid is a Pirkko");
 		// And stopping hides it again, without taking the holder down.
 		PlayerTick.tick(player, 2);
 		helper.assertTrue(!SquidDisplay.isShown(player), "holding still hides it again");
 		helper.assertTrue(SquidDisplay.holderOf(player) == holder, "the holder is not rebuilt for it");
 		player.setShiftKeyDown(false);
 		PlayerTick.tick(player, 3);
-		helper.assertTrue(SquidDisplay.holderOf(player) == null, "the blob goes with the form");
+		helper.assertTrue(SquidDisplay.holderOf(player) == null, "the figure goes with the form");
 		helper.assertTrue(holder.getAttachment() == null || holder.getAttachment().isRemoved(), "and its attachment with it");
 		player.discard();
 		helper.succeed();
+	}
+
+	/**
+	 * The figure itself: Julle's Pirkko, in the team colour, lying on the floor with her head leading.
+	 *
+	 * <p>{@link SquidDisplay#show} is called directly rather than through a tick, because what is being
+	 * checked is the map from a measured movement to a pose and a tick can only produce one movement at a
+	 * time. The pose is read back off the element the way a client would: the model id and the dye off the
+	 * stack, and the heading off the left rotation by turning the model's own nose direction — its
+	 * <em>−Z</em>, which is the half-turn the display has to add — and seeing where it points.
+	 */
+	@GameTest
+	public void pirkkoWearsTheTeamColourAndLeadsWithHerHead(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		Player player = gunner(helper);
+		helper.getLevel().addFreshEntity(player); // a display rides an entity the level knows about
+		// A slow crawl: moving enough to have a direction, slowly enough that the swimming pitch is a
+		// degree and a half, so the heading can be read off the nose almost on its own.
+		SquidDisplay.show(player, PaintColor.DATA, new Vec3(0.03, 0, 0), false);
+		ElementHolder holder = SquidDisplay.holderOf(player);
+		helper.assertTrue(holder != null, "a figure rides the squid");
+		ItemDisplayElement element = (ItemDisplayElement) holder.getElements().getFirst();
+		ItemStack stack = element.getItem();
+		helper.assertValueEqual(stack.get(DataComponents.ITEM_MODEL), Rivals.id("pirkko"),
+				"the display wears the pirkko model");
+		DyedItemColor dye = stack.get(DataComponents.DYED_COLOR);
+		helper.assertTrue(dye != null && dye.rgb() == PaintColor.DATA.rgb,
+				"dyed the team colour, which is what tint index 0 multiplies the grey sheet by");
+		// NONE, not FIXED: the delivery's `fixed` transform stands her up for an item frame, which on the
+		// floor would balance her on her nose.
+		helper.assertValueEqual(element.getItemDisplayContext(), ItemDisplayContext.NONE,
+				"rendered in the context that applies no transform of its own");
+		// The underside on the floor: an item's coordinates are centred, so the underside of a model whose
+		// own y starts at 0 is half a block below the origin — LIFT has to put that back, plus a hair.
+		helper.assertTrue(Math.abs(SquidDisplay.LIFT - 0.5 * SquidDisplay.SCALE - SquidDisplay.CLEARANCE) < 1.0e-9,
+				"LIFT lands the underside " + SquidDisplay.CLEARANCE + " above the feet, got " + SquidDisplay.LIFT);
+		helper.assertTrue(Math.abs(SquidDisplay.SCALE * SquidDisplay.MODEL_LONG / 16f - SquidDisplay.LENGTH) < 1.0e-6,
+				"and the scale makes her " + SquidDisplay.LENGTH + " blocks long");
+		// Where her nose points. The model's head is towards -Z, so that is the vector to turn.
+		Vector3f nose = new Vector3f(0, 0, -1).rotate(new Quaternionf(element.getLeftRotation()));
+		helper.assertTrue(nose.x > 0.99f, "the head leads along the movement (+X), got " + nose);
+		helper.assertTrue(Math.abs(nose.z) < 0.05f, "and not across it, got " + nose);
+		// Turn around and it turns around: the heading is the measured movement, not the player's look.
+		SquidDisplay.show(player, PaintColor.DATA, new Vec3(0, 0, -0.03), false);
+		nose = new Vector3f(0, 0, -1).rotate(new Quaternionf(element.getLeftRotation()));
+		helper.assertTrue(nose.z < -0.99f, "swimming north, the head points north, got " + nose);
+		SquidDisplay.hide(player);
+		player.discard();
+		helper.succeed();
+	}
+
+	/**
+	 * The poses. A leap pitches the nose up and lifts her a little, a fall pitches it down, and a swim on
+	 * the flat leans in by speed without ever standing up — "dives and jumps around", which the old blob
+	 * could only say by getting longer.
+	 */
+	@GameTest
+	public void pirkkoDivesAndLeapsWithThePlayer(GameTestHelper helper) {
+		stoneFloor(helper, 5);
+		Player player = gunner(helper);
+		helper.getLevel().addFreshEntity(player);
+		SquidDisplay.show(player, PaintColor.DATA, new Vec3(0.3, 0, 0), false);
+		ItemDisplayElement element = (ItemDisplayElement) SquidDisplay.holderOf(player).getElements().getFirst();
+		// Swimming flat out: nose down, but only a lean — a tenth of a turn would be drilling into the floor.
+		float swimming = pitchDegrees(element);
+		helper.assertTrue(swimming < -1f && swimming >= -10.5f,
+				"a fast swim leans nose-down by up to ten degrees, got " + swimming);
+		// And the figure keeps its shape: the stretch along the swim is a hint of one now, not the blob's.
+		Vector3f scale = new Vector3f(element.getScale());
+		helper.assertTrue(scale.z / scale.x <= 1.7f + 1.0e-4f,
+				"the along-swim stretch stays mild, got z/x " + scale.z / scale.x);
+		helper.assertValueEqual(scale.y, SquidDisplay.SCALE, "and her height is left alone while swimming");
+		// Rising fast: nose up, and off the floor a little.
+		SquidDisplay.show(player, PaintColor.DATA, new Vec3(0.3, 0.5, 0), false);
+		float leaping = pitchDegrees(element);
+		helper.assertTrue(leaping > 25f, "a leaping squid points its nose up, got " + leaping);
+		helper.assertTrue(!element.getLeftRotation().equals(new Quaternionf(), 1.0e-4f),
+				"which is a rotation, not the identity the old blob carried on a leap");
+		helper.assertTrue(element.getTranslation().y() > 0.0f,
+				"and lifts a little, got " + element.getTranslation().y());
+		// Falling fast, still in the air: nose down the same amount. Off the ground explicitly, because a
+		// fast drop onto the ground is a landing instead, which is the next case.
+		player.setOnGround(false);
+		SquidDisplay.show(player, PaintColor.DATA, new Vec3(0.3, -0.5, 0), false);
+		helper.assertTrue(pitchDegrees(element) < -25f, "a diving squid points it down, got " + pitchDegrees(element));
+		// Flat again: the pitch comes back, and nothing is left lifted.
+		SquidDisplay.show(player, PaintColor.DATA, new Vec3(0.03, 0, 0), false);
+		helper.assertTrue(pitchDegrees(element) > -3f, "a crawl is nearly flat, got " + pitchDegrees(element));
+		helper.assertValueEqual(element.getTranslation().y(), 0.0f, "and back down on the floor");
+		// And the landing: the same drop, but onto the floor, pancakes her flat for a couple of ticks —
+		// milder than the blob's squash, and with no pitch at all, because a pancake has its nose down.
+		player.setOnGround(true);
+		SquidDisplay.show(player, PaintColor.DATA, new Vec3(0.3, -0.5, 0), false);
+		Vector3f squashed = new Vector3f(element.getScale());
+		helper.assertTrue(squashed.y < SquidDisplay.SCALE && squashed.x > SquidDisplay.SCALE,
+				"a landing is wider and flatter than she stands, got " + squashed);
+		helper.assertTrue(squashed.y / SquidDisplay.SCALE > 0.6f && squashed.x / SquidDisplay.SCALE < 1.3f,
+				"but a mild one, got " + squashed);
+		helper.assertValueEqual(pitchDegrees(element), 0.0f, "and flat on the floor while it holds");
+		SquidDisplay.hide(player);
+		player.discard();
+		helper.succeed();
+	}
+
+	/**
+	 * How far above the horizontal the figure's nose is pointing, in degrees: positive is nose-up. Read
+	 * from the rotation the client is sent, by turning the model's own head direction with it.
+	 */
+	private static float pitchDegrees(ItemDisplayElement element) {
+		Vector3f nose = new Vector3f(0, 0, -1).rotate(new Quaternionf(element.getLeftRotation()));
+		return (float) Math.toDegrees(Math.asin(Math.max(-1f, Math.min(1f, nose.y))));
 	}
 
 	/**

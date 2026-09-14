@@ -685,9 +685,16 @@ dedicated Rivals server wants.
   underfoot, so a climb off the floor paint doesn't drop you mid-wall: pushing into that wall
   swims you straight up it for as long as the ink goes, with a nudge over the lip at the top, and
   easing off clings in place instead of sliding back down. While the form is on, everyone else sees a
-  team-coloured blob riding your feet — the paint ball's own model, turned along the way you are going
-  and stretched by how fast — except when you are lying still in your own ink, which is how a squid
-  hides: then it shows nothing at all, and comes back the moment you move. You never see your own. "Pushing into" is your own movement keys
+  team-coloured **Pirkko** riding your feet — Julle's model of the IT chapter's mascot, delivered in
+  `tools/julle/pirkko_models/` and imported by `tools/pirkko_model.py`, lying flat on the paint at
+  0.9 blocks long with her head leading the way you are going. She dives and jumps the way the
+  Splatoon squid does: a lean nose-down into a swim that grows with your speed (up to ten degrees,
+  with a hint of stretch along her length), nose up about 35° and a little off the floor on the way
+  up out of a leap, nose down the same on the way back down, and a mild pancake for two ticks the
+  tick she lands, because a hop has to read as having weight. There is no idle wobble, because the
+  one time a squid holds still is the one time it must not be seen: lying still in your own ink is
+  how a squid hides, so then she shows nothing at all and comes back the moment you move. You never
+  see your own. The thrown paint ball keeps the old blob. "Pushing into" is your own movement keys
   rather than the server noticing a collision — walking into a wall is clipped client-side, so the
   server never sees one, which is why the climb used to stall a block up. Standing on an enemy
   colour's paint is a trap instead: Slowness II, no jumping at all, and half a heart of damage
@@ -868,7 +875,11 @@ rcon.password=rivals-dev
 
 All four weapon models — shooter, charger, slosher and roller — are Julle's, delivered in
 `tools/julle/` with their Blockbench masters, their shared 128×128 `julle_body`/`julle_ink` atlas and
-their display transforms, which ship verbatim. In their own words: *original fan-made geometry;
+their display transforms, which ship verbatim. **Pirkko**, the figure a squid wears for everyone else,
+is Julle's too: the IT chapter's mascot, a twelve-cube adaptation of the reference at
+[Pirkko Power](https://pirkkopower.com/), delivered at `tools/julle/pirkko_models/` with its own
+Blockbench masters, previews and 128×128 greyscale sheet, and imported by `tools/pirkko_model.py` as a
+copy and a rename so a redelivery is a re-run. In their own words: *original fan-made geometry;
 unofficial fan models inspired by Splatoon. Splatoon belongs to Nintendo; Minecraft belongs to
 Mojang/Microsoft.* The paint art — block textures and the display quads' sprite alike — is generated
 by the mod. Kenney's Blaster Kit supplied the weapons up to round 6 and Kenney's Splat Pack the
@@ -883,5 +894,5 @@ anything that ever is inherits those terms.
 ## Not yet
 
 Persisting display quads and the tally across a restart; damage on
-enemy paint (beyond the enemy-ink drip); a real squid model; Iris-compatible gloss; respawn/death
+enemy paint (beyond the enemy-ink drip); Iris-compatible gloss; respawn/death
 handling for the drip.
