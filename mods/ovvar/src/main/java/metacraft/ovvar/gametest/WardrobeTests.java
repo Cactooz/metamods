@@ -109,6 +109,8 @@ public final class WardrobeTests {
 	private static final Patches.Patch ITK_PATCH = Patches.get("itk"), NYCKELN_PATCH = Patches.get("nyckeln");
 	private static final Placement ITK = new Placement(Spot.FRONT_TOP_LEFT, ITK_PATCH);
 	private static final Placement NYCKELN = new Placement(Spot.BACK_TOP_RIGHT, NYCKELN_PATCH);
+	/** A cell the doll only shows from one side: the outer face of the wearer's right sleeve. */
+	private static final Placement SLEEVE = new Placement(Spot.SLEEVE_OUT_TOP_R, ITK_PATCH);
 
 	// ---- the record
 
@@ -604,7 +606,9 @@ public final class WardrobeTests {
 					}
 					if (filledCollection != 2) helper.fail("collection slots filled: " + filledCollection + ", wanted 2 (one kind per patch left in the stash)");
 					if (isEmpty(gui, WardrobeGui.previewSlot(ITK.spot()))) helper.fail("no preview item at the ITK's slot");
-					if (isEmpty(gui, WardrobeGui.previewSlot(NYCKELN.spot()))) helper.fail("no preview item at the Nyckeln's slot");
+					// The Nyckeln is sewn on the back, so its tooltip is on the back view, not this one.
+					WardrobeGui back = WardrobeGui.forTest(player, CHAPTER, Angle.BACK);
+					if (isEmpty(back, WardrobeGui.previewSlot(Angle.BACK, NYCKELN.spot()))) helper.fail("no preview item at the Nyckeln's slot on the back view");
 					if (gui.getGuiElement(WardrobeGui.previewSlot(ITK.spot())).getGuiCallback() != GuiElement.EMPTY_CALLBACK) {
 						helper.fail("a preview item has a click callback; it should be hover-only");
 					}
@@ -1368,14 +1372,93 @@ public final class WardrobeTests {
 		if (Angle.FRONT.turned(1) == Angle.FRONT.turned(-1)) helper.fail("turning left and right are the same move");
 	}
 
-	/** The hover tooltips are the front view's only: from a side they would point at the wrong part of the figure. */
+	/**
+	 * Every cell the doll shows has a hover slot over the very px it is drawn on: the slot is
+	 * inside the preview panel (rows 1-4, cols 5-8) and the cell's rectangle has its centre in that
+	 * slot's own 18x18 box — which is the whole of what makes a tooltip point at the part of the
+	 * picture it is about. And the three angles that do not show a cell have no slot for it.
+	 */
+	@GameTest
+	public void wardrobePreviewSlotsHoldTheCellTheyAreAbout(GameTestHelper helper) {
+		for (Spot spot : Spot.values()) {
+			Angle angle = WardrobePreview.angleOf(spot);
+			if (angle == null) continue;
+			int[] rect = WardrobePreview.cellRect(angle, spot);
+			if (rect == null) {
+				helper.fail(spot + ": the " + angle + " view shows it but has no rectangle for it");
+				continue;
+			}
+			if (rect[0] < 0 || rect[1] < 0 || rect[0] + rect[2] > WardrobePreview.PANEL_W || rect[1] + rect[3] > WardrobePreview.PANEL_H) {
+				helper.fail(spot + ": its rectangle " + rect[0] + "," + rect[1] + " " + rect[2] + "x" + rect[3] + " is not inside the preview panel");
+			}
+			int slot = WardrobeGui.previewSlot(angle, spot);
+			int row = slot / 9, col = slot % 9;
+			if (row < 1 || row > 4 || col < 5 || col > 8) {
+				helper.fail(spot + ": slot " + slot + " (row " + row + ", col " + col + ") is not one of the preview's own");
+				continue;
+			}
+			// The panel is exactly the 4x4 block of slot cells, so a slot's box in the panel's own px:
+			int boxX = (col - 5) * WardrobeFont.PITCH, boxY = (row - 1) * WardrobeFont.PITCH;
+			int cx = rect[0] + rect[2] / 2, cy = rect[1] + rect[3] / 2;
+			if (cx < boxX || cx >= boxX + WardrobeFont.PITCH || cy < boxY || cy >= boxY + WardrobeFont.PITCH) {
+				helper.fail(spot + ": the cell's centre (" + cx + ", " + cy + ") is outside slot " + slot + "'s box at (" + boxX + ", " + boxY + ")");
+			}
+			for (Angle other : Angle.values()) {
+				if (other == angle) continue;
+				if (WardrobeGui.previewSlot(other, spot) >= 0) helper.fail(spot + " has a slot on the " + other + " view, which does not show it");
+			}
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * The front view is where it always was: the geometry gives the chest and the front of the legs
+	 * the very slots the old hand-written table did, so nothing anybody has sewn moves on the screen
+	 * they already know. The figure turns in place, so the back's own cells land on the chest's slots.
+	 */
+	@GameTest
+	public void wardrobePreviewFrontSlotsAreWhereTheyAlwaysWere(GameTestHelper helper) {
+		Object[][] front = {
+				{Spot.FRONT_TOP_LEFT, 15}, {Spot.FRONT_TOP_RIGHT, 16},
+				{Spot.FRONT_LOW_LEFT, 24}, {Spot.FRONT_LOW_RIGHT, 25},
+				{Spot.LEG_FRONT_TOP_R, 33}, {Spot.LEG_FRONT_MID_R, 42},
+				{Spot.LEG_FRONT_TOP_L, 34}, {Spot.LEG_FRONT_MID_L, 43},
+		};
+		for (Object[] pair : front) {
+			Spot spot = (Spot) pair[0];
+			int wanted = (Integer) pair[1];
+			int got = WardrobeGui.previewSlot(spot);
+			if (got != wanted) helper.fail(spot + " on the front view: slot " + got + ", wanted " + wanted);
+			if (WardrobeGui.previewSlot(Angle.FRONT, spot) != got) helper.fail(spot + ": the front overload disagrees with previewSlot(FRONT, spot)");
+		}
+		Object[][] back = {
+				{Spot.BACK_TOP_LEFT, 15}, {Spot.BACK_TOP_RIGHT, 16},
+				{Spot.BACK_LOW_LEFT, 24}, {Spot.BACK_LOW_RIGHT, 25},
+		};
+		for (Object[] pair : back) {
+			Spot spot = (Spot) pair[0];
+			int wanted = (Integer) pair[1];
+			int got = WardrobeGui.previewSlot(Angle.BACK, spot);
+			if (got != wanted) helper.fail(spot + " on the back view: slot " + got + ", wanted " + wanted);
+			if (WardrobeGui.previewSlot(spot) >= 0) helper.fail(spot + " has a slot on the front view, which cannot show it");
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * The hover tooltips are on every angle, each where that angle draws the cell: a patch on the
+	 * chest is hoverable from the front and nowhere else, one on the back from the back, one on the
+	 * outer face of the right sleeve from the right — and a view shows tooltips for the cells it
+	 * shows and for no others.
+	 */
 	@GameTest(maxTicks = 1200)
-	public void wardrobePreviewTooltipsAreTheFrontViewsOnly(GameTestHelper helper) throws IOException {
+	public void wardrobePreviewTooltipsFollowTheAngle(GameTestHelper helper) throws IOException {
 		MinecraftServer server = helper.getLevel().getServer();
 		Path dir = Files.createTempDirectory("ovvar-wardrobes");
 		ServerPlayer player = helper.makeMockServerPlayerInLevel();
 		UUID owner = player.getUUID();
 		AtomicReference<Wardrobes.Outcome> outcome = new AtomicReference<>();
+		List<Placement> sewn = List.of(ITK, NYCKELN, SLEEVE);
 		helper.startSequence()
 				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
 				.thenExecute(() -> guarded(server, () -> {
@@ -1383,19 +1466,37 @@ public final class WardrobeTests {
 					Wardrobes.fetch(owner);
 				}))
 				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
-				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(ITK_PATCH, 1).sew(CHAPTER, ITK).orElse(null), outcome::set))
+				// The chest, the back and the right sleeve: three cells, three different sides.
+				.thenExecute(() -> Wardrobes.update(owner, w -> w.add(ITK_PATCH, 2).add(NYCKELN_PATCH, 1)
+						.sew(CHAPTER, ITK).orElseThrow()
+						.sew(CHAPTER, NYCKELN).orElseThrow()
+						.sew(CHAPTER, SLEEVE).orElse(null), outcome::set))
 				.thenWaitUntil(() -> assertThat(outcome.get() == Wardrobes.Outcome.OK, "setup outcome " + outcome.get()))
 				.thenExecute(() -> guarded(server, () -> {
-					WardrobeGui front = WardrobeGui.forTest(player, CHAPTER, Angle.FRONT);
-					int slot = WardrobeGui.previewSlot(ITK.spot());
-					if (isEmpty(front, slot)) helper.fail("no tooltip item at the ITK's slot on the front view");
-					if (front.getGuiElement(slot).getGuiCallback() != GuiElement.EMPTY_CALLBACK) helper.fail("a preview item has a click callback");
-					for (Angle angle : new Angle[]{Angle.RIGHT, Angle.BACK, Angle.LEFT}) {
-						WardrobeGui turned = WardrobeGui.forTest(player, CHAPTER, angle);
-						for (int i = 9; i < 45; i++) {
-							int col = i % 9;
-							if (col >= 5 && !isEmpty(turned, i)) helper.fail("a tooltip item is left over the preview on the " + angle + " view");
+					if (WardrobePreview.angleOf(ITK.spot()) != Angle.FRONT) helper.fail("the chest is not on the front view");
+					if (WardrobePreview.angleOf(NYCKELN.spot()) != Angle.BACK) helper.fail("the back is not on the back view");
+					if (WardrobePreview.angleOf(SLEEVE.spot()) != Angle.RIGHT) helper.fail("the right sleeve's outer face is not on the right view");
+					for (Angle angle : Angle.values()) {
+						WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, angle);
+						int wanted = 0;
+						for (Placement placement : sewn) {
+							int slot = WardrobeGui.previewSlot(angle, placement.spot());
+							if (WardrobePreview.angleOf(placement.spot()) != angle) {
+								if (slot >= 0) helper.fail(placement.spot() + " has a slot on the " + angle + " view, which does not show it");
+								continue;
+							}
+							wanted++;
+							if (isEmpty(gui, slot)) helper.fail("no tooltip item for " + placement.spot() + " at slot " + slot + " on the " + angle + " view");
+							else {
+								if (gui.getGuiElement(slot).getGuiCallback() != GuiElement.EMPTY_CALLBACK) helper.fail("a preview item has a click callback");
+								if (!lore(gui.getGuiElement(slot).getItemStack()).contains(placement.spot().label())) {
+									helper.fail("the " + angle + " view's tooltip does not name " + placement.spot().label() + ": " + lore(gui.getGuiElement(slot).getItemStack()));
+								}
+							}
 						}
+						int filled = 0;
+						for (int i = 9; i < 45; i++) if (i % 9 >= 5 && !isEmpty(gui, i)) filled++;
+						if (filled != wanted) helper.fail("the " + angle + " view has " + filled + " tooltip item(s) over the preview, wanted " + wanted);
 					}
 					release(server);
 				}))

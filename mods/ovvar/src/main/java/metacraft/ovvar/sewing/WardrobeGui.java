@@ -36,7 +36,6 @@ import net.minecraft.world.item.Items;
 import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
-import java.util.EnumMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -59,9 +58,9 @@ import java.util.concurrent.ConcurrentHashMap;
  *	   click exactly as the old StashGui did (take out / start a sewing session);</li>
  *   <li>rows 1-4, cols 5-8: the preview — a picture of the player's own garment with their patches
  *	   on it, rendered into the pack by {@link WardrobePreview} and drawn by the title's second
- *	   glyph, with a hover-only item wearing the {@code ovvar:invisible} model at the slot nearest
- *	   each sewn placement's spot ({@link #previewSlot}) so the picture shows through and only the
- *	   "which patch is where" tooltip is left;</li>
+ *	   glyph, with a hover-only item wearing the {@code ovvar:invisible} model over every placement
+ *	   this angle shows, at the slot the figure draws that cell in ({@link #previewSlot}) so the
+ *	   picture shows through and only the "which patch is where" tooltip is left;</li>
  *   <li>row 5: one verb per action, each with a line saying what it does — take out (col 0),
  *	   put held patches in (col 1), sew on a stand (col 2), see it in 3D (col 3), finish sewing
  *	   (col 4, only mid-session), help (col 7), close (col 8). Cols 0 and 2 are reminders for the
@@ -194,51 +193,38 @@ public final class WardrobeGui extends SimpleGui {
 		return owned.isEmpty() ? Chapter.values()[0] : owned.get(0);
 	}
 
-	// ---- preview: spot -> the slot of the 4x4 preview grid nearest where the doll draws it
-
-	private record Cell(int row, int col) {}
+	// ---- preview: spot -> the slot of the 4x4 preview grid the doll draws that cell in
 
 	/**
-	 * Every {@link Spot} mapped onto the 4x4 grid of hover-only slots over the preview, laid out as
-	 * the paper doll behind them is: the top's cells in rows 0-1 (the sleeves at the outer columns,
-	 * the chest and back in the middle two) and the trousers' in rows 2-3, with the wearer's right
-	 * on the viewer's left, which is where the front view draws it. Several cells share a slot on
-	 * purpose - 16 slots for 33 cells, and a cell's front and back cannot both have one - so the
-	 * last placement drawn to a slot is the one whose tooltip shows; a design with one cell per slot
-	 * (the common case) always shows correctly, and a denser one still points at every slot it
-	 * touches. The picture itself is exact: every patch is drawn where it really sits.
+	 * Which of the 4x4 hover-only slots over the preview a cell's tooltip belongs on, from the angle
+	 * the figure is turned to — or -1 when this angle does not show the cell at all (a cell is on one
+	 * face of one box, and a face is seen from one side, so three angles out of four say -1).
+	 *
+	 * <p>There is no table of spots and cells to keep: the panel is exactly the 4x4 block of 18 px
+	 * slot cells at rows 1-4, cols 5-8, so the slot is simply the one holding the centre of the
+	 * rectangle {@link WardrobePreview#cellRect} measures the patch into — the compositor's own
+	 * geometry, which is what makes the tooltip land on the part of the picture it is about from every
+	 * side. Two cells of one angle may still share a slot (16 slots, and a sleeve is 12 px wide): as
+	 * before, the last placement drawn to a slot is the one whose tooltip shows, so a design with one
+	 * cell per slot — the common case — always reads correctly, and a denser one still points at every
+	 * slot it touches.
 	 */
-	private static final Map<Spot, Cell> PREVIEW_CELL = new EnumMap<>(Spot.class);
-
-	static {
-		// The top: the chest and the back in the middle columns, rows 0-1.
-		PREVIEW_CELL.put(Spot.FRONT_TOP_LEFT, new Cell(0, 1));
-		PREVIEW_CELL.put(Spot.FRONT_TOP_RIGHT, new Cell(0, 2));
-		PREVIEW_CELL.put(Spot.FRONT_LOW_LEFT, new Cell(1, 1));
-		PREVIEW_CELL.put(Spot.FRONT_LOW_RIGHT, new Cell(1, 2));
-		PREVIEW_CELL.put(Spot.BACK_TOP_LEFT, new Cell(0, 1));
-		PREVIEW_CELL.put(Spot.BACK_TOP_RIGHT, new Cell(0, 2));
-		PREVIEW_CELL.put(Spot.BACK_LOW_LEFT, new Cell(1, 1));
-		PREVIEW_CELL.put(Spot.BACK_LOW_RIGHT, new Cell(1, 2));
-		// The sleeves: the wearer's right arm at column 0, their left at column 3.
-		for (Spot s : List.of(Spot.SLEEVE_OUT_TOP_R, Spot.SLEEVE_FRONT_TOP_R, Spot.SLEEVE_BACK_TOP_R)) PREVIEW_CELL.put(s, new Cell(0, 0));
-		for (Spot s : List.of(Spot.SLEEVE_OUT_MID_R, Spot.SLEEVE_FRONT_MID_R, Spot.SLEEVE_BACK_MID_R)) PREVIEW_CELL.put(s, new Cell(1, 0));
-		for (Spot s : List.of(Spot.SLEEVE_OUT_TOP_L, Spot.SLEEVE_FRONT_TOP_L, Spot.SLEEVE_BACK_TOP_L)) PREVIEW_CELL.put(s, new Cell(0, 3));
-		for (Spot s : List.of(Spot.SLEEVE_OUT_MID_L, Spot.SLEEVE_FRONT_MID_L, Spot.SLEEVE_BACK_MID_L)) PREVIEW_CELL.put(s, new Cell(1, 3));
-		// The trousers: rows 2-3, the wearer's right leg at column 1 and their left at column 2 -
-		// the middle two, which is where the doll hangs its legs.
-		for (Spot s : List.of(Spot.LEG_OUT_TOP_R, Spot.LEG_FRONT_TOP_R, Spot.LEG_BACK_TOP_R)) PREVIEW_CELL.put(s, new Cell(2, 1));
-		for (Spot s : List.of(Spot.LEG_OUT_MID_R, Spot.LEG_FRONT_MID_R, Spot.LEG_BACK_MID_R)) PREVIEW_CELL.put(s, new Cell(3, 1));
-		for (Spot s : List.of(Spot.LEG_OUT_TOP_L, Spot.LEG_FRONT_TOP_L, Spot.LEG_BACK_TOP_L)) PREVIEW_CELL.put(s, new Cell(2, 2));
-		for (Spot s : List.of(Spot.LEG_OUT_MID_L, Spot.LEG_FRONT_MID_L, Spot.LEG_BACK_MID_L)) PREVIEW_CELL.put(s, new Cell(3, 2));
-		PREVIEW_CELL.put(Spot.SEAT, new Cell(3, 1));
+	public static int previewSlot(Angle angle, Spot spot) {
+		int[] rect = WardrobePreview.cellRect(angle, spot);
+		if (rect == null) return -1;
+		int col = within((rect[0] + rect[2] / 2) / WardrobeFont.PITCH, PREVIEW_COLS);
+		int row = within((rect[1] + rect[3] / 2) / WardrobeFont.PITCH, BODY_ROWS);
+		return slot(BODY_TOP + row, PREVIEW_COL0 + col);
 	}
 
-	/** The preview slot a placement on {@code spot} is drawn at, or -1 if {@code spot} has none (should not happen). */
+	/** The front view's slot for a cell — the angle the screen opens on, and what most callers mean. */
 	public static int previewSlot(Spot spot) {
-		Cell cell = PREVIEW_CELL.get(spot);
-		if (cell == null) return -1;
-		return slot(BODY_TOP + cell.row(), PREVIEW_COL0 + cell.col());
+		return previewSlot(Angle.FRONT, spot);
+	}
+
+	/** A patch may hang a pixel over the edge of the figure; its centre never leaves the panel. */
+	private static int within(int index, int count) {
+		return Math.max(0, Math.min(count - 1, index));
 	}
 
 	// ---- the title: the chapter's background, then the stats strip
@@ -494,15 +480,16 @@ public final class WardrobeGui extends SimpleGui {
 	/**
 	 * Rows 1-4, cols 5-8: the paper doll is the title's second glyph, drawn behind these slots, so
 	 * every slot here carries nothing but a tooltip — an item with the {@code ovvar:invisible} model
-	 * (a transparent icon), no callback, at the slot nearest each sewn placement's spot.
+	 * (a transparent icon), no callback, over each placement the angle on show draws — at the slot
+	 * that angle draws the cell in, so the figure can be turned and the tooltips turn with it.
 	 */
 	private void buildPreview(Wardrobe wardrobe) {
-		// Only the front view: from the other three sides a slot of this grid is nowhere near the
-		// cell it would be about, and a tooltip pointing at the wrong part of the figure is worse than
-		// none. Nothing sewn at all says so in the glyph layer (WardrobeFont.NOTHING_SEWN).
-		if (angle != Angle.FRONT) return;
+		// Every angle: the tooltip goes where this angle really draws the cell (previewSlot), so a
+		// patch on the back is hoverable on the back view and the front view leaves those slots
+		// empty. Two cells of one angle that share a slot: the last one drawn wins, as before.
+		// Nothing sewn at all says so in the glyph layer (WardrobeFont.NOTHING_SEWN).
 		for (Placement placement : shownPlacements(wardrobe, chapter)) {
-			int slot = previewSlot(placement.spot());
+			int slot = previewSlot(angle, placement.spot());
 			if (slot < 0) continue;
 			GuiElementBuilder element = GuiElementBuilder.from(invisible())
 					.setName(Component.literal(placement.patch().name()).withStyle(ChatFormatting.WHITE))

@@ -198,6 +198,58 @@ public final class WardrobePreview {
 		return null;
 	}
 
+	// ---- where a cell lands on the figure, in px
+
+	/** Every angle's cell rectangles, worked out once from the same geometry the compositor draws with. */
+	private static final Map<Angle, Map<Spot, int[]>> CELL_RECTS = new LinkedHashMap<>();
+
+	static {
+		for (Angle angle : Angle.values()) {
+			Map<Spot, int[]> bySpot = new LinkedHashMap<>();
+			for (Spot spot : Spot.values()) {
+				int[] rect = computeCellRect(angle, spot);
+				if (rect != null) bySpot.put(spot, rect);
+			}
+			CELL_RECTS.put(angle, bySpot);
+		}
+	}
+
+	/**
+	 * The pixel rectangle {x, y, w, h} inside the {@value #PANEL_W}×{@value #PANEL_H} preview glyph
+	 * that this angle draws the cell {@code spot} in, or null if the angle does not show the cell.
+	 *
+	 * <p>It is not a second set of numbers beside the compositor's: it is measured by putting a cell
+	 * -shaped mask through {@link #blit} — the very call {@link #patchArt} places a patch with, so
+	 * the per-part offset, the model's mirroring and the ×1.5 resample are the same arithmetic by
+	 * construction and cannot drift from the picture. The seat, which is on both legs' back faces,
+	 * gives the rectangle across the two of them.
+	 */
+	public static int @Nullable [] cellRect(Angle angle, Spot spot) {
+		return CELL_RECTS.get(angle).get(spot);
+	}
+
+	private static int @Nullable [] computeCellRect(Angle angle, Spot spot) {
+		Tex mask = cellMask(spot);
+		Tex canvas = Tex.blank(PANEL_W, PANEL_H);
+		boolean shown = false;
+		for (Part part : parts(angle)) {
+			if (!shows(part, spot)) continue;
+			canvas = blit(canvas, part, mask);
+			shown = true;
+		}
+		return shown ? bounds(canvas) : null;
+	}
+
+	/** A layer texture opaque over exactly one cell's own texels and transparent everywhere else. */
+	private static Tex cellMask(Spot spot) {
+		int w = 64 * D, h = 32 * D;
+		int[] px = new int[w * h];
+		for (int y = spot.v * D; y < (spot.v + Spot.SIZE) * D; y++) {
+			for (int x = spot.u * D; x < (spot.u + Spot.SIZE) * D; x++) px[y * w + x] = 0xFFFFFFFF;
+		}
+		return Tex.of(w, h, px);
+	}
+
 	// ---- the glyphs
 
 	/**

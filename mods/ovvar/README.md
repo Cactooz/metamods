@@ -221,11 +221,12 @@ and back again, and a glyph's *ascent* puts its top at a given container y (a bi
 lands at `textY + 7 − ascent`, so anything below the header has a negative one). That is also how
 the tab highlight follows the player's own tab order and how the stats readout is right-aligned.
 
-The preview's sixteen slots therefore carry no icon at all: on the **front view only**, an item
-wearing the `ovvar:invisible` model (a transparent 16×16) with a name and one lore line, no click
-handler, at the slot nearest each sewn placement's spot — the picture shows through and all that is
-left of the slot is its "\<patch\> on \<spot\>" tooltip. From a side or the back those slots are
-empty: a slot of a 4×4 grid is nowhere near the cell it would be about once the figure has turned.
+The preview's sixteen slots therefore carry no icon at all: **on every angle**, an item wearing the
+`ovvar:invisible` model (a transparent 16×16) with a name and one lore line, no click handler, over
+each placement the angle on show draws — the picture shows through and all that is left of the slot
+is its "\<patch\> on \<spot\>" tooltip. Turn the figure and the tooltips turn with it: a patch sewn
+on the back is hoverable on the back view and its front slot is empty, because a cell is on one face
+of one box and a face is seen from one of the four sides.
 `./gradlew :mods:ovvar:wardrobeSheet` composites the whole screen, and all four angles side by side,
 to a PNG (`WardrobeSheet`, a dev tool) so the doll can be looked at without starting a client.
 
@@ -250,11 +251,17 @@ nothing but 1 px gutters between them, and five pixels of type has to go somewhe
 on an icon. `WardrobeGui.perPage` and `pageCount` are the whole of the arithmetic, and the game test
 exercises them as arithmetic: the catalogue holds two patches, so no wardrobe this server can build
 has 45 kinds to page through. Which slot of the right block a
-placement's tooltip sits on is `WardrobeGui.previewSlot`, and the mapping is hand-written
-in `WardrobeGui.PREVIEW_CELL`: a front view of the wearer, column 0 their left, column 3 their
-right, the two middle columns the body; several of the garment's 33 spots share a cell on
-purpose (16 preview slots is not enough for one each), so the last placement drawn to a cell wins
-its tooltip — a design with only one spot per cell (the common case) always shows correctly.
+placement's tooltip sits on is `WardrobeGui.previewSlot(angle, spot)`, and it is measured, not
+tabulated: `WardrobePreview.cellRect` puts a cell-shaped mask through the very `blit` the
+compositor draws a patch with — the same per-part offset, the model's mirroring and the ×1.5
+resample — and gives back the pixel rectangle the cell lands in, or null when that angle does not
+show the cell. The panel is exactly the 4×4 block of 18 px slot cells at rows 1-4, cols 5-8, so the
+slot is the one holding that rectangle's centre, and the tooltip cannot drift from the picture the
+way a hand-kept table could (the front view's slots are the ones the old table gave, and a game
+test pins them). `previewSlot(spot)` is the front overload, for the callers that only ever mean the
+front. Two cells of one angle can still share a slot (16 slots, and a sleeve is 12 px wide), so the
+last placement drawn to a slot wins its tooltip — a design with only one cell per slot (the common
+case) always shows correctly.
 Row 5's "finish" (col 4) is the old `StashGui`'s "Finish sewing" button, shown only while a stash
 session is running.
 
