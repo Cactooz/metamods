@@ -232,7 +232,13 @@ is its "\<patch\> on \<spot\>" tooltip. Turn the figure and the tooltips turn wi
 on the back is hoverable on the back view and its front slot is empty, because a cell is on one face
 of one box and a face is seen from one of the four sides.
 `./gradlew :mods:ovvar:wardrobeSheet` composites the whole screen, and all four angles side by side,
-to a PNG (`WardrobeSheet`, a dev tool) so the doll can be looked at without starting a client.
+to a PNG (`WardrobeSheet`, a dev tool) so the doll can be looked at without starting a client, and
+`-PsheetState=audit` prints every cell's glyph against the art it is meant to be showing. "The art",
+for a patch bigger than its cell, is only the part of it that lands on the cell's own face: datagen
+wraps what hangs over round the box, so those columns are drawn on the face next door and the cell's
+glyph is right not to have them. `WardrobePreview.shownArt` is that window — and, for the seat, the
+two legs' halves in the order the back view puts the legs — and both the audit and the
+`wardrobePreviewDrawsEveryCellsOwnPatchArt` game test compare against it.
 
 **`/ovvar look [player]`** opens the same screen read-only on somebody else's ovve: their chapters as
 tabs (the ones they have a design for — their inventory is none of our business and may not be

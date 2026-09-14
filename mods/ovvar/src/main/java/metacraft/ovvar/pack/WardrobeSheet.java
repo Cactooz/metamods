@@ -47,8 +47,10 @@ public final class WardrobeSheet {
 			audit();
 			return;
 		}
-		// The catalogue's two patches, spread over cells the four angles show between them.
-		Patches.Patch itk = Patches.get("itk"), nyckeln = Patches.get("nyckeln");
+		// A sample of the catalogue, spread over cells the four angles show between them — an oversize
+		// patch (the ITK hangs over its cell), a cell-sized one, and the seat patch, which only the
+		// seat takes (Patch.fits): a cell a patch does not fit has no texture and no glyph for it.
+		Patches.Patch itk = Patches.get("itk"), nyckeln = Patches.get("nyckeln"), rivals = Patches.get("rivals");
 		List<Placement> sewn = empty ? List.of() : List.of(
 				new Placement(Spot.FRONT_TOP_LEFT, itk),
 				new Placement(Spot.FRONT_LOW_RIGHT, nyckeln),
@@ -56,7 +58,8 @@ public final class WardrobeSheet {
 				new Placement(Spot.SLEEVE_OUT_MID_R, itk),
 				new Placement(Spot.BACK_TOP_LEFT, nyckeln),
 				new Placement(Spot.LEG_FRONT_TOP_R, itk),
-				new Placement(Spot.LEG_OUT_MID_L, nyckeln));
+				new Placement(Spot.LEG_OUT_MID_L, nyckeln),
+				new Placement(Spot.SEAT, rivals));
 
 		// The screen itself, with the preview at the angle the screen opens on.
 		Tex screen = tex(WardrobeArt.tint(WardrobeArt.readTemplate(), WardrobeArt.colour(chapter)));
@@ -118,21 +121,24 @@ public final class WardrobeSheet {
 
 	/**
 	 * {@code -PsheetState=audit}: every cell's glyph against the patch art it is meant to be
-	 * showing, by chromaticity — what a colour still has in common with itself once the doll has
-	 * shaded it. A cell whose glyph is missing one of the art's colours, or has one the art never
-	 * had, is a crop landing on cloth beside the patch instead of on the patch. The
+	 * showing (the part of it that lands on the cell's own face — {@link WardrobePreview#shownArt}),
+	 * by chromaticity — what a colour still has in common with itself once the doll has shaded it. A
+	 * cell whose glyph is missing one of those colours, or has one the art never had, is a crop
+	 * landing on cloth beside the patch instead of on the patch. The
 	 * {@code wardrobePreviewDrawsEveryCellsOwnPatchArt} game test asserts the same thing; this
 	 * prints the whole table at once, which is what a bug report about one cell needs.
 	 */
 	private static void audit() {
 		for (Patches.Patch patch : Patches.all()) {
 			Tex art = Tex.read(WardrobeSheet.class.getResourceAsStream("/art/ovvar/patches/" + patch.id() + ".png"));
-			java.util.List<Integer> want = chromas(art);
-			System.out.println("== " + patch.id() + " " + want);
+			System.out.println("== " + patch.id() + " " + chromas(art));
 			for (Spot spot : Spot.values()) {
 				if (!patch.fits(spot)) continue;
 				WardrobeFont.Glyph glyph = WardrobePreview.patchGlyph(new Placement(spot, patch));
 				if (glyph == null) continue;
+				// Against the art this cell can show: an oversize patch's hang-over is wrapped round the
+				// box by datagen and drawn on the face next door, so it is no part of this cell's picture.
+				java.util.List<Integer> want = chromas(WardrobePreview.shownArt(spot, patch, art));
 				java.util.List<Integer> got = chromas(glyph.art().get());
 				// To within a level of quantisation: shading multiplies the channels and rounds, and a
 				// sleeve is shaded twice over, which can carry a ratio over a bucket boundary.

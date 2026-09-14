@@ -240,6 +240,56 @@ public final class WardrobePreview {
 		return shown ? bounds(canvas) : null;
 	}
 
+	/**
+	 * The part of a patch's own art a cell's glyph can show, laid out the way it reads across the
+	 * figure — what an audit compares that glyph against (see {@code WardrobeSheet}'s audit and the
+	 * {@code wardrobePreviewDrawsEveryCellsOwnPatchArt} game test).
+	 *
+	 * <p>It is not the whole art, and that is not a crop going wrong. A patch bigger than its cell
+	 * hangs over the cell's edges, and datagen wraps what hangs over <em>round the box</em> (round the
+	 * part's strip, as the shader samples it), so the columns that land past the end of the cell's own
+	 * face are drawn on the neighbouring face — a face the doll draws from another angle, or not at
+	 * all — and the rows that leave the box's side rows are dropped altogether. So the reference is the
+	 * art windowed to the columns and rows that land on this cell's face, mirrored exactly as the art
+	 * is: datagen pre-mirrors a left limb's art because the model mirrors that limb, and the doll
+	 * mirrors it for the same reason, which puts the art back the way it was drawn.
+	 *
+	 * <p>The seat is one patch across both legs' back faces: datagen cuts it in half, the right leg's
+	 * half first, and the halves read across the figure in the order the view puts the legs — from
+	 * behind, the wearer's left leg is on the viewer's left, so the left leg's half reads first. That
+	 * is the picture as the textures draw it, and not a claim that datagen cuts the art the way round
+	 * the artist meant: {@code _r} takes the art's own left half and the wearer's right leg is on the
+	 * viewer's right from behind, so the seat reads with the art's halves swapped.
+	 */
+	public static Tex shownArt(Spot spot, Patches.Patch patch, Tex art) {
+		Angle angle = angleOf(spot);
+		if (angle == null) return Tex.blank(art.width, art.height);
+		if (spot == Spot.SEAT) {
+			int[] right = cellRect(angle, Spot.SEAT_CELLS.getFirst()), left = cellRect(angle, Spot.SEAT_CELLS.getLast());
+			boolean rightFirst = right != null && left != null && right[0] <= left[0];
+			int half = art.width / 2;
+			return Tex.blank(art.width, art.height)
+					.blit(art, rightFirst ? 0 : half, 0, half, art.height, 0, 0)
+					.blit(art, rightFirst ? half : 0, 0, half, art.height, half, 0);
+		}
+		Tex baked = spot.side == Spot.Side.LEFT ? art.flipX() : art;
+		int x = spot.u * D + patch.offsetX(), y = spot.v * D + (Spot.PX - baked.height) / 2;
+		int strip = Spot.stripStart(spot) * D, stripWidth = Spot.stripWidth(spot) * D;
+		int[] face = face(spot);
+		int faceStart = face[0] * D, faceEnd = faceStart + face[1] * D;
+		Tex out = Tex.blank(baked.width, baked.height);
+		for (int ax = 0; ax < baked.width; ax++) {
+			int column = strip + Math.floorMod(x + ax - strip, stripWidth);
+			if (column < faceStart || column >= faceEnd) continue;
+			for (int ay = 0; ay < baked.height; ay++) {
+				int row = y + ay;
+				if (row < FACE_V || row >= FACE_V + FACE_H) continue;
+				out = out.with(ax, ay, baked.get(ax, ay));
+			}
+		}
+		return spot.side == Spot.Side.LEFT ? out.flipX() : out;
+	}
+
 	/** A layer texture opaque over exactly one cell's own texels and transparent everywhere else. */
 	private static Tex cellMask(Spot spot) {
 		int w = 64 * D, h = 32 * D;

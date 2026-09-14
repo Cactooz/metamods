@@ -1157,6 +1157,12 @@ public final class WardrobeTests {
 	 * every colour of the art is in the glyph, the glyph has no colour the art does not (it is the
 	 * patch layer alone, and cloth would show up here), and the colours run left to right in the
 	 * art's own order, reversed exactly where the model mirrors that face.
+	 *
+	 * <p>"The art", for a patch bigger than its cell, is the part of it that lands on the cell's own
+	 * face: datagen wraps what hangs over the cell round the box, so those columns belong to the face
+	 * next door and this cell's glyph is right not to draw them.
+	 * {@link WardrobePreview#shownArt} is that window — and the seat's two legs in the order the view
+	 * puts them.
 	 */
 	@GameTest
 	public void wardrobePreviewDrawsEveryCellsOwnPatchArt(GameTestHelper helper) {
@@ -1176,11 +1182,18 @@ public final class WardrobeTests {
 				Tex drawn = glyph.art().get();
 				List<Integer> got = colours(drawn);
 				String where = patch.id() + " on " + spot.id() + " (" + angle + " view)";
-				for (int colour : artColours) {
+				// The art this cell can show: an oversize patch's hang-over is drawn on the face next door.
+				Tex shown = WardrobePreview.shownArt(spot, patch, art);
+				List<Integer> shownColours = colours(shown);
+				if (shownColours.isEmpty()) {
+					helper.fail(where + ": no part of the art lands on the cell's own face");
+					continue;
+				}
+				for (int colour : shownColours) {
 					if (!near(got, colour)) helper.fail(where + ": the art's colour " + hex(colour) + " is not in the glyph, which has " + hex(got));
 				}
 				for (int colour : got) {
-					if (!near(artColours, colour)) helper.fail(where + ": the glyph has " + hex(colour) + ", which the art does not — cloth, or the wrong crop");
+					if (!near(shownColours, colour)) helper.fail(where + ": the glyph has " + hex(colour) + ", which the art does not — cloth, or the wrong crop");
 				}
 				// And the way round: a row of the art, collapsed to the order its colours run in, must
 				// read the same way across the glyph — on every cell, left or right. A left cell is
@@ -1188,9 +1201,9 @@ public final class WardrobeTests {
 				// mirrors that limb, and the doll mirrors the limb for the same reason, which puts the
 				// art back the way it was drawn. A patch reads correctly on both sleeves, and that is
 				// the whole point of datagen pre-mirroring it.
-				List<Integer> want = run(art, art.height / 2);
+				List<Integer> want = run(shown, middleRow(shown));
 				if (!readsAs(drawn, want)) {
-					helper.fail(where + ": the art reads " + hex(want) + " across, the glyph reads " + hex(run(drawn, drawn.height / 2)));
+					helper.fail(where + ": the art reads " + hex(want) + " across, the glyph reads " + hex(run(drawn, middleRow(drawn))));
 				}
 			}
 		}
@@ -1247,13 +1260,29 @@ public final class WardrobeTests {
 		return out;
 	}
 
-	/** One row's colours left to right, each run of the same one collapsed to a single entry. */
+	/** The row nearest the middle with anything on it — a tall patch loses its top and bottom rows to the box. */
+	private static int middleRow(Tex tex) {
+		for (int away = 0; away <= tex.height; away++) {
+			for (int y : new int[]{tex.height / 2 + away, tex.height / 2 - away}) {
+				if (y >= 0 && y < tex.height && !run(tex, y).isEmpty()) return y;
+			}
+		}
+		return tex.height / 2;
+	}
+
+	/**
+	 * One row's colours left to right, each run of the same one collapsed to a single entry —
+	 * "the same" to the tolerance the comparison itself uses ({@link #near}), because two colours a
+	 * single level of quantisation apart are two the shaded glyph cannot be asked to tell apart: the
+	 * run has to be read at the resolution it is compared at, or a row of art holding both would
+	 * read as one entry longer than the same row on the doll.
+	 */
 	private static List<Integer> run(Tex tex, int y) {
 		List<Integer> out = new ArrayList<>();
 		for (int x = 0; x < tex.width; x++) {
 			if (Tex.a(tex.get(x, y)) == 0) continue;
 			int chroma = chroma(tex.get(x, y));
-			if (out.isEmpty() || out.get(out.size() - 1) != chroma) out.add(chroma);
+			if (out.isEmpty() || !near(List.of(out.get(out.size() - 1)), chroma)) out.add(chroma);
 		}
 		return out;
 	}
@@ -1276,12 +1305,22 @@ public final class WardrobeTests {
 		return false;
 	}
 
+	/**
+	 * Does {@code got} read the colours of {@code want}, in that order? A band of the glyph's row may
+	 * be split in two on the way: the doll shades the panel's right half, a cell can straddle that
+	 * edge, and two art colours a single level apart — one entry of the art's run, since the run is
+	 * collapsed at the tolerance it is compared at — round to two levels apart on the two sides of
+	 * it. So an entry of {@code got} that matches nothing may be passed over; what may never happen
+	 * is a colour of the art turning up out of order, which is what a mirrored or mis-cropped face
+	 * would look like. Every colour in play is already known to be one of the art's own (the
+	 * chromaticity sets are compared exactly), so there is nothing else for a spare entry to be.
+	 */
 	private static boolean sameRun(List<Integer> got, List<Integer> want) {
-		if (got.size() != want.size()) return false;
-		for (int i = 0; i < got.size(); i++) {
-			if (!near(List.of(want.get(i)), got.get(i))) return false;
+		int at = 0;
+		for (int colour : got) {
+			if (at < want.size() && near(List.of(want.get(at)), colour)) at++;
 		}
-		return true;
+		return at == want.size();
 	}
 
 	private static String hex(List<Integer> colours) {
