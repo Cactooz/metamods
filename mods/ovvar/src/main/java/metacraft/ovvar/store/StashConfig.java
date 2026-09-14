@@ -4,6 +4,7 @@ import com.mojang.serialization.Codec;
 import com.mojang.serialization.MapCodec;
 import com.mojang.serialization.codecs.RecordCodecBuilder;
 import net.minecraft.world.level.GameType;
+import org.jspecify.annotations.Nullable;
 
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -85,6 +86,33 @@ public record StashConfig(
 	/** May a player take a patch out of the stash as an item here? */
 	public boolean canWithdraw() {
 		return withdraw && !minigameServer;
+	}
+
+	// ---- why not, in words: the wardrobe screen shows an unavailable action greyed out with its reason
+
+	/** What a minigame server is, said once, wherever an action is refused for being on one. */
+	public static final String LOOK_ONLY = "Minigame server: look only";
+
+	/** Why a patch cannot be taken out of the stash here, or null if it can. */
+	public @Nullable String whyNoWithdraw() {
+		if (minigameServer) return LOOK_ONLY;
+		return withdraw ? null : "This server does not hand patches out";
+	}
+
+	/** Why a sewing session cannot be started here, or null if it can. */
+	public @Nullable String whyNoSessions() {
+		if (minigameServer) return LOOK_ONLY;
+		return sessions ? null : "Sewing sessions are off on this server";
+	}
+
+	/** Why held patch items cannot be banked here, or null if they can. */
+	public @Nullable String whyNoDeposit() {
+		return minigameServer && !banksOnPickup() ? LOOK_ONLY : null;
+	}
+
+	/** Why a mannequin cannot be shown here, or null if one can. */
+	public @Nullable String whyNoMannequin() {
+		return minigameServer ? LOOK_ONLY : null;
 	}
 
 	private static final Codec<GameType> GAME_TYPE = Codec.STRING.comapFlatMap(

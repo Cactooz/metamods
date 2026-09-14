@@ -31,6 +31,7 @@ import net.fabricmc.fabric.api.event.lifecycle.v1.ServerLifecycleEvents;
 import net.fabricmc.fabric.api.gametest.v1.GameTest;
 import net.minecraft.gametest.framework.GameTestAssertException;
 import net.minecraft.gametest.framework.GameTestHelper;
+import net.minecraft.core.component.DataComponents;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
@@ -626,7 +627,7 @@ public final class WardrobeTests {
 				.thenSucceed();
 	}
 
-	/** On a minigame server the take-out/sew reminders are gone; the help book still explains why. */
+	/** On a minigame server the take-out and sew actions are grey panes carrying the reason; the help book still explains why. */
 	@GameTest(maxTicks = 1200)
 	public void wardrobeActionsRespectTheMode(GameTestHelper helper) throws IOException {
 		MinecraftServer server = helper.getLevel().getServer();
@@ -648,8 +649,24 @@ public final class WardrobeTests {
 										stash.unpickToStash(), stash.withdraw(), stash.sessions(), stash.stashClick(), stash.anyStand(),
 										stash.sessionReach(), stash.sessionSeconds(), stash.explainInChat())));
 						WardrobeGui gui = WardrobeGui.forTest(player, CHAPTER, Piece.TOP);
-						if (!isEmpty(gui, 45)) helper.fail("take-out reminder present on a minigame server");
-						if (!isEmpty(gui, 47)) helper.fail("sew reminder present on a minigame server");
+						// Not gone — greyed out, named "(not here)" and carrying the reason: a missing
+						// slot teaches nobody why they cannot do the thing.
+						for (int slot : new int[]{45, 47, 48}) {
+							if (isEmpty(gui, slot)) helper.fail("action slot " + slot + " is missing instead of greyed out on a minigame server");
+							ItemStack pane = gui.getGuiElement(slot).getItemStack();
+							if (pane.getItem() != net.minecraft.world.item.Items.STAINED_GLASS_PANE.gray()) {
+								helper.fail("action slot " + slot + " is " + pane.getItem() + " on a minigame server, wanted a grey pane");
+							}
+							if (!pane.getHoverName().getString().contains("(not here)")) {
+								helper.fail("action slot " + slot + " is not named \"… (not here)\": " + pane.getHoverName().getString());
+							}
+							var lore = pane.get(net.minecraft.core.component.DataComponents.LORE);
+							boolean sawReason = lore != null && lore.lines().stream().anyMatch(line -> line.getString().equals(StashConfig.LOOK_ONLY));
+							if (!sawReason) helper.fail("action slot " + slot + " does not carry the reason \"" + StashConfig.LOOK_ONLY + "\"");
+							if (gui.getGuiElement(slot).getGuiCallback() != GuiElement.EMPTY_CALLBACK) {
+								helper.fail("action slot " + slot + " is refused but still clickable");
+							}
+						}
 						if (isEmpty(gui, 52)) helper.fail("no help book on a minigame server");
 						GuiElement help = gui.getGuiElement(52);
 						var itemLore = help.getItemStack().get(net.minecraft.core.component.DataComponents.LORE);
@@ -662,6 +679,76 @@ public final class WardrobeTests {
 					release(server);
 				}))
 				.thenSucceed();
+	}
+
+	/**
+	 * The screen says what it is: a tab per owned ovve, the one on show glinting and saying
+	 * "(showing)" and the others saying a click switches to them; exactly one piece toggle, at the
+	 * far end of the tab row, named for the half on show and the half a click brings up; and an
+	 * empty stash and an unsewn half each saying what would be there.
+	 */
+	@GameTest(maxTicks = 1200)
+	public void wardrobeTabsAndEmptyStatesExplainThemselves(GameTestHelper helper) throws IOException {
+		MinecraftServer server = helper.getLevel().getServer();
+		Path dir = Files.createTempDirectory("ovvar-wardrobes");
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		UUID owner = player.getUUID();
+		Chapter shown = CHAPTER, other = Chapter.values()[1];
+		for (Chapter chapter : List.of(shown, other)) {
+			ItemStack ovve = new ItemStack(ModContent.ovve(chapter));
+			OvveItem.setOwner(ovve, owner);
+			player.getInventory().add(ovve);
+		}
+		helper.startSequence()
+				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
+				.thenExecute(() -> guarded(server, () -> {
+					Wardrobes.use(server, new FileBackend(dir));
+					Wardrobes.fetch(owner);
+				}))
+				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(owner), "owner not loaded"))
+				.thenExecute(() -> guarded(server, () -> {
+					WardrobeGui gui = WardrobeGui.forTest(player, shown, Piece.TOP);
+
+					ItemStack active = gui.getGuiElement(0).getItemStack();
+					if (active.getItem() != ModContent.ovve(shown)) helper.fail("the first tab is " + active.getItem() + ", wanted the shown chapter's ovve");
+					if (!Boolean.TRUE.equals(active.get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE))) helper.fail("the tab on show does not glint");
+					if (!lore(active).contains("(showing)")) helper.fail("the tab on show does not say \"(showing)\": " + lore(active));
+					ItemStack sleeping = gui.getGuiElement(1).getItemStack();
+					if (Boolean.TRUE.equals(sleeping.get(DataComponents.ENCHANTMENT_GLINT_OVERRIDE))) helper.fail("a tab that is not on show glints");
+					if (!lore(sleeping).toLowerCase(java.util.Locale.ROOT).contains("click to switch")) helper.fail("a tab does not say a click switches to it: " + lore(sleeping));
+
+					// Exactly one piece toggle, and it is at the far end of the row.
+					for (int col = 2; col < 9; col++) {
+						if (col != WardrobeGui.PIECE_TOGGLE_COL && !isEmpty(gui, col)) helper.fail("something else is in the tab row at col " + col);
+					}
+					if (isEmpty(gui, WardrobeGui.PIECE_TOGGLE)) helper.fail("no piece toggle at col " + WardrobeGui.PIECE_TOGGLE_COL);
+					String top = gui.getGuiElement(WardrobeGui.PIECE_TOGGLE).getItemStack().getHoverName().getString();
+					if (!top.contains("Showing: Top") || !top.contains("click for Trousers")) helper.fail("the piece toggle showing the top reads \"" + top + "\"");
+					String trousers = WardrobeGui.forTest(player, shown, Piece.BOTTOM)
+							.getGuiElement(WardrobeGui.PIECE_TOGGLE).getItemStack().getHoverName().getString();
+					if (!trousers.contains("Showing: Trousers") || !trousers.contains("click for Top")) helper.fail("the piece toggle showing the trousers reads \"" + trousers + "\"");
+
+					// An empty stash, and a half with nothing sewn on it, each say so.
+					if (isEmpty(gui, WardrobeGui.NO_PATCHES)) helper.fail("an empty stash says nothing in the middle of the collection");
+					ItemStack noPatches = gui.getGuiElement(WardrobeGui.NO_PATCHES).getItemStack();
+					if (!noPatches.getHoverName().getString().contains("No patches yet")) helper.fail("the empty stash reads \"" + noPatches.getHoverName().getString() + "\"");
+					if (!lore(noPatches).contains("earned at chapter events") || !lore(noPatches).contains("/ovvar patch give")) {
+						helper.fail("the empty stash does not say where patches come from: " + lore(noPatches));
+					}
+					if (isEmpty(gui, WardrobeGui.NOTHING_SEWN)) helper.fail("an unsewn half says nothing in the middle of the preview");
+					ItemStack nothingSewn = gui.getGuiElement(WardrobeGui.NOTHING_SEWN).getItemStack();
+					if (!nothingSewn.getHoverName().getString().contains("Nothing sewn on yet")) helper.fail("the unsewn hint reads \"" + nothingSewn.getHoverName().getString() + "\"");
+					if (!lore(nothingSewn).contains("sewing stand")) helper.fail("the unsewn hint does not say where to sew: " + lore(nothingSewn));
+					release(server);
+				}))
+				.thenSucceed();
+	}
+
+	/** Every lore line of a stack, joined — what a player reads when they hover it. */
+	private static String lore(ItemStack stack) {
+		var lore = stack.get(DataComponents.LORE);
+		if (lore == null) return "";
+		return String.join(" | ", lore.lines().stream().map(Component::getString).toList());
 	}
 
 	/** The tab row only ever lists chapters the player owns an ovve of. */

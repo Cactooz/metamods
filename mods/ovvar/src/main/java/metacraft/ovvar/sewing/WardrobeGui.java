@@ -50,10 +50,10 @@ import java.util.concurrent.ConcurrentHashMap;
  *
  * <p>Grid ({@code slot = row * 9 + col}):
  * <ul>
- *   <li>row 0: one tab per chapter the player owns an ovve of, then a {@code top} and a
- *	   {@code feet} toggle for which {@link Piece} the collection and preview below show
- *	   ({@code feet} is {@link Piece#BOTTOM} — the legs and waist, read informally as "feet"
- *	   since the boots-channel preview lives there; see the README);</li>
+ *   <li>row 0: one tab per chapter the player owns an ovve of — the ovve itself, named, the one
+ *	   being shown glinting and saying "(showing)" — and at the far right (col
+ *	   {@value #PIECE_TOGGLE_COL}) a single toggle naming the half on show and the half a click
+ *	   brings up ("Showing: Top — click for Trousers"), not an unexplained chestplate and boots;</li>
  *   <li>rows 1-4, cols 0-4: the patch collection, one slot per stashed patch kind, left/right
  *	   click exactly as the old StashGui did (take out / start a sewing session);</li>
  *   <li>rows 1-4, cols 5-8: the preview — a picture of the player's own garment with their patches
@@ -61,14 +61,17 @@ import java.util.concurrent.ConcurrentHashMap;
  *	   glyph, with a hover-only item wearing the {@code ovvar:invisible} model at the slot nearest
  *	   each sewn placement's spot ({@link #previewSlot}) so the picture shows through and only the
  *	   "which patch is where" tooltip is left;</li>
- *   <li>row 5: deposit (col 1), show on mannequin (col 3), finish sewing (col 4, only mid-session),
- *	   help (col 7), close (col 8); cols 0 and 2 are reminder icons for the collection slots' own
- *	   take-out/sew-session gesture (there is no "selected patch" to act on otherwise — see the
- *	   README's Wardrobe screen section).</li>
+ *   <li>row 5: one verb per action, each with a line saying what it does — take out (col 0),
+ *	   put held patches in (col 1), sew on a stand (col 2), see it in 3D (col 3), finish sewing
+ *	   (col 4, only mid-session), help (col 7), close (col 8). Cols 0 and 2 are reminders for the
+ *	   collection slots' own take-out/sew gesture (there is no "selected patch" for a button to act
+ *	   on); an action this server refuses is a grey pane named "… (not here)" carrying the
+ *	   reason from {@link StashConfig}, never a slot that is simply missing.</li>
  * </ul>
- * On a minigame server the screen is look-only: the take-out and sew reminders are gone, and
- * "show on mannequin" is refused (the help book says so); deposit still shows when patches are
- * banked automatically here, same as before, and help/close are always there.
+ * Empty states say what would be there: no patches puts "No patches yet" in the collection's
+ * middle, nothing sewn on this half puts "Nothing sewn on yet" in the middle of the bare garment.
+ * On a minigame server the screen is look-only, and every refused action says so where it is; the
+ * help item (col 7) explains the screen top to bottom in five lines.
  */
 public final class WardrobeGui extends SimpleGui {
 	private static final int ROWS = 6, WIDTH = 9;
@@ -78,6 +81,11 @@ public final class WardrobeGui extends SimpleGui {
 	private static final int TAKE_OUT_HINT = slot(ACTION_ROW, 0), DEPOSIT = slot(ACTION_ROW, 1), SEW_HINT = slot(ACTION_ROW, 2);
 	private static final int MANNEQUIN = slot(ACTION_ROW, 3), FINISH_SEWING = slot(ACTION_ROW, 4);
 	private static final int HELP = slot(ACTION_ROW, 7), CLOSE = slot(ACTION_ROW, 8);
+	/** The far end of the tab row: the one toggle for which half the screen shows. */
+	public static final int PIECE_TOGGLE_COL = 8;
+	public static final int PIECE_TOGGLE = slot(TAB_ROW, PIECE_TOGGLE_COL);
+	/** The middle of each panel, where an empty one says what would be there. */
+	public static final int NO_PATCHES = slot(BODY_TOP + 1, PATCH_COL0 + 2), NOTHING_SEWN = slot(BODY_TOP + 1, PREVIEW_COL0 + 1);
 
 	private final Chapter chapter;
 	private final Piece piece;
@@ -280,7 +288,8 @@ public final class WardrobeGui extends SimpleGui {
 		for (Chapter tab : owned) {
 			boolean current = tab == chapter;
 			GuiElementBuilder element = GuiElementBuilder.from(new ItemStack(ModContent.ovve(tab)))
-					.setName(Component.literal(tab.name).withStyle(current ? ChatFormatting.GOLD : ChatFormatting.WHITE))
+					.setName(Component.literal(tab.name + " " + tab.garmentWord()).withStyle(current ? ChatFormatting.GOLD : ChatFormatting.WHITE))
+					.addLoreLine(Component.literal(current ? "(showing)" : "Click to switch to it").withStyle(current ? ChatFormatting.GOLD : ChatFormatting.GRAY))
 					.glow(current);
 			element.setCallback((index, type, action, gui) -> {
 				if (!isOpen()) return;
@@ -289,20 +298,43 @@ public final class WardrobeGui extends SimpleGui {
 				next.open();
 			});
 			setSlot(slot(TAB_ROW, col++), element.build());
-			if (col >= WIDTH - 2) break;   // leave room for the two piece toggles
+			if (col >= PIECE_TOGGLE_COL) break;   // leave the far end to the piece toggle
 		}
-		setSlot(slot(TAB_ROW, col), pieceToggle(player, Piece.TOP, "Top", Items.LEATHER_CHESTPLATE));
-		setSlot(slot(TAB_ROW, col + 1), pieceToggle(player, Piece.BOTTOM, "Feet", Items.LEATHER_BOOTS));
+		if (pieces().size() > 1) setSlot(slot(TAB_ROW, PIECE_TOGGLE_COL), pieceToggle(player));
 	}
 
-	private GuiElement pieceToggle(ServerPlayer player, Piece target, String label, net.minecraft.world.item.Item icon) {
-		boolean current = target == piece;
-		return new GuiElementBuilder(icon).setName(Component.literal(label).withStyle(current ? ChatFormatting.GOLD : ChatFormatting.WHITE))
-				.glow(current)
-				.addLoreLine(Component.literal(target == Piece.TOP ? "Chest and sleeves" : "Legs, waist and the boots channel").withStyle(ChatFormatting.GRAY))
+	/**
+	 * The halves the screen can show. A half with no cells at all has nothing to show and would
+	 * leave the toggle with nowhere to go; both halves have cells today, so the toggle is always
+	 * there, and a garment drawn as one piece would drop it by itself.
+	 */
+	public static List<Piece> pieces() {
+		List<Piece> out = new ArrayList<>();
+		for (Piece p : Piece.values()) if (!Spot.cells(p).isEmpty()) out.add(p);
+		return out;
+	}
+
+	/** What the half being shown is called, in the words a wearer uses. */
+	public static String pieceName(Piece piece) {
+		return piece == Piece.TOP ? "Top" : "Trousers";
+	}
+
+	/**
+	 * One toggle, not a chestplate and a pair of boots: it says which half is on show and which one
+	 * a click brings up, and its icon is the ovve's own piece (through {@code ITEM_MODEL}, so it is
+	 * that garment's art and not a piece of armour).
+	 */
+	private GuiElement pieceToggle(ServerPlayer player) {
+		List<Piece> pieces = pieces();
+		Piece other = pieces.get((pieces.indexOf(piece) + 1) % pieces.size());
+		ItemStack icon = new ItemStack(piece == Piece.TOP ? Items.LEATHER_CHESTPLATE : Items.LEATHER_BOOTS);
+		icon.set(DataComponents.ITEM_MODEL, piece == Piece.TOP ? ModContent.topId(chapter) : ModContent.feetId(chapter));
+		return GuiElementBuilder.from(icon)
+				.setName(Component.literal("Showing: " + pieceName(piece) + " — click for " + pieceName(other)).withStyle(ChatFormatting.GOLD))
+				.addLoreLine(Component.literal(piece == Piece.TOP ? "The chest, back and sleeves" : "The legs, the waist and the seat").withStyle(ChatFormatting.GRAY))
 				.setCallback((index, type, action, gui) -> {
 					if (!isOpen()) return;
-					WardrobeGui next = new WardrobeGui(player, chapter, target);
+					WardrobeGui next = new WardrobeGui(player, chapter, other);
 					next.build();
 					next.open();
 				}).build();
@@ -347,9 +379,11 @@ public final class WardrobeGui extends SimpleGui {
 			setSlot(slot(BODY_TOP + row, PATCH_COL0 + col), element.build());
 		}
 		if (max == 0 && !overflow) {
-			setSlot(slot(BODY_TOP + 1, PATCH_COL0 + 2), new GuiElementBuilder(Items.PAPER)
-					.setName(Component.literal("No patches in your stash yet").withStyle(ChatFormatting.GRAY))
-					.addLoreLine(Component.literal("Patches you earn land here, on every server").withStyle(ChatFormatting.DARK_GRAY)).build());
+			setSlot(NO_PATCHES, new GuiElementBuilder(Items.PAPER)
+					.setName(Component.literal("No patches yet").withStyle(ChatFormatting.GRAY))
+					.addLoreLine(Component.literal("Patches are earned at chapter events").withStyle(ChatFormatting.DARK_GRAY))
+					.addLoreLine(Component.literal("Gamemasters: /ovvar patch give").withStyle(ChatFormatting.DARK_GRAY))
+					.addLoreLine(Component.literal("Whatever you earn lands here, on every server").withStyle(ChatFormatting.DARK_GRAY)).build());
 		}
 		if (overflow) {
 			int more = stashed.size() - max;
@@ -366,7 +400,18 @@ public final class WardrobeGui extends SimpleGui {
 	 * (a transparent icon), no callback, at the slot nearest each sewn placement's spot.
 	 */
 	private void buildPreview(Wardrobe wardrobe) {
-		for (Placement placement : shownPlacements(wardrobe, chapter, piece)) {
+		List<Placement> sewn = shownPlacements(wardrobe, chapter, piece);
+		// Nothing sewn on this half, and so a bare garment on the doll behind: say so in the middle
+		// of it. (A design the player's own pack cannot draw yet also shows the bare garment, but
+		// then there are patches to point at and their tooltips are worth more than the hint.)
+		if (sewn.isEmpty() && previewKey(chapter, wardrobe, piece, player.getUUID()).bare()) {
+			setSlot(NOTHING_SEWN, new GuiElementBuilder(Items.PAPER)
+					.setName(Component.literal("Nothing sewn on yet").withStyle(ChatFormatting.GRAY))
+					.addLoreLine(Component.literal("Take a patch to a sewing stand and it shows up here").withStyle(ChatFormatting.DARK_GRAY))
+					.addLoreLine(Component.literal("This is your " + chapter.name + " " + chapter.garmentWord() + " as it looks now").withStyle(ChatFormatting.DARK_GRAY)).build());
+			return;
+		}
+		for (Placement placement : sewn) {
 			int slot = previewSlot(placement.spot());
 			if (slot < 0) continue;
 			GuiElementBuilder element = GuiElementBuilder.from(invisible())
@@ -385,42 +430,31 @@ public final class WardrobeGui extends SimpleGui {
 
 	private static final Identifier INVISIBLE_MODEL = ModContent.id("invisible");
 
+	/**
+	 * Row 5: one verb per action, each with a line saying what it does. An action this server does
+	 * not allow is not missing — a slot that is simply gone teaches nobody anything — it is a grey
+	 * pane named "\<verb\> (not here)" carrying the reason {@link StashConfig} gives for it.
+	 */
 	private void buildActions(ServerPlayer player, Wardrobe wardrobe) {
-		boolean minigame = config().minigameServer();
-		// A minigame server is look-only (spec §2): the take-out/sew reminders are absent entirely,
-		// and help() already carries the "Minigame server: look, but sew on a survival server" line.
-		if (!minigame) {
-			setSlot(TAKE_OUT_HINT, new GuiElementBuilder(Items.HOPPER)
-					.setName(Component.literal("Take out").withStyle(config().canWithdraw() ? ChatFormatting.AQUA : ChatFormatting.DARK_GRAY))
-					.addLoreLine(Component.literal(config().canWithdraw() ? "Click a patch above to take it out" : "Not on this server").withStyle(ChatFormatting.GRAY)).build());
-			setSlot(SEW_HINT, new GuiElementBuilder(Items.SHEARS)
-					.setName(Component.literal("Sew on a stand").withStyle(config().sessions() ? ChatFormatting.AQUA : ChatFormatting.DARK_GRAY))
-					.addLoreLine(Component.literal(config().sessions() ? "Click a patch above to start sewing" : "Sessions are off on this server").withStyle(ChatFormatting.GRAY)).build());
-		}
-		if (!minigame || config().banksOnPickup()) {
-			setSlot(DEPOSIT, new GuiElementBuilder(Items.CHEST).setName(Component.literal("Put held patches in").withStyle(ChatFormatting.AQUA))
-					.addLoreLine(Component.literal("Every patch item in your inventory goes into the stash").withStyle(ChatFormatting.GRAY))
-					.setCallback((index, type, action, gui) -> Stash.deposit(player, reply -> {
-						player.sendOverlayMessage(Component.literal(reply));
-						if (isOpen()) build();
-					})).build());
-		}
+		String noWithdraw = config().whyNoWithdraw(), noSessions = config().whyNoSessions();
+		setSlot(TAKE_OUT_HINT, action(Items.HOPPER, "Take out", "Click a patch on the left to take it out as an item", noWithdraw, null));
+		setSlot(SEW_HINT, action(Items.SHEARS, "Sew on a stand", "Click a patch on the left to start sewing it on", noSessions, null));
+		setSlot(DEPOSIT, action(Items.CHEST, "Put held patches in", "Every patch item in your inventory goes into your stash",
+				config().whyNoDeposit(), () -> Stash.deposit(player, reply -> {
+					player.sendOverlayMessage(Component.literal(reply));
+					if (isOpen()) build();
+				})));
 
 		ItemStack worn = player.getItemBySlot(EquipmentSlot.LEGS);
-		boolean canShow = !minigame && worn.getItem() instanceof OvveItem;
-		GuiElementBuilder mannequin = new GuiElementBuilder(Items.ARMOR_STAND)
-				.setName(Component.literal("See it in 3D").withStyle(canShow ? ChatFormatting.AQUA : ChatFormatting.DARK_GRAY))
-				.addLoreLine(Component.literal(minigame ? "Not on this server" : worn.getItem() instanceof OvveItem
-						? "A mannequin wearing your ovve, in front of you" : "Wear an ovve first").withStyle(ChatFormatting.GRAY));
-		if (canShow) {
-			mannequin.setCallback((index, type, action, gui) -> {
-				ItemStack copy = worn.copy();
-				String refusal = WardrobeMannequin.show(player, copy);
-				if (refusal != null) player.sendSystemMessage(Component.literal(refusal).withStyle(ChatFormatting.RED));
-				close();
-			});
-		}
-		setSlot(MANNEQUIN, mannequin.build());
+		String noMannequin = config().whyNoMannequin() != null ? config().whyNoMannequin()
+				: worn.getItem() instanceof OvveItem ? null : "Wear an ovve first";
+		setSlot(MANNEQUIN, action(Items.ARMOR_STAND, "See it in 3D", "Stands a mannequin wearing your ovve in front of you",
+				noMannequin, () -> {
+					ItemStack copy = worn.copy();
+					String refusal = WardrobeMannequin.show(player, copy);
+					if (refusal != null) player.sendSystemMessage(Component.literal(refusal).withStyle(ChatFormatting.RED));
+					close();
+				}));
 
 		if (StashSession.of(player) != null) {
 			setSlot(FINISH_SEWING, new GuiElementBuilder(Items.BARRIER).setName(Component.literal("Finish sewing").withStyle(ChatFormatting.RED))
@@ -435,19 +469,46 @@ public final class WardrobeGui extends SimpleGui {
 		setSlot(CLOSE, closeButton());
 	}
 
+	/**
+	 * An action item: the verb, the one line saying what it does, and a click — or, when
+	 * {@code why} says it cannot be done here, a grey pane with that reason and no click at all.
+	 * {@code click} null means the verb is a reminder for a gesture that lives on the collection
+	 * slots themselves (there is no selected patch for a button to act on).
+	 */
+	private GuiElement action(net.minecraft.world.item.Item icon, String verb, String does, @Nullable String why, @Nullable Runnable click) {
+		if (why != null) {
+			return new GuiElementBuilder(Items.STAINED_GLASS_PANE.gray())
+					.setName(Component.literal(verb + " (not here)").withStyle(ChatFormatting.DARK_GRAY))
+					.addLoreLine(Component.literal(why).withStyle(ChatFormatting.RED))
+					.addLoreLine(Component.literal(does).withStyle(ChatFormatting.DARK_GRAY)).build();
+		}
+		GuiElementBuilder element = new GuiElementBuilder(icon)
+				.setName(Component.literal(verb).withStyle(ChatFormatting.AQUA))
+				.addLoreLine(Component.literal(does).withStyle(ChatFormatting.GRAY));
+		if (click != null) element.setCallback((index, type, action, gui) -> click.run());
+		return element.build();
+	}
+
+	/** The screen explained top to bottom, in five lines, then what this server allows and what is sewn where. */
 	private GuiElement help(Wardrobe wardrobe) {
-		GuiElementBuilder book = new GuiElementBuilder(Items.BOOK).setName(Component.literal("Your wardrobe").withStyle(ChatFormatting.GOLD));
+		GuiElementBuilder book = new GuiElementBuilder(Items.BOOK).setName(Component.literal("What this screen is").withStyle(ChatFormatting.GOLD));
+		book.addLoreLine(Component.literal("Top row: an ovve per chapter you own — click one to switch;").withStyle(ChatFormatting.GRAY));
+		book.addLoreLine(Component.literal("  the far right switches between the top and the trousers.").withStyle(ChatFormatting.GRAY));
+		book.addLoreLine(Component.literal("Left panel: your stash, one slot per kind of patch you own.").withStyle(ChatFormatting.GRAY));
+		book.addLoreLine(Component.literal("Right panel: your own ovve as it looks now — hover a slot to").withStyle(ChatFormatting.GRAY));
+		book.addLoreLine(Component.literal("  see which patch is sewn where on it.").withStyle(ChatFormatting.GRAY));
+		book.addLoreLine(Component.literal("Bottom row: what you can do here, greyed out where you cannot.").withStyle(ChatFormatting.GRAY));
 		if (config().minigameServer()) {
-			book.addLoreLine(Component.literal("Minigame server: look, but sew on a survival server").withStyle(ChatFormatting.RED));
+			book.addLoreLine(Component.literal(StashConfig.LOOK_ONLY + " — sew on a survival server").withStyle(ChatFormatting.RED));
 		} else {
 			boolean leftTakes = !config().sessions() || config().stashClick() == StashConfig.StashClick.WITHDRAW;
-			if (config().canWithdraw()) book.addLoreLine(Component.literal((leftTakes ? "Left" : "Right") + "-click a patch to take it out as an item (trade it!)").withStyle(ChatFormatting.GRAY));
-			if (config().sessions()) book.addLoreLine(Component.literal((leftTakes ? "Right" : "Left") + "-click to sew it on your ovve on a private stand").withStyle(ChatFormatting.GRAY));
+			if (config().canWithdraw()) book.addLoreLine(Component.literal((leftTakes ? "Left" : "Right") + "-click a patch to take it out as an item (trade it!)").withStyle(ChatFormatting.WHITE));
+			if (config().sessions()) book.addLoreLine(Component.literal((leftTakes ? "Right" : "Left") + "-click to sew it on your ovve on a private stand").withStyle(ChatFormatting.WHITE));
 		}
 		book.addLoreLine(Component.literal("The stash and your ovvar follow you to every server").withStyle(ChatFormatting.DARK_GRAY));
 		for (Map.Entry<Chapter, SpotPlacements> entry : wardrobe.designs().entrySet()) {
 			List<Placement> list = entry.getValue().asPlacementList();
-			book.addLoreLine(Component.literal(entry.getKey().name + " " + entry.getKey().garmentWord() + ": " + list.size() + " patch(es)").withStyle(ChatFormatting.WHITE));
+			book.addLoreLine(Component.literal(entry.getKey().name + " " + entry.getKey().garmentWord() + ": " + list.size() + " patch(es)").withStyle(ChatFormatting.DARK_GRAY));
 		}
 		return book.build();
 	}

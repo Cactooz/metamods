@@ -138,13 +138,33 @@ cloth, tinted to the open chapter's colour, instead of the plain vanilla chest b
 `row * 9 + col`:
 
 ```
-row 0   [tab][tab][tab][tab][tab][tab][top][feet][ · ]   <- one tab per owned chapter, then the two piece toggles
+row 0   [tab][tab][tab][tab][tab][tab][tab][tab][half]  <- an ovve per owned chapter; one toggle, far right
 row 1   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
 row 2   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
 row 3   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
 row 4   [ patch  ][ patch  ][ patch  ][ patch  ][ patch  ] | [prev][prev][prev][prev]
-row 5   [take out][deposit][sew hint][mannequin][finish][ · ][ · ][help][close]
+row 5   [take out][put in][sew][see in 3D][finish][ · ][ · ][help][close]
 ```
+
+**The screen explains itself.** Every slot says what it is and, where it cannot be used, why not:
+
+- a tab is the chapter's *ovve*, named "Data ovve", the one on show glinting and its lore reading
+  "(showing)" while the others read "Click to switch to it";
+- which half is on show is **one** toggle at col 8 — "Showing: Top — click for Trousers" and back
+  again — wearing the ovve's own piece icon through `ITEM_MODEL`, not the unexplained leather
+  chestplate and boots it used to be. `WardrobeGui.pieces()` drops the toggle for a garment with
+  only one half to show (both halves have cells today, so it is always there);
+- **empty states** say what would be there rather than leaving a hole: no patches puts "No patches
+  yet" in the middle of the collection ("Patches are earned at chapter events", "Gamemasters:
+  /ovvar patch give"), and a half with nothing sewn on it puts "Nothing sewn on yet — take a patch
+  to a sewing stand" in the middle of the bare garment on the doll behind it;
+- **row 5** is one verb per action with a line saying what it does, and an action this server
+  refuses is a grey pane named "Take out (not here)" carrying the reason `StashConfig` gives
+  (`whyNoWithdraw`, `whyNoSessions`, `whyNoDeposit`, `whyNoMannequin` — "Minigame server: look
+  only", "Sewing sessions are off on this server", "Wear an ovve first"), with no click on it. It
+  used to be missing altogether on a minigame server, which taught nobody anything;
+- the **help** item (col 7) explains the screen top to bottom in five lines — tab row, left panel,
+  right panel, bottom row — then what this server allows and what is sewn on each ovve.
 
 The right block is a **picture of the player's own ovve**, not a list of icons: `WardrobePreview`
 renders a paper doll of their garment into the resource pack and the title draws it there. A vanilla
@@ -229,12 +249,12 @@ dupe machine.
 - The doc calls for 7 backgrounds; `Chapter` has 6 values (`DATA`, `IT`, `IT_KISEL`, `MEDIA`,
   `DATA_POLYMITER`, `IT_POLYMITER`), so there are 6 — one per chapter, as the doc's own "one
   background per chapter" says.
-- `feet` in the tab row is `Piece.BOTTOM` (legs and waist) read informally — there is no separate
-  "feet" piece in the data model, only the boots render channel `OvveFeet` adds to it.
+- the doc's two piece toggles are one toggle naming both halves, and the half `Piece.BOTTOM` is
+  called "Trousers", not "feet": the legs and waist are what a wearer sees, and the boots render
+  channel `OvveFeet` adds to that half is not a garment piece of its own.
 - Row 5's "take out" and "sew on stand" are reminder icons, not buttons: there is no "selected
   patch" state, so the actual gestures stay on the collection slots themselves, as they always
-  were. On a minigame server both reminders disappear entirely (look-only) and the help book's
-  first line says why.
+  were. On a minigame server they are greyed out with the reason rather than gone.
 - The doc's "mode text in the middle, drawn as background text" is instead the mode's first line
   in the help book (col 7): a container title is one line, already spent on the chapter glyph and
   the stats strip.
