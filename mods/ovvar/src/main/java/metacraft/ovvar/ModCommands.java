@@ -22,6 +22,8 @@ import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.commands.Commands;
 import net.minecraft.commands.SharedSuggestionProvider;
 import net.minecraft.commands.arguments.EntityArgument;
+import net.minecraft.commands.arguments.GameProfileArgument;
+import net.minecraft.server.players.NameAndId;
 import net.minecraft.core.Rotations;
 import net.minecraft.network.chat.Component;
 import net.minecraft.server.level.ServerLevel;
@@ -37,6 +39,7 @@ import org.jspecify.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Arrays;
+import java.util.Collection;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
@@ -84,6 +87,15 @@ public final class ModCommands {
 				dispatcher.register(Commands.literal(Ovvar.MOD_ID)
 						// Anyone: the latest resource pack, now (the one reload that is asked for).
 						.then(Commands.literal("reload").executes(ModCommands::reload))
+						// Anyone: a look at somebody's ovve, theirs or their own, read-only.
+						.then(Commands.literal("look")
+								.executes(ctx -> {
+									ServerPlayer viewer = ctx.getSource().getPlayerOrException();
+									WardrobeGui.look(viewer, viewer.getUUID(), viewer.getName().getString());
+									return 1;
+								})
+								.then(Commands.argument("player", GameProfileArgument.gameProfile())
+										.executes(ModCommands::look)))
 						// Anyone: their stash.
 						.then(Commands.literal("stash")
 								.executes(ctx -> {
@@ -464,6 +476,22 @@ public final class ModCommands {
 				.append(", any stand: ").append(config.anyStand());
 		for (String s : StashSession.describeAll(ctx.getSource().getServer())) out.append("\nsession: ").append(s);
 		ctx.getSource().sendSuccess(() -> Component.literal(out.toString()), false);
+		return 1;
+	}
+
+	/**
+	 * {@code /ovvar look <player>}: their ovve, read-only. A wardrobe is a row in a store rather
+	 * than an inventory, so this works for a player who is not here — the name is resolved by the
+	 * server's own profile resolver, the same one {@code /whitelist add} uses, so an online-mode
+	 * server refuses a name nobody has and an offline-mode one resolves it to the offline UUID of
+	 * that name, which simply has no wardrobe to show.
+	 */
+	private static int look(CommandContext<CommandSourceStack> ctx) throws CommandSyntaxException {
+		ServerPlayer viewer = ctx.getSource().getPlayerOrException();
+		Collection<NameAndId> named = GameProfileArgument.getGameProfiles(ctx, "player");
+		if (named.size() != 1) throw NOT_AN_OVVE.create(named.size() + " players; name just one");
+		NameAndId who = named.iterator().next();
+		WardrobeGui.look(viewer, who.id(), who.name());
 		return 1;
 	}
 

@@ -90,17 +90,48 @@ public final class WardrobeGui extends SimpleGui {
 	private final Chapter chapter;
 	/** Which way round the preview is turned; per open screen, front to begin with. */
 	private final Angle angle;
+	/** Whose wardrobe is on show — the player's own, or somebody else's for {@code /ovvar look}. */
+	private final UUID owner;
+	private final String ownerName;
 
 	public static void open(ServerPlayer player) {
-		WardrobeGui gui = new WardrobeGui(player, defaultChapter(player), Angle.FRONT);
+		WardrobeGui gui = new WardrobeGui(player, player.getUUID(), player.getName().getString(), defaultChapter(player), Angle.FRONT);
 		gui.build();
 		gui.open();
 	}
 
-	private WardrobeGui(ServerPlayer player, Chapter chapter, Angle angle) {
+	/**
+	 * {@code /ovvar look <player>}: the same screen, read-only, showing somebody else's ovve — their
+	 * chapters, their design, the preview turning as usual — and none of their stash, which is
+	 * theirs. Works for a player who is not here: a wardrobe is a row in a store, not an inventory.
+	 */
+	public static void look(ServerPlayer viewer, UUID owner, String ownerName) {
+		Chapter chapter = Chapter.values()[0];
+		if (Wardrobes.loaded(owner)) {
+			Wardrobe wardrobe = Wardrobes.current(owner);
+			for (Chapter tab : Chapter.values()) {
+				if (wardrobe.design(tab).isPresent()) {
+					chapter = tab;
+					break;
+				}
+			}
+		}
+		WardrobeGui gui = new WardrobeGui(viewer, owner, ownerName, chapter, Angle.FRONT);
+		gui.build();
+		gui.open();
+	}
+
+	private WardrobeGui(ServerPlayer player, UUID owner, String ownerName, Chapter chapter, Angle angle) {
 		super(MenuType.GENERIC_9x6, player, false);
+		this.owner = owner;
+		this.ownerName = ownerName;
 		this.chapter = chapter;
 		this.angle = angle;
+	}
+
+	/** Is this the player's own wardrobe, or a look at somebody else's? */
+	public boolean own() {
+		return owner.equals(player.getUUID());
 	}
 
 	/**
@@ -108,7 +139,14 @@ public final class WardrobeGui extends SimpleGui {
 	 * for gametests to inspect {@link #getGuiElement} without the networking an open screen needs.
 	 */
 	public static WardrobeGui forTest(ServerPlayer player, Chapter chapter, Angle angle) {
-		WardrobeGui gui = new WardrobeGui(player, chapter, angle);
+		WardrobeGui gui = new WardrobeGui(player, player.getUUID(), player.getName().getString(), chapter, angle);
+		gui.build();
+		return gui;
+	}
+
+	/** The same, for a look at somebody else's wardrobe. */
+	public static WardrobeGui forTestLook(ServerPlayer viewer, UUID owner, String ownerName, Chapter chapter, Angle angle) {
+		WardrobeGui gui = new WardrobeGui(viewer, owner, ownerName, chapter, angle);
 		gui.build();
 		return gui;
 	}
@@ -216,7 +254,7 @@ public final class WardrobeGui extends SimpleGui {
 	 * and {@code activeTab} is the column of the tab they are on (owned-chapter order, so it is
 	 * theirs alone) — the highlight under it cannot be baked into a per-chapter background.
 	 */
-	public static Component title(Chapter chapter, Wardrobe wardrobe, Angle angle, int activeTab) {
+	public static Component title(Chapter chapter, Wardrobe wardrobe, Angle angle, int activeTab, boolean own) {
 		MutableComponent text = Component.literal(titleText(chapter)).withStyle(ChatFormatting.WHITE);
 		MutableComponent out = Component.empty().append(WardrobeArt.backgroundGlyph(chapter));
 		if (activeTab >= 0 && activeTab < TAB_COLS) {
@@ -225,7 +263,8 @@ public final class WardrobeGui extends SimpleGui {
 		List<Placement> sewn = shownPlacements(wardrobe, chapter);
 		out.append(WardrobePreview.glyphs(chapter, angle, sewn));
 		// The empty states are art across the panel they are about, not an item in the middle of it.
-		if (wardrobe.stashed().isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NO_PATCHES));
+		if (!own) out.append(WardrobeFont.drawn(WardrobeFont.LOOK_ONLY));
+		else if (wardrobe.stashed().isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NO_PATCHES));
 		if (sewn.isEmpty()) out.append(WardrobeFont.drawn(WardrobeFont.NOTHING_SEWN));
 		// The counts as pixel text in the spare header width, not as more of the title's own text:
 		// at 6 px a character that ran off the right of the screen.
@@ -260,46 +299,64 @@ public final class WardrobeGui extends SimpleGui {
 	 * the stats strip reads as ordinary text on the same line.
 	 */
 	public static Component title(Chapter chapter, Wardrobe wardrobe, Angle angle) {
-		return title(chapter, wardrobe, angle, 0);
+		return title(chapter, wardrobe, angle, 0, true);
 	}
 
 	// ---- building the screen
 
 	private void build() {
 		for (int i = 0; i < ROWS * WIDTH; i++) clearSlot(i);
-		if (!Wardrobes.loaded(player.getUUID())) {
-			Wardrobes.fetch(player.getUUID());
+		if (!Wardrobes.loaded(owner)) {
+			Wardrobes.fetch(owner);
 			setTitle(WardrobeArt.backgroundGlyph(chapter));
 			setSlot(slot(BODY_TOP + 1, PATCH_COL0 + 2), new GuiElementBuilder(Items.CLOCK)
-					.setName(Component.literal("Loading your wardrobe…").withStyle(ChatFormatting.YELLOW))
+					.setName(Component.literal("Loading " + (own() ? "your wardrobe…" : ownerName + "'s wardrobe…")).withStyle(ChatFormatting.YELLOW))
 					.addLoreLine(Component.literal("Close and open again in a moment").withStyle(ChatFormatting.GRAY)).build());
 			setSlot(CLOSE, closeButton());
 			return;
 		}
-		Wardrobe wardrobe = Wardrobes.current(player.getUUID());
-		setTitle(title(chapter, wardrobe, angle, ownedChapters(player).indexOf(chapter)));
+		Wardrobe wardrobe = Wardrobes.current(owner);
+		List<Chapter> tabs = tabs(wardrobe);
+		setTitle(title(chapter, wardrobe, angle, tabs.indexOf(chapter), own()));
 
-		buildTabs(player);
-		buildCollection(player, wardrobe);
+		buildTabs(tabs);
 		buildPreview(wardrobe);
-		buildActions(player, wardrobe);
+		if (own()) {
+			buildCollection(player, wardrobe);
+			buildActions(player, wardrobe);
+		} else {
+			// A look and nothing more: no take out, no put in, no sewing, no mannequin.
+			setSlot(HELP, help(wardrobe));
+			setSlot(CLOSE, closeButton());
+		}
 	}
 
-	private void buildTabs(ServerPlayer player) {
-		List<Chapter> owned = ownedChapters(player);
+	/**
+	 * The chapters this screen has tabs for: the ones the player owns an ovve of, or — for a look at
+	 * somebody else, whose inventory is none of our business and may not even be loaded — the ones
+	 * they have a design for.
+	 */
+	private List<Chapter> tabs(Wardrobe wardrobe) {
+		if (own()) return ownedChapters(player);
+		List<Chapter> out = new ArrayList<>();
+		for (Chapter tab : Chapter.values()) if (wardrobe.design(tab).isPresent()) out.add(tab);
+		return out;
+	}
+
+	private void buildTabs(List<Chapter> tabs) {
 		int col = 0;
-		for (Chapter tab : owned) {
+		for (Chapter tab : tabs) {
 			boolean current = tab == chapter;
 			GuiElementBuilder element = GuiElementBuilder.from(new ItemStack(ModContent.ovve(tab)))
 					.setName(Component.literal(tab.name + " " + tab.garmentWord()).withStyle(current ? ChatFormatting.GOLD : ChatFormatting.WHITE))
 					.addLoreLine(Component.literal(current ? "(showing)" : "Click to switch to it").withStyle(current ? ChatFormatting.GOLD : ChatFormatting.GRAY))
 					.glow(current);
-			element.setCallback((index, type, action, gui) -> reopen(player, tab, angle));
+			element.setCallback((index, type, action, gui) -> reopen(tab, angle));
 			setSlot(slot(TAB_ROW, col++), element.build());
 			if (col >= TAB_COLS) break;   // leave the far end to the piece toggle
 		}
-		setSlot(ROTATE_LEFT, rotator(player, -1, WardrobeAction.ROTATE_LEFT));
-		setSlot(ROTATE_RIGHT, rotator(player, 1, WardrobeAction.ROTATE_RIGHT));
+		setSlot(ROTATE_LEFT, rotator(-1, WardrobeAction.ROTATE_LEFT));
+		setSlot(ROTATE_RIGHT, rotator(1, WardrobeAction.ROTATE_RIGHT));
 	}
 
 	/**
@@ -307,9 +364,9 @@ public final class WardrobeGui extends SimpleGui {
 	 * the packet that opens it, and the whole preview is drawn by the title, so turning the figure is
 	 * re-opening the screen — which is also how switching tabs has always worked here.
 	 */
-	private void reopen(ServerPlayer player, Chapter tab, Angle to) {
+	private void reopen(Chapter tab, Angle to) {
 		if (!isOpen()) return;
-		WardrobeGui next = new WardrobeGui(player, tab, to);
+		WardrobeGui next = new WardrobeGui(player, owner, ownerName, tab, to);
 		next.build();
 		next.open();
 	}
@@ -320,13 +377,13 @@ public final class WardrobeGui extends SimpleGui {
 	 * trousers together, so there is nothing left to toggle between — which is what the piece toggle
 	 * that used to sit here was for.
 	 */
-	private GuiElement rotator(ServerPlayer player, int turn, WardrobeAction what) {
+	private GuiElement rotator(int turn, WardrobeAction what) {
 		Angle to = angle.turned(turn);
 		return GuiElementBuilder.from(icon(what, true))
 				.setName(Component.literal(what.verb).withStyle(ChatFormatting.AQUA))
 				.addLoreLine(Component.literal("Showing: " + angle.label).withStyle(ChatFormatting.GRAY))
 				.addLoreLine(Component.literal("Click for: " + to.label).withStyle(ChatFormatting.DARK_GRAY))
-				.setCallback((index, type, action, gui) -> reopen(player, chapter, to)).build();
+				.setCallback((index, type, action, gui) -> reopen(chapter, to)).build();
 	}
 
 	private void buildCollection(ServerPlayer player, Wardrobe wardrobe) {
@@ -394,6 +451,7 @@ public final class WardrobeGui extends SimpleGui {
 			GuiElementBuilder element = GuiElementBuilder.from(invisible())
 					.setName(Component.literal(placement.patch().name()).withStyle(ChatFormatting.WHITE))
 					.addLoreLine(Component.literal(placement.patch().name() + " on " + placement.spot().label()).withStyle(ChatFormatting.GRAY));
+			if (!own()) element.addLoreLine(Component.literal("on " + ownerName + "'s " + chapter.garmentWord()).withStyle(ChatFormatting.DARK_GRAY));
 			setSlot(slot, element.build());
 		}
 	}
@@ -469,9 +527,20 @@ public final class WardrobeGui extends SimpleGui {
 
 	/** The screen explained top to bottom, in five lines, then what this server allows and what is sewn where. */
 	private GuiElement help(Wardrobe wardrobe) {
-		GuiElementBuilder book = new GuiElementBuilder(Items.BOOK).setName(Component.literal("What this screen is").withStyle(ChatFormatting.GOLD));
+		GuiElementBuilder book = new GuiElementBuilder(Items.BOOK)
+				.setName(Component.literal(own() ? "What this screen is" : "A look at " + ownerName + "'s " + chapter.garmentWord()).withStyle(ChatFormatting.GOLD));
+		if (!own()) {
+			book.addLoreLine(Component.literal("Their ovve, their patches, look only.").withStyle(ChatFormatting.YELLOW));
+			book.addLoreLine(Component.literal("Top row: an ovve per chapter they have sewn on — click to switch;").withStyle(ChatFormatting.GRAY));
+			book.addLoreLine(Component.literal("  the far right turns the figure round.").withStyle(ChatFormatting.GRAY));
+			book.addLoreLine(Component.literal("Right panel: their ovve as it looks now — hover a slot to").withStyle(ChatFormatting.GRAY));
+			book.addLoreLine(Component.literal("  see which patch is sewn where on it.").withStyle(ChatFormatting.GRAY));
+			book.addLoreLine(Component.literal("Their stash is their own and is not shown.").withStyle(ChatFormatting.DARK_GRAY));
+			book.addLoreLine(Component.literal("Patches sewn on this " + chapter.garmentWord() + ": " + sewnCount(wardrobe, chapter)).withStyle(ChatFormatting.WHITE));
+			return book.build();
+		}
 		book.addLoreLine(Component.literal("Top row: an ovve per chapter you own — click one to switch;").withStyle(ChatFormatting.GRAY));
-		book.addLoreLine(Component.literal("  the far right switches between the top and the trousers.").withStyle(ChatFormatting.GRAY));
+		book.addLoreLine(Component.literal("  the far right turns the figure round.").withStyle(ChatFormatting.GRAY));
 		book.addLoreLine(Component.literal("Left panel: your stash, one slot per kind of patch you own.").withStyle(ChatFormatting.GRAY));
 		book.addLoreLine(Component.literal("Right panel: your own ovve as it looks now — hover a slot to").withStyle(ChatFormatting.GRAY));
 		book.addLoreLine(Component.literal("  see which patch is sewn where on it.").withStyle(ChatFormatting.GRAY));

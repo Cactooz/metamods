@@ -944,12 +944,12 @@ public final class WardrobeTests {
 	public void wardrobeTitleHighlightsTheTabOnShow(GameTestHelper helper) {
 		char highlight = WardrobeFont.ACTIVE_TAB.codepoint();
 		for (int col = 0; col < WardrobeGui.TAB_COLS; col++) {
-			String title = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, col).getString();
+			String title = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, col, true).getString();
 			if (title.indexOf(highlight) < 0) helper.fail("no active-tab highlight in the title for tab " + col);
 			String at = WardrobeFont.at(WardrobeFont.ACTIVE_TAB, WardrobeFont.cellX(col));
 			if (!title.contains(at)) helper.fail("the highlight for tab " + col + " is not placed at x " + WardrobeFont.cellX(col));
 		}
-		if (WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, -1).getString().indexOf(highlight) >= 0) {
+		if (WardrobeGui.title(CHAPTER, Wardrobe.NONE, Angle.FRONT, -1, true).getString().indexOf(highlight) >= 0) {
 			helper.fail("a player on no tab of their own still gets a highlight");
 		}
 		helper.succeed();
@@ -1109,9 +1109,103 @@ public final class WardrobeTests {
 				.thenSucceed();
 	}
 
+	/**
+	 * {@code /ovvar look <player>}: somebody else's ovve, read-only. Their design drives the preview
+	 * and its tooltips, their stash is not shown at all, and the action row has nothing on it but
+	 * help and close — no take out, no put in, no sewing, no mannequin, and no click anywhere.
+	 */
+	@GameTest(maxTicks = 1200)
+	public void wardrobeLookIsReadOnlyAndShowsTheirDesign(GameTestHelper helper) throws IOException {
+		MinecraftServer server = helper.getLevel().getServer();
+		Path dir = Files.createTempDirectory("ovvar-wardrobes");
+		ServerPlayer viewer = helper.makeMockServerPlayerInLevel();
+		UUID them = UUID.randomUUID();
+		Placement sleeve = new Placement(Spot.SLEEVE_OUT_MID_R, Patches.get("nolle"));
+		helper.startSequence()
+				.thenWaitUntil(() -> assertThat(BUSY.compareAndSet(false, true), "another store test is running"))
+				.thenExecute(() -> guarded(server, () -> {
+					try {
+						// Their wardrobe, written as if by another server, then loaded by UUID: a
+						// wardrobe is a row in a store, so they need not be here at all.
+						FileBackend backend = new FileBackend(dir);
+						Wardrobe theirs = Wardrobe.NONE.add(BEER_PATCH, 1).sew(CHAPTER, BEER).orElseThrow()
+								.add(sleeve.patch(), 1).sew(CHAPTER, sleeve).orElseThrow()
+								.add(HEART_PATCH, 4).withVersion(1);
+						if (!backend.store(them, theirs, 0)) helper.fail("could not write the other player's wardrobe");
+						Wardrobes.use(server, new FileBackend(dir));
+						Wardrobes.fetch(them);
+					} catch (IOException e) {
+						throw new UncheckedIOException(e);
+					}
+				}))
+				.thenWaitUntil(() -> assertThat(Wardrobes.loaded(them), "the other player's wardrobe never loaded"))
+				.thenExecute(() -> guarded(server, () -> {
+					Wardrobe theirs = Wardrobes.current(them);
+					if (WardrobeGui.sewnCount(theirs, CHAPTER) != 2) helper.fail("their design did not load: " + theirs);
+					WardrobeGui gui = WardrobeGui.forTestLook(viewer, them, "Nisse", CHAPTER, Angle.FRONT);
+					if (gui.own()) helper.fail("a look at somebody else says it is the viewer's own");
+
+					// The action row: help and close, and nothing else, none of it clickable but close.
+					for (int slot = 45; slot < 54; slot++) {
+						boolean allowed = slot == 52 || slot == 53;
+						if (!allowed && !isEmpty(gui, slot)) {
+							helper.fail("action slot " + slot + " is filled on a read-only look: " + gui.getGuiElement(slot).getItemStack());
+						}
+					}
+					if (isEmpty(gui, 52)) helper.fail("no help item on a read-only look");
+					if (isEmpty(gui, 53)) helper.fail("no close button on a read-only look");
+					if (!gui.getGuiElement(52).getItemStack().getHoverName().getString().contains("Nisse")) {
+						helper.fail("the help item does not say whose ovve this is: " + gui.getGuiElement(52).getItemStack().getHoverName().getString());
+					}
+
+					// Their stash is not shown, and the pocket says why.
+					for (int slot = 9; slot < 45; slot++) {
+						int col = slot % 9;
+						if (col < 5 && !isEmpty(gui, slot)) helper.fail("their stash is on show at slot " + slot);
+					}
+					String title = gui.getTitle().getString();
+					if (title.indexOf(WardrobeFont.LOOK_ONLY.codepoint()) < 0) helper.fail("the pocket does not say it is a look only");
+					if (title.indexOf(WardrobeFont.NO_PATCHES.codepoint()) >= 0) helper.fail("a look draws the \"no patches yet\" notice over their stash");
+
+					// Their design drives the preview: the bare ovve and both of their placements.
+					if (title.indexOf(WardrobePreview.bareGlyph(CHAPTER, Angle.FRONT).codepoint()) < 0) helper.fail("no bare ovve on a look");
+					if (title.indexOf(WardrobePreview.patchGlyph(BEER).codepoint()) < 0) helper.fail("their chest patch is not drawn on the front view");
+					int slot = WardrobeGui.previewSlot(BEER.spot());
+					if (isEmpty(gui, slot)) helper.fail("no tooltip for their patch");
+					if (gui.getGuiElement(slot).getGuiCallback() != GuiElement.EMPTY_CALLBACK) helper.fail("a look's preview item is clickable");
+					if (!lore(gui.getGuiElement(slot).getItemStack()).contains("Nisse")) {
+						helper.fail("the tooltip does not say whose ovve the patch is on: " + lore(gui.getGuiElement(slot).getItemStack()));
+					}
+
+					// The tabs are the chapters they have sewn on, and they are clickable (turning and
+					// switching chapters is all a look can do).
+					if (isEmpty(gui, 0)) helper.fail("no tab for the chapter they have a design for");
+					if (isEmpty(gui, WardrobeGui.ROTATE_LEFT) || isEmpty(gui, WardrobeGui.ROTATE_RIGHT)) helper.fail("a look cannot turn the figure");
+					release(server);
+				}))
+				.thenSucceed();
+	}
+
 	private static boolean isEmpty(WardrobeGui gui, int slot) {
 		GuiElement element = gui.getGuiElement(slot);
 		return element == null || element.getItemStack().isEmpty();
+	}
+
+	/** {@code /ovvar look} with no name is a look at your own, and with a name resolves a player the server has seen. */
+	@GameTest
+	public void lookCommandOpensAReadOnlyWardrobe(GameTestHelper helper) {
+		ServerPlayer player = helper.makeMockServerPlayerInLevel();
+		MinecraftServer server = helper.getLevel().getServer();
+		var before = player.containerMenu;
+		server.getCommands().performPrefixedCommand(player.createCommandSourceStack(), "ovvar look");
+		if (player.containerMenu == before) helper.fail("/ovvar look did not open a menu");
+		var own = player.containerMenu;
+		server.getCommands().performPrefixedCommand(player.createCommandSourceStack(), "ovvar look " + player.getName().getString());
+		if (player.containerMenu == own) helper.fail("/ovvar look <player> did not open a menu");
+		// Whether a name resolves at all is the server's own business (its profile resolver): on an
+		// online-mode server an unknown name is refused before this command runs, and on an
+		// offline-mode one it resolves to an offline UUID, which simply has no wardrobe.
+		helper.succeed();
 	}
 
 	/** {@code /ovvar stash} runs the command handler that opens the wardrobe screen (not the old StashGui). */

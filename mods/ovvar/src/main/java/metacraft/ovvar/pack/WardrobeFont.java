@@ -164,6 +164,14 @@ public final class WardrobeFont {
 	 * hover, click or mistake for a patch.
 	 */
 	public static final Glyph NO_PATCHES = notice("no_patches", PATCH_PANEL_W, PATCH_PANEL_X, NO_PATCHES_LINES, DARK_INK, DARK_SHADOW);
+	/**
+	 * And, over the same pocket, what {@code /ovvar look} puts there instead: somebody else's
+	 * wardrobe is their ovve and their design, never their stash, so those slots stay empty and
+	 * say why.
+	 */
+	public static final Glyph LOOK_ONLY = notice("look_only", PATCH_PANEL_W, PATCH_PANEL_X,
+			List.of("A LOOK AT ANOTHER", "PLAYER'S OVVE", "THEIR STASH IS THEIRS"), DARK_INK, DARK_SHADOW);
+
 	/** And a half with nothing sewn on it, across the bare garment on the doll behind. */
 	public static final Glyph NOTHING_SEWN = notice("nothing_sewn", PREVIEW_PANEL_W, PREVIEW_PANEL_X, NOTHING_SEWN_LINES, LIGHT_INK, LIGHT_SHADOW);
 
