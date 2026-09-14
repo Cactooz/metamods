@@ -77,7 +77,8 @@ public final class WardrobeArt {
 		for (Chapter chapter : Chapter.values()) {
 			builder.addData(TEXTURE_DIR + chapter.id + ".png", png(tint(template, colour(chapter))));
 		}
-		// The paper dolls first: the font lists a provider per preview the build actually wrote.
+		// The furniture and the paper dolls first: the font lists a provider per glyph they wrote.
+		WardrobeFont.build(builder);
 		WardrobePreview.build(builder);
 		builder.addStringData(FONT_PATH, fontJson().toString());
 		Ovvar.LOGGER.info("[ovvar] wardrobe art: {} background(s), font {}", Chapter.values().length, FONT);
@@ -148,7 +149,8 @@ public final class WardrobeArt {
 
 	/**
 	 * {@code assets/ovvar/font/wardrobe.json}: one {@code space} provider, one {@code bitmap} per
-	 * chapter background, then one per paper doll ({@link WardrobePreview#providers}).
+	 * chapter background, then the font's own furniture ({@link WardrobeFont}) and one per paper doll
+	 * ({@link WardrobePreview#providers}).
 	 */
 	public static JsonObject fontJson() {
 		JsonObject root = new JsonObject();
@@ -162,6 +164,8 @@ public final class WardrobeArt {
 		// The preview panel: forward to its corner and back again, the same "abc" pattern one step along.
 		advances.addProperty(String.valueOf(WardrobePreview.FORWARD_CHAR), WardrobePreview.FORWARD);
 		advances.addProperty(String.valueOf(WardrobePreview.BACK_CHAR), WardrobePreview.BACK);
+		// And ±1 … ±128, for everything that has to be placed per player (WardrobeFont.move).
+		WardrobeFont.spaceAdvances().forEach((c, advance) -> advances.addProperty(String.valueOf(c), advance));
 		space.add("advances", advances);
 		providers.add(space);
 
@@ -176,6 +180,7 @@ public final class WardrobeArt {
 			bitmap.add("chars", chars);
 			providers.add(bitmap);
 		}
+		for (JsonObject glyph : WardrobeFont.providers()) providers.add(glyph);
 		for (JsonObject preview : WardrobePreview.providers()) providers.add(preview);
 
 		root.add("providers", providers);

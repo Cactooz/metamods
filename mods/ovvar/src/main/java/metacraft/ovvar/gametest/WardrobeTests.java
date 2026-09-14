@@ -22,6 +22,7 @@ import metacraft.ovvar.store.Wardrobes;
 import metacraft.ovvar.content.Piece;
 import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.pack.WardrobeArt;
+import metacraft.ovvar.pack.WardrobeFont;
 import metacraft.ovvar.pack.WardrobePreview;
 import metacraft.ovvar.sewing.WardrobeGui;
 import metacraft.ovvar.sewing.WardrobeMannequin;
@@ -789,22 +790,36 @@ public final class WardrobeTests {
 		if (forward + WardrobePreview.ADVANCE + back != 0) {
 			helper.fail("the preview's advances do not cancel out: " + forward + " + " + WardrobePreview.ADVANCE + " + " + back);
 		}
-		int backgrounds = 0, previews = 0;
+		List<String> backgroundFiles = new ArrayList<>();
+		for (Chapter tab : Chapter.values()) backgroundFiles.add("ovvar:wardrobe/" + tab.id + ".png");
+		List<String> staticFiles = new ArrayList<>();
+		for (WardrobeFont.Glyph glyph : WardrobeFont.glyphs()) staticFiles.add(glyph.textureRef());
+		int backgrounds = 0, previews = 0, furniture = 0;
 		for (JsonElement provider : font.getAsJsonArray("providers")) {
 			JsonObject o = provider.getAsJsonObject();
 			if (!o.get("type").getAsString().equals("bitmap")) continue;
-			boolean preview = o.get("file").getAsString().contains("/preview/");
-			if (preview) {
+			String file = o.get("file").getAsString();
+			if (file.contains("/preview/")) {
 				previews++;
 				if (o.get("height").getAsInt() != WardrobePreview.HEIGHT) helper.fail("preview provider height is not " + WardrobePreview.HEIGHT + ": " + o);
 				if (o.get("ascent").getAsInt() != WardrobePreview.ASCENT) helper.fail("preview provider ascent is not " + WardrobePreview.ASCENT + ": " + o);
-			} else {
+			} else if (backgroundFiles.contains(file)) {
 				backgrounds++;
 				if (o.get("height").getAsInt() != WardrobeArt.HEIGHT) helper.fail("bitmap provider height is not " + WardrobeArt.HEIGHT + ": " + o);
+			} else if (staticFiles.contains(file)) {
+				furniture++;
+			} else {
+				helper.fail("a bitmap provider nothing claims: " + o);
 			}
 		}
 		if (backgrounds != Chapter.values().length) helper.fail("expected one background per chapter (" + Chapter.values().length + "), font has " + backgrounds);
 		if (previews != WardrobePreview.built().size()) helper.fail("the font lists " + previews + " previews, the pack holds " + WardrobePreview.built().size());
+		if (furniture != WardrobeFont.glyphs().size()) helper.fail("the font lists " + furniture + " of its " + WardrobeFont.glyphs().size() + " static glyphs");
+		// Every static glyph's art is the size the font promises for it, and the ascent puts its top
+		// where the layout says (a cell-sized highlight on the tab row's own frame ring, and so on).
+		for (WardrobeFont.Glyph glyph : WardrobeFont.glyphs()) {
+			if (WardrobeFont.ascent(glyph.top()) != WardrobeFont.TITLE_Y + 7 - glyph.top()) helper.fail("the ascent formula moved under " + glyph.name());
+		}
 
 		var template = WardrobeArt.readTemplate();
 		if (template.getWidth() != WardrobeArt.WIDTH || template.getHeight() != WardrobeArt.HEIGHT) {
@@ -815,6 +830,54 @@ public final class WardrobeTests {
 			if (tinted.getWidth() != WardrobeArt.WIDTH || tinted.getHeight() != WardrobeArt.HEIGHT) {
 				helper.fail(tab + " background is " + tinted.getWidth() + "x" + tinted.getHeight() + ", wanted " + WardrobeArt.WIDTH + "x" + WardrobeArt.HEIGHT);
 			}
+		}
+		helper.succeed();
+	}
+
+	/**
+	 * "Bad overlap of textures": the background's drawn boxes must lie on the slot frames' own ring
+	 * and never inside the 16×16 an item's icon fills, or every tab icon has a stitch line through
+	 * it. Checked against the real checked-in template, every slot of the grid; and the corners of
+	 * the boxes the template does draw are where the grid says (a box one px off would pass the
+	 * overlap check by sitting in the gutter, so both are asserted).
+	 */
+	@GameTest
+	public void wardrobeTemplateBoxesAreOnTheSlotGrid(GameTestHelper helper) {
+		var template = WardrobeArt.readTemplate();
+		for (int row = 0; row < 6; row++) {
+			for (int col = 0; col < 9; col++) {
+				int x0 = WardrobeFont.ITEM_X + WardrobeFont.PITCH * col, y0 = WardrobeFont.ITEM_Y + WardrobeFont.PITCH * row;
+				for (int y = y0; y < y0 + WardrobeFont.ICON; y++) {
+					for (int x = x0; x < x0 + WardrobeFont.ICON; x++) {
+						if ((template.getRGB(x, y) & 0xFF) >= 250) {
+							helper.fail("stitching at (" + x + "," + y + ") is inside the icon of slot (" + row + "," + col + ")");
+						}
+					}
+				}
+			}
+		}
+		// The tab row and the action row are drawn as one box per cell: their frame rings carry it.
+		for (int col = 0; col < 9; col++) {
+			for (int row : new int[]{0, 5}) {
+				int x = WardrobeFont.cellX(col), y = WardrobeFont.cellY(row);
+				if ((template.getRGB(x, y) & 0xFF) < 250) helper.fail("no box corner at the cell ring of slot (" + row + "," + col + "), (" + x + "," + y + ")");
+			}
+		}
+		helper.succeed();
+	}
+
+	/** The tab being shown gets the highlight glyph, placed at its own column; no tab, no highlight. */
+	@GameTest
+	public void wardrobeTitleHighlightsTheTabOnShow(GameTestHelper helper) {
+		char highlight = WardrobeFont.ACTIVE_TAB.codepoint();
+		for (int col = 0; col < WardrobeGui.TAB_COLS; col++) {
+			String title = WardrobeGui.title(CHAPTER, Wardrobe.NONE, Piece.TOP, null, col).getString();
+			if (title.indexOf(highlight) < 0) helper.fail("no active-tab highlight in the title for tab " + col);
+			String at = WardrobeFont.at(WardrobeFont.ACTIVE_TAB, WardrobeFont.cellX(col));
+			if (!title.contains(at)) helper.fail("the highlight for tab " + col + " is not placed at x " + WardrobeFont.cellX(col));
+		}
+		if (WardrobeGui.title(CHAPTER, Wardrobe.NONE, Piece.TOP, null, -1).getString().indexOf(highlight) >= 0) {
+			helper.fail("a player on no tab of their own still gets a highlight");
 		}
 		helper.succeed();
 	}
@@ -908,7 +971,7 @@ public final class WardrobeTests {
 					if (!WardrobePreview.shown(CHAPTER, Piece.TOP, sewn, null).equals(key)) {
 						helper.fail("a player on the current pack is shown " + WardrobePreview.shown(CHAPTER, Piece.TOP, sewn, null) + ", wanted " + key);
 					}
-					String title = WardrobeGui.title(CHAPTER, wardrobe, Piece.TOP, null).getString();
+					String title = WardrobeGui.title(CHAPTER, wardrobe, Piece.TOP, null, 0).getString();
 					if (title.indexOf(WardrobeArt.chapterChar(CHAPTER)) < 0) helper.fail("the title lost the background glyph");
 					if (title.indexOf(WardrobePreview.glyphChar(key)) < 0) {
 						helper.fail("the title does not carry the preview glyph U+" + Integer.toHexString(WardrobePreview.glyphChar(key)));

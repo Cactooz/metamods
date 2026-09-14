@@ -15,6 +15,7 @@ import metacraft.ovvar.content.Spot;
 import metacraft.ovvar.content.SpotPlacements;
 import metacraft.ovvar.pack.Combos;
 import metacraft.ovvar.pack.WardrobeArt;
+import metacraft.ovvar.pack.WardrobeFont;
 import metacraft.ovvar.pack.WardrobePreview;
 import metacraft.ovvar.store.OwnedSewing;
 import metacraft.ovvar.store.Stash;
@@ -81,6 +82,8 @@ public final class WardrobeGui extends SimpleGui {
 	private static final int TAKE_OUT_HINT = slot(ACTION_ROW, 0), DEPOSIT = slot(ACTION_ROW, 1), SEW_HINT = slot(ACTION_ROW, 2);
 	private static final int MANNEQUIN = slot(ACTION_ROW, 3), FINISH_SEWING = slot(ACTION_ROW, 4);
 	private static final int HELP = slot(ACTION_ROW, 7), CLOSE = slot(ACTION_ROW, 8);
+	/** How many columns of the tab row the chapter tabs may use; the far end is the piece toggle. */
+	public static final int TAB_COLS = 8;
 	/** The far end of the tab row: the one toggle for which half the screen shows. */
 	public static final int PIECE_TOGGLE_COL = 8;
 	public static final int PIECE_TOGGLE = slot(TAB_ROW, PIECE_TOGGLE_COL);
@@ -240,24 +243,29 @@ public final class WardrobeGui extends SimpleGui {
 		return WardrobePreview.shown(chapter, piece, shownPlacements(wardrobe, chapter, piece), player);
 	}
 
-	/** The title for a player: their own pack's generation decides which previews they can be shown. */
-	public static Component title(Chapter chapter, Wardrobe wardrobe, Piece piece, @Nullable UUID player) {
+	/**
+	 * The title for a player: their own pack's generation decides which previews they can be shown,
+	 * and {@code activeTab} is the column of the tab they are on (owned-chapter order, so it is
+	 * theirs alone) — the highlight under it cannot be baked into a per-chapter background.
+	 */
+	public static Component title(Chapter chapter, Wardrobe wardrobe, Piece piece, @Nullable UUID player, int activeTab) {
 		String stats = "earned " + earned(wardrobe) + " · sewn " + sewnCount(wardrobe, chapter, piece) + " · stash " + wardrobe.stashSize();
 		MutableComponent text = Component.literal(" " + chapter.name + " " + (piece == Piece.TOP ? "top" : "trousers") + " · " + stats).withStyle(ChatFormatting.WHITE);
-		return Component.empty()
-				.append(WardrobeArt.backgroundGlyph(chapter))
-				.append(WardrobePreview.glyph(previewKey(chapter, wardrobe, piece, player)))
-				.append(text);
+		MutableComponent out = Component.empty().append(WardrobeArt.backgroundGlyph(chapter));
+		if (activeTab >= 0 && activeTab < TAB_COLS) {
+			out.append(WardrobeFont.drawn(WardrobeFont.ACTIVE_TAB, WardrobeFont.cellX(activeTab)));
+		}
+		return out.append(WardrobePreview.glyph(previewKey(chapter, wardrobe, piece, player))).append(text);
 	}
 
 	/**
-	 * {@code [background glyph][preview glyph][stats text]}, per
+	 * {@code [background glyph][active tab highlight][preview glyph][stats text]}, per
 	 * {@code docs/superpowers/specs/2026-09-12-ovvar-wardrobe-screen-design.md} §3 and the paper
-	 * doll {@link WardrobePreview} adds to it. Both glyphs leave the cursor where they found it, so
+	 * doll {@link WardrobePreview} adds to it. Every glyph leaves the cursor where it found it, so
 	 * the stats strip reads as ordinary text on the same line.
 	 */
 	public static Component title(Chapter chapter, Wardrobe wardrobe, Piece piece) {
-		return title(chapter, wardrobe, piece, null);
+		return title(chapter, wardrobe, piece, null, 0);
 	}
 
 	// ---- building the screen
@@ -274,7 +282,7 @@ public final class WardrobeGui extends SimpleGui {
 			return;
 		}
 		Wardrobe wardrobe = Wardrobes.current(player.getUUID());
-		setTitle(title(chapter, wardrobe, piece, player.getUUID()));
+		setTitle(title(chapter, wardrobe, piece, player.getUUID(), ownedChapters(player).indexOf(chapter)));
 
 		buildTabs(player);
 		buildCollection(player, wardrobe);
@@ -298,7 +306,7 @@ public final class WardrobeGui extends SimpleGui {
 				next.open();
 			});
 			setSlot(slot(TAB_ROW, col++), element.build());
-			if (col >= PIECE_TOGGLE_COL) break;   // leave the far end to the piece toggle
+			if (col >= TAB_COLS) break;   // leave the far end to the piece toggle
 		}
 		if (pieces().size() > 1) setSlot(slot(TAB_ROW, PIECE_TOGGLE_COL), pieceToggle(player));
 	}
