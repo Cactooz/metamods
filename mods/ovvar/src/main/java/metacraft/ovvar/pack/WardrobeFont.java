@@ -114,9 +114,21 @@ public final class WardrobeFont {
 	/** The static glyphs' codepoints; the previews have {@code \\uE000}… and the spaces {@code \\uE800}…. */
 	private static char next = '\uE100';
 
+	/**
+	 * Registers a glyph whose art starts at container y {@code top}.
+	 *
+	 * <p>The declared height is raised to the ascent where it has to be, and the art padded below
+	 * with transparent rows to match: <b>a bitmap provider with an ascent greater than its height
+	 * is refused, and the client then drops the whole font</b> — every glyph of it, so the screen
+	 * falls back to a plain chest with a title of missing-glyph boxes. A glyph high up the screen
+	 * has a large positive ascent ({@code 13 − top}) and the stats readout, 5 px tall at the top of
+	 * the header, asked for 6; padding below moves nothing, since the art still begins at the
+	 * canvas's own top. ({@link metacraft.ovvar.sewing.SewingFont} pads for the same reason.)
+	 */
 	static Glyph glyph(String name, int x, int top, int width, int height, Supplier<Tex> art) {
 		if (next >= SPACE_FIRST) throw new IllegalStateException("too many wardrobe glyphs");
-		Glyph glyph = new Glyph(name, x, top, width, height, next++, art);
+		int declared = Math.max(height, ascent(top));
+		Glyph glyph = new Glyph(name, x, top, width, declared, next++, () -> art.get().padBottom(declared));
 		GLYPHS.add(glyph);
 		return glyph;
 	}
@@ -315,14 +327,19 @@ public final class WardrobeFont {
 
 	// ---- the pack
 
-	/** Writes every static glyph's PNG; called from {@link WardrobeArt}'s pack-build hook. */
-	static void build(ResourcePackBuilder builder) {
+	/**
+	 * Writes every glyph's PNG, recording each in {@code files} (path → its size) so that what the
+	 * font JSON points at can be checked against what the build actually put in the pack. Called
+	 * from {@link WardrobeArt}'s pack-build hook.
+	 */
+	static void build(ResourcePackBuilder builder, Map<String, int[]> files) {
 		for (Glyph glyph : GLYPHS) {
 			Tex art = glyph.art().get();
 			if (art.width != glyph.width() || art.height != glyph.height()) {
 				throw new IllegalStateException(glyph.name() + " is " + art.width + "x" + art.height + ", the font says " + glyph.width() + "x" + glyph.height());
 			}
 			builder.addData(glyph.texturePath(), art.reachingRightEdge().png());
+			files.put(glyph.texturePath(), new int[]{art.width, art.height});
 		}
 		Ovvar.LOGGER.info("[ovvar] wardrobe font: {} static glyph(s)", GLYPHS.size());
 	}

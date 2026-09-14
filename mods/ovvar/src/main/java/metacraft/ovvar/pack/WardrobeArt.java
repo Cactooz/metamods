@@ -77,14 +77,29 @@ public final class WardrobeArt {
 
 	private static void build(ResourcePackBuilder builder) {
 		BufferedImage template = readTemplate();
+		Map<String, int[]> files = new LinkedHashMap<>();
 		for (Chapter chapter : Chapter.values()) {
 			builder.addData(TEXTURE_DIR + chapter.id + ".png", png(tint(template, colour(chapter))));
+			files.put(TEXTURE_DIR + chapter.id + ".png", new int[]{WIDTH, HEIGHT});
 		}
 		// The font's own glyphs first — its furniture and the paper dolls — since the font JSON
 		// below lists a provider for each of them.
-		WardrobeFont.build(builder);
+		WardrobeFont.build(builder, files);
+		written = Map.copyOf(files);
 		builder.addStringData(FONT_PATH, fontJson().toString());
 		Ovvar.LOGGER.info("[ovvar] wardrobe art: {} background(s), font {}", Chapter.values().length, FONT);
+	}
+
+	/** Every texture this build put in the pack, by pack path, with its size — what the font may point at. */
+	private static volatile Map<String, int[]> written = Map.of();
+
+	public static Map<String, int[]> packFiles() {
+		return written;
+	}
+
+	/** The pack path a font provider's {@code file} refers to: {@code ovvar:wardrobe/x.png}. */
+	public static String texturePath(String file) {
+		return "assets/" + file.replace(":", "/textures/");
 	}
 
 	public static BufferedImage readTemplate() {

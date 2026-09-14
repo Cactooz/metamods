@@ -866,6 +866,62 @@ public final class WardrobeTests {
 	}
 
 	/**
+	 * <b>The rule that takes the whole font down with it.</b> A bitmap provider whose ascent is
+	 * greater than its height is refused by the client, and a font with one bad provider in it is
+	 * dropped entirely — every glyph of it — so the wardrobe falls back to a plain chest with a
+	 * title of missing-glyph boxes. That is what shipped in v3: the stats readout is 5 px tall at
+	 * the top of the header, where the ascent is 6.
+	 *
+	 * <p>So: every provider of the generated font, against every rule the client applies to it —
+	 * ascent no greater than height, a texture that the same pack build actually wrote, of the
+	 * height the provider claims, and one codepoint per glyph and no other.
+	 */
+	@GameTest
+	public void wardrobeFontIsOneTheClientWillLoad(GameTestHelper helper) {
+		JsonObject font = WardrobeArt.fontJson();
+		Map<String, int[]> packed = WardrobeArt.packFiles();
+		if (packed.isEmpty()) helper.fail("the resource pack was never built, so there is nothing to check the font against");
+		Map<String, String> byChar = new java.util.LinkedHashMap<>();
+		int providers = 0;
+		for (JsonElement provider : font.getAsJsonArray("providers")) {
+			JsonObject o = provider.getAsJsonObject();
+			if (!o.get("type").getAsString().equals("bitmap")) continue;
+			providers++;
+			String file = o.get("file").getAsString();
+			int ascent = o.get("ascent").getAsInt(), height = o.get("height").getAsInt();
+			if (ascent > height) helper.fail("ascent " + ascent + " is higher than height " + height + " for " + file + ": the client refuses the whole font");
+			int[] size = packed.get(WardrobeArt.texturePath(file));
+			if (size == null) helper.fail("the font points at " + file + ", which this pack build never wrote");
+			else if (size[1] != height) helper.fail(file + " is " + size[1] + " px tall, the provider says " + height);
+			for (JsonElement row : o.getAsJsonArray("chars")) {
+				String chars = row.getAsString();
+				if (chars.length() != 1) helper.fail(file + " claims " + chars.length() + " codepoints in a row; one glyph, one codepoint");
+				String already = byChar.put(chars, file);
+				if (already != null) helper.fail("U+" + Integer.toHexString(chars.charAt(0)) + " is claimed by both " + already + " and " + file);
+			}
+		}
+		if (providers != Chapter.values().length + WardrobeFont.glyphs().size()) {
+			helper.fail(providers + " bitmap providers, wanted " + (Chapter.values().length + WardrobeFont.glyphs().size()));
+		}
+		// And no glyph's codepoint collides with the space provider's, which would draw a picture
+		// where a space should be (or the other way round).
+		for (char space : WardrobeFont.spaceAdvances().keySet()) {
+			if (byChar.containsKey(String.valueOf(space))) helper.fail("U+" + Integer.toHexString(space) + " is both a space and " + byChar.get(String.valueOf(space)));
+		}
+		// The same rule at the source, so a new glyph cannot be added in a place that breaks it.
+		for (WardrobeFont.Glyph glyph : WardrobeFont.glyphs()) {
+			if (WardrobeFont.ascent(glyph.top()) > glyph.height()) {
+				helper.fail(glyph.name() + " wants ascent " + WardrobeFont.ascent(glyph.top()) + " with height " + glyph.height());
+			}
+			// Padding a glyph to satisfy that must not have moved its art: the top row is still the
+			// first row of the art, which is what every position on this screen is measured from.
+			var art = glyph.art().get();
+			if (art.height != glyph.height()) helper.fail(glyph.name() + " art is " + art.height + " px tall, the font says " + glyph.height());
+		}
+		helper.succeed();
+	}
+
+	/**
 	 * "Bad overlap of textures": the background's drawn boxes must lie on the slot frames' own ring
 	 * and never inside the 16×16 an item's icon fills, or every tab icon has a stitch line through
 	 * it. Checked against the real checked-in template, every slot of the grid; and the corners of
